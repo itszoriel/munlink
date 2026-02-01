@@ -7,6 +7,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime, timedelta
 
 from __init__ import db
+from sqlalchemy import or_, and_
 from models.benefit import BenefitProgram, BenefitApplication
 from models.user import User
 from models.municipality import Municipality
@@ -40,6 +41,7 @@ def list_programs():
         # Check if user is authenticated
         is_authenticated = False
         user_municipality_id = None
+        user_barangay_id = None
         try:
             verify_jwt_in_request(optional=True)
             user_id = get_jwt_identity()
@@ -48,6 +50,7 @@ def list_programs():
                 if user and user.municipality_id:
                     is_authenticated = True
                     user_municipality_id = user.municipality_id
+                    user_barangay_id = user.barangay_id
         except Exception:
             pass
         
@@ -66,12 +69,20 @@ def list_programs():
         
         # Apply municipality/province filtering based on authentication
         if is_authenticated:
-            # LOGGED-IN USER: Only show programs from their registered municipality
+            # LOGGED-IN USER: Only show programs from their registered municipality and restricted by barangay
             # Verify user is in Zambales first
             if user_municipality_id and is_valid_zambales_municipality(user_municipality_id):
                 query = query.filter(
-                    (BenefitProgram.municipality_id == user_municipality_id) | 
-                    (BenefitProgram.municipality_id.is_(None))  # Include province-wide programs
+                    or_(
+                        BenefitProgram.municipality_id.is_(None),  # Province-wide
+                        and_(
+                            BenefitProgram.municipality_id == user_municipality_id,
+                            or_(
+                                BenefitProgram.barangay_id.is_(None),  # Municipality-wide
+                                BenefitProgram.barangay_id == user_barangay_id  # Barangay-specific
+                            )
+                        )
+                    )
                 )
         else:
             # GUEST: Allow municipality filtering for discovery (Zambales only)

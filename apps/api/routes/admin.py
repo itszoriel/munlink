@@ -2204,9 +2204,30 @@ def admin_update_benefit_application_status(application_id: int):
 def admin_create_benefit_program():
     """Create a new benefit program scoped to the admin municipality by default."""
     try:
-        municipality_id = require_admin_municipality()
-        if isinstance(municipality_id, tuple):
-            return municipality_id
+        ctx = _get_staff_context()
+        if not ctx:
+             return jsonify({'error': 'Admin access required'}), 403
+
+        # Permissions scoping
+        program_municipality_id = None
+        program_barangay_id = None
+
+        if ctx['role_lower'] == 'municipal_admin':
+            if not ctx['municipality_id']:
+                return jsonify({'error': 'Admin municipality scope is required'}), 403
+            program_municipality_id = ctx['municipality_id']
+        elif ctx['role_lower'] == 'barangay_admin':
+            if not ctx['barangay_id']:
+                return jsonify({'error': 'Barangay assignment is required'}), 403
+            program_municipality_id = ctx['municipality_id']
+            program_barangay_id = ctx['barangay_id']
+        else:
+            # Fallback for other roles (e.g. Prov/Super) - enforce existing behaviors or deny
+            # For now, replicate require_admin_municipality behavior for safety
+            municipality_id = require_admin_municipality()
+            if isinstance(municipality_id, tuple):
+                return municipality_id
+            program_municipality_id = municipality_id
 
         import json as _json
         from models.municipality import Municipality
@@ -2238,13 +2259,10 @@ def admin_create_benefit_program():
         description = data.get('description') or ''
         program_type = data.get('program_type') or 'general'
         
-        # SECURITY: Always use the admin's municipality - cannot be overridden
-        # This ensures admins can only create programs for their own jurisdiction
-        program_municipality_id = municipality_id
-        
-        # Reject any attempt to specify a different municipality
-        if data.get('municipality_id') and int(data.get('municipality_id')) != municipality_id:
-            return jsonify({'error': 'Cannot create programs for other municipalities'}), 403
+        # Validation: Verify municipality matches context
+        req_muni_id = data.get('municipality_id')
+        if req_muni_id and int(req_muni_id) != program_municipality_id:
+             return jsonify({'error': 'Cannot create programs for other municipalities'}), 403
 
         if not name or not code:
             return jsonify({'error': 'name and code are required'}), 400
@@ -2259,6 +2277,7 @@ def admin_create_benefit_program():
             description=description,
             program_type=program_type,
             municipality_id=program_municipality_id,
+            barangay_id=program_barangay_id,
             eligibility_criteria=_maybe_json(data.get('eligibility_criteria')),
             required_documents=_maybe_json(data.get('required_documents')),
             application_start=data.get('application_start'),

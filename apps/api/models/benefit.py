@@ -25,6 +25,7 @@ class BenefitProgram(db.Model):
     
     # Municipality (if municipality-specific)
     municipality_id = db.Column(db.Integer, db.ForeignKey('municipalities.id'), nullable=True)
+    barangay_id = db.Column(db.Integer, db.ForeignKey('barangays.id'), nullable=True)
     
     # Eligibility Criteria (stored as JSON)
     eligibility_criteria = db.Column(db.JSON, nullable=True)
@@ -72,6 +73,7 @@ class BenefitProgram(db.Model):
             'image_path': self.image_path,
             'program_type': self.program_type,
             'municipality_id': self.municipality_id,
+            'barangay_id': self.barangay_id,
             'eligibility_criteria': self.eligibility_criteria,
             'required_documents': self.required_documents,
             'application_start': self.application_start.isoformat() if self.application_start else None,

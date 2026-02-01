@@ -9,12 +9,25 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from sqlalchemy import or_
 
-from apps.api.app import create_app
-from apps.api import db
-from apps.api.models.notification import NotificationOutbox
-from apps.api.models.user import User
-from apps.api.utils.email_sender import send_generic_email
-from apps.api.utils.sms_provider import normalize_sms_number, send_sms
+try:
+    from apps.api.app import create_app
+    from apps.api import db
+    from apps.api.models.notification import NotificationOutbox
+    from apps.api.models.user import User
+    from apps.api.utils.email_sender import send_generic_email
+    from apps.api.utils.sms_provider import normalize_sms_number, send_sms
+except ImportError:
+    import sys
+    from pathlib import Path
+    # Ensure parent directory (API root) is in path
+    sys.path.append(str(Path(__file__).parent.parent))
+    
+    from app import create_app
+    from __init__ import db
+    from models.notification import NotificationOutbox
+    from models.user import User
+    from utils.email_sender import send_generic_email
+    from utils.sms_provider import normalize_sms_number, send_sms
 
 
 MAX_ATTEMPTS_DEFAULT = 5
