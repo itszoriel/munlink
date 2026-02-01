@@ -30,6 +30,7 @@ import ProvincialAdminReports from './pages/ProvincialAdminReports'
 import BarangayAdminLoginPage from './pages/BarangayAdminLoginPage'
 import BarangayAdminDashboard from './pages/BarangayAdminDashboard'
 import BarangayAdminAnnouncements from './pages/BarangayAdminAnnouncements'
+import BarangayAdminPrograms from './pages/BarangayAdminPrograms'
 import BarangayAdminReports from './pages/BarangayAdminReports'
 
 // Role Selector
@@ -263,6 +264,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <BarangayAdminAnnouncements />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/barangay/programs"
+          element={
+            <ProtectedRoute>
+              <BarangayAdminPrograms />
             </ProtectedRoute>
           }
         />

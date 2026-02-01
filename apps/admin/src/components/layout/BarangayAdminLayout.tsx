@@ -16,6 +16,7 @@ const barangayAdminNavSections: NavSection[] = [
     label: 'Barangay Management',
     items: [
       { icon: 'dashboard', label: 'Dashboard', path: '/barangay/dashboard' },
+      { icon: 'programs', label: 'Programs', path: '/barangay/programs' },
       { icon: 'announcements', label: 'Announcements', path: '/barangay/announcements' },
       { icon: 'reports', label: 'Reports', path: '/barangay/reports' },
     ]
@@ -80,9 +81,8 @@ export default function BarangayAdminLayout({ children }: BarangayAdminLayoutPro
 
       {/* Main Content - auto-expand sidebar so use minimum collapsed width */}
       <main
-        className={`transition-all duration-300 pt-20 md:pt-20 pb-24 md:pb-28 overflow-x-hidden max-w-full relative z-10 ${
-          sidebarOpen ? 'md:ml-[288px]' : 'md:ml-[84px]'
-        }`}
+        className={`transition-all duration-300 pt-20 md:pt-20 pb-24 md:pb-28 overflow-x-hidden max-w-full relative z-10 ${sidebarOpen ? 'md:ml-[288px]' : 'md:ml-[84px]'
+          }`}
       >
         <div className="p-4 md:p-6 lg:p-8 w-full max-w-none">
           {children}
