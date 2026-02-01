@@ -406,7 +406,7 @@ export default function MarketplacePage() {
       <AnimatePresence>
         {!open && (
           <motion.div 
-            className="fixed bottom-20 right-4 z-50 sm:hidden"
+            className="fixed bottom-20 right-4 z-50 sm:hidden fab-mobile"
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
@@ -485,7 +485,7 @@ export default function MarketplacePage() {
       <AnimatePresence>
         {fabExpanded && !open && (
           <motion.div
-            className="fixed inset-0 z-40 sm:hidden"
+            className="fixed inset-0 z-40 sm:hidden fab-mobile-backdrop"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -496,4 +496,3 @@ export default function MarketplacePage() {
     </div>
   )
 }
-

@@ -97,9 +97,11 @@ def enforce_admin_role():
 
 def get_admin_municipality_id():
     """Get the municipality ID for the current admin user.
-    
+
     ZAMBALES SCOPE: Returns None if admin's municipality is outside Zambales
     or is Olongapo (excluded).
+
+    For barangay_admin: Gets municipality from their assigned barangay if admin_municipality_id is not set.
     """
     # get_jwt_identity returns whatever was used as identity when creating
     # the token. We cast to int for DB lookup.
@@ -118,6 +120,14 @@ def get_admin_municipality_id():
         return None
 
     admin_muni_id = user.admin_municipality_id
+
+    # For barangay_admin, get municipality from their barangay if not set directly
+    if not admin_muni_id and user.role == 'barangay_admin' and user.admin_barangay_id:
+        brgy = Barangay.query.get(user.admin_barangay_id)
+        if brgy:
+            admin_muni_id = brgy.municipality_id
+            print(f"DEBUG: Got municipality ID {admin_muni_id} from barangay {brgy.name}")
+
     print(f"DEBUG: Admin municipality ID: {admin_muni_id}")  # Debug line
 
     # ZAMBALES SCOPE: Validate admin's municipality is in Zambales (excluding Olongapo)
@@ -1348,6 +1358,8 @@ def create_announcement():
             # Convert string booleans to actual booleans for FormData
             if 'pinned' in data:
                 data['pinned'] = data['pinned'].lower() in ('true', '1', 'yes')
+            if 'public_viewable' in data:
+                data['public_viewable'] = data['public_viewable'].lower() in ('true', '1', 'yes')
         else:
             data = request.get_json() or {}
 
@@ -1364,6 +1376,7 @@ def create_announcement():
         pinned = bool(data.get('pinned', False))
         pinned_until = _parse_datetime(data.get('pinned_until'), 'pinned_until')
         shared_with_municipalities = data.get('shared_with_municipalities', [])
+        public_viewable = str(data.get('public_viewable')).lower() in ('true', '1', 'yes', 'on') if data.get('public_viewable') is not None else False
 
         if not title or not content:
             return jsonify({'error': 'Title and content are required'}), 400
@@ -1419,6 +1432,7 @@ def create_announcement():
             publish_at=publish_at,
             expire_at=expire_at,
             shared_with_municipalities=shared_with_municipalities if shared_with_municipalities else None,
+            public_viewable=public_viewable,
             is_active=is_active_flag,
         )
 
@@ -1477,6 +1491,8 @@ def update_announcement(announcement_id):
             # Convert string booleans to actual booleans for FormData
             if 'pinned' in data:
                 data['pinned'] = data['pinned'].lower() in ('true', '1', 'yes')
+            if 'public_viewable' in data:
+                data['public_viewable'] = data['public_viewable'].lower() in ('true', '1', 'yes')
         else:
             data = request.get_json(silent=True) or {}
 
@@ -1508,6 +1524,8 @@ def update_announcement(announcement_id):
                 return jsonify({'error': 'Invalid priority level'}), 400
         if 'external_url' in data:
             announcement.external_url = data['external_url']
+        if 'public_viewable' in data:
+            announcement.public_viewable = str(data.get('public_viewable')).lower() in ('true', '1', 'yes', 'on')
         if 'images' in data and isinstance(data['images'], list):
             announcement.images = data['images']
         if 'pinned' in data:

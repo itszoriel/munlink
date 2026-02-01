@@ -39,6 +39,13 @@ def update_database():
                 else:
                     print("Images column already exists in announcements table")
 
+                if 'public_viewable' not in columns:
+                    print("Adding 'public_viewable' column to announcements table...")
+                    db.session.execute(text("ALTER TABLE announcements ADD COLUMN public_viewable BOOLEAN DEFAULT 0"))
+                    print("Added public_viewable column to announcements table")
+                else:
+                    print("Public_viewable column already exists in announcements table")
+
                 # Add ready_at and completed_at columns to document_requests table if they don't exist
                 result = db.session.execute(text("PRAGMA table_info(document_requests)")).fetchall()
                 columns = [row[1] for row in result]

@@ -420,6 +420,12 @@
   animation: gradient-shift 8s ease infinite;
 }
 
+/* Hide mobile FABs when the mobile sidebar is active */
+body.mobile-menu-open .fab-mobile,
+body.mobile-menu-open .fab-mobile-backdrop {
+  display: none !important;
+}
+
 /* Reduced Motion Support */
 @media (prefers-reduced-motion: reduce) {
   /* Disable gradient animation */

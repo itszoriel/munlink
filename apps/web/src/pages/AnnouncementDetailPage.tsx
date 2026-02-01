@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { announcementsApi, mediaUrl } from '@/lib/api'
+import { useAppStore } from '@/lib/store'
 
 type Announcement = {
   id: number
@@ -19,6 +20,8 @@ type Announcement = {
 
 export default function AnnouncementDetailPage() {
   const { id } = useParams()
+  const selectedMunicipality = useAppStore((s) => s.selectedMunicipality)
+  const selectedBarangay = useAppStore((s) => s.selectedBarangay)
   const [a, setA] = useState<Announcement | null>(null)
   const [loading, setLoading] = useState(true)
   const [idx, setIdx] = useState(0)
@@ -42,7 +45,15 @@ export default function AnnouncementDetailPage() {
     const load = async () => {
       setLoading(true)
       try {
-        const res = await announcementsApi.getById(Number(id))
+        const params: any = {}
+        if (selectedMunicipality?.id) {
+          params.municipality_id = selectedMunicipality.id
+          params.browse = true
+        }
+        if (selectedBarangay?.id) {
+          params.barangay_id = selectedBarangay.id
+        }
+        const res = await announcementsApi.getById(Number(id), Object.keys(params).length ? params : undefined)
         const data: any = (res as any)?.data || res
         if (!cancelled) setA(data)
       } catch {
@@ -53,7 +64,7 @@ export default function AnnouncementDetailPage() {
     }
     if (id) load()
     return () => { cancelled = true }
-  }, [id])
+  }, [id, selectedMunicipality?.id, selectedBarangay?.id])
 
   const images = a?.images || []
   const count = images.length

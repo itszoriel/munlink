@@ -26,8 +26,7 @@ from flask_jwt_extended import (
 )
 from datetime import datetime, timedelta
 from utils.sms_provider import get_provider_status
-from __init__ import db
-from app import limiter
+from __init__ import db, limiter
 import bcrypt
 from werkzeug.security import check_password_hash
 
@@ -638,7 +637,7 @@ def admin_login():
             return jsonify({'error': 'Invalid credentials'}), 401
         
         # ADMIN CHECK: Verify user has admin role
-        if user.role not in ('superadmin', 'municipal_admin'):
+        if user.role not in ('superadmin', 'provincial_admin', 'municipal_admin', 'barangay_admin'):
             return jsonify({'error': 'Access denied. Admin privileges required.'}), 403
         
         # Check if account is active

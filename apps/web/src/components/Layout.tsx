@@ -53,6 +53,15 @@ export default function Layout() {
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
+  // Toggle a body class so pages can respond to the mobile menu being open (e.g., hiding FABs)
+  useEffect(() => {
+    const body = document.body
+    body.classList.toggle('mobile-menu-open', mobileOpen)
+    return () => {
+      body.classList.remove('mobile-menu-open')
+    }
+  }, [mobileOpen])
+
   // Read one-time toast from navigation state
   useEffect(() => {
     const anyState = (location as any)?.state

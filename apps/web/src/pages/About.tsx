@@ -6,6 +6,56 @@ import ScrollVelocity from '../components/ScrollVelocity'
 import { useScrollAnimation } from '../hooks/useScrollAnimation'
 import { useAppStore } from '@/lib/store'
 
+type FeatureItem = {
+  icon: typeof Building
+  title: string
+  description: string
+}
+
+// Platform feature cards configuration (kept outside component to avoid recreating on render)
+const features: FeatureItem[] = [
+  {
+    icon: Building,
+    title: 'Municipal Services',
+    description: 'Request documents, permits, and certificates online with QR verification and real-time status tracking.',
+  },
+  {
+    icon: Users,
+    title: 'Community Marketplace',
+    description: 'Buy, sell, donate, or lend items safely within your municipality and neighboring communities.',
+  },
+  {
+    icon: Heart,
+    title: 'Benefit Programs',
+    description: 'Discover and apply for municipal assistance programs with online eligibility checking.',
+  },
+  {
+    icon: Shield,
+    title: 'Secure & Private',
+    description: 'Enterprise-grade security with Data Privacy Act compliance, audit logs, and encrypted data.',
+  },
+]
+
+function FeatureCard({ feature, index }: { feature: FeatureItem; index: number }) {
+  const featureRef = useScrollAnimation({ threshold: 0.3 })
+  const Icon = feature.icon
+
+  return (
+    <div
+      ref={featureRef.ref}
+      className={`text-center bg-white rounded-2xl p-8 shadow-sm hover:shadow-lg transition-all duration-500 hover:-translate-y-1 ${featureRef.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-12'
+        }`}
+      style={{ transitionDelay: `${index * 100}ms` }}
+    >
+      <div className="bg-gradient-to-br from-sky-100 to-ocean-100 rounded-2xl w-16 h-16 flex items-center justify-center mx-auto mb-6 shadow-md">
+        <Icon className="h-8 w-8 text-sky-700" />
+      </div>
+      <h3 className="text-xl font-bold text-gray-900 mb-3 font-serif">{feature.title}</h3>
+      <p className="text-sm text-gray-600 leading-relaxed">{feature.description}</p>
+    </div>
+  )
+}
+
 // Zambales municipalities data
 const zambalesMunicipalities = [
   { name: 'Botolan', slug: 'botolan', landmark: '/landmarks/zambales/botolan/botolan_mt_pinatubo.png' },
@@ -60,29 +110,6 @@ export default function About() {
   const missionRef = useScrollAnimation({ threshold: 0.3 })
   const featuresRef = useScrollAnimation({ threshold: 0.2 })
   const municipalitiesRef = useScrollAnimation({ threshold: 0.2 })
-
-  const features = [
-    {
-      icon: Building,
-      title: 'Municipal Services',
-      description: 'Request documents, permits, and certificates online with QR verification and real-time status tracking.',
-    },
-    {
-      icon: Users,
-      title: 'Community Marketplace',
-      description: 'Buy, sell, donate, or lend items safely within your municipality and neighboring communities.',
-    },
-    {
-      icon: Heart,
-      title: 'Benefit Programs',
-      description: 'Discover and apply for municipal assistance programs with online eligibility checking.',
-    },
-    {
-      icon: Shield,
-      title: 'Secure & Private',
-      description: 'Enterprise-grade security with Data Privacy Act compliance, audit logs, and encrypted data.',
-    },
-  ]
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -278,26 +305,9 @@ export default function About() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-            {features.map((feature, index) => {
-              const Icon = feature.icon
-              const featureRef = useScrollAnimation({ threshold: 0.3 })
-
-              return (
-                <div
-                  key={index}
-                  ref={featureRef.ref}
-                  className={`text-center bg-white rounded-2xl p-8 shadow-sm hover:shadow-lg transition-all duration-500 hover:-translate-y-1 ${featureRef.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-12'
-                    }`}
-                  style={{ transitionDelay: `${index * 100}ms` }}
-                >
-                  <div className="bg-gradient-to-br from-sky-100 to-ocean-100 rounded-2xl w-16 h-16 flex items-center justify-center mx-auto mb-6 shadow-md">
-                    <Icon className="h-8 w-8 text-sky-700" />
-                  </div>
-                  <h3 className="text-xl font-bold text-gray-900 mb-3 font-serif">{feature.title}</h3>
-                  <p className="text-sm text-gray-600 leading-relaxed">{feature.description}</p>
-                </div>
-              )
-            })}
+            {features.map((feature, index) => (
+              <FeatureCard key={feature.title} feature={feature} index={index} />
+            ))}
           </div>
         </div>
       </section>

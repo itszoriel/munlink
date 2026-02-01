@@ -132,7 +132,6 @@ export default function Requests() {
     { status: 'pending', label: 'Pending Review', count: stats?.pending_requests ?? 0, icon: 'hourglass', color: 'yellow' },
     { status: 'processing', label: 'Processing', count: stats?.processing_requests ?? 0, icon: 'cog', color: 'ocean' },
     { status: 'ready', label: 'Ready for Pickup', count: stats?.ready_requests ?? 0, icon: 'check', color: 'forest' },
-    { status: 'completed', label: 'Completed', count: stats?.completed_requests ?? 0, icon: 'party', color: 'purple' },
   ]
 
   if (isBarangayAdmin) {
@@ -142,21 +141,6 @@ export default function Requests() {
       count: (stats?.barangay_processing_requests ?? 0) + (stats?.barangay_approved_requests ?? 0),
       icon: 'shield',
       color: 'ocean'
-    })
-    statusCards.push({
-      status: 'barangay_rejected',
-      label: 'Barangay Rejected',
-      count: stats?.barangay_rejected_requests ?? 0,
-      icon: 'ban',
-      color: 'rose'
-    })
-  } else {
-    statusCards.splice(1, 0, {
-      status: 'barangay_approved',
-      label: 'Barangay Cleared',
-      count: stats?.barangay_approved_requests ?? 0,
-      icon: 'shield',
-      color: 'forest'
     })
   }
 
@@ -317,7 +301,7 @@ export default function Requests() {
         <p className="text-neutral-600">Process and track resident document requests</p>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         {statusCards.map((item) => (
           <button key={item.status} onClick={() => setStatusFilter(item.status as Status)} className={`text-left p-4 rounded-2xl transition-all ${statusFilter === item.status ? 'bg-white/90 backdrop-blur-xl shadow-xl scale-105 border-2 border-ocean-500' : 'bg-white/70 backdrop-blur-xl border border-white/50 hover:scale-105'}`}>
             <div className="flex items-center justify-between mb-2">

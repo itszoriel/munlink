@@ -35,6 +35,7 @@ interface Announcement {
   creator_name?: string
   images?: string[]
   shared_with_municipalities?: number[]
+  public_viewable?: boolean
 }
 
 interface AnnouncementManagerProps {
@@ -225,14 +226,15 @@ export default function AnnouncementManager({ onAnnouncementUpdated }: Announcem
 
   return (
     <>
-      {/* Header with Create Button - only show desktop button if there are announcements */}
+      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-medium text-gray-900">Announcements</h3>
         {announcements.length > 0 && (
           <button
             onClick={() => setShowCreateModal(true)}
-            className="px-4 py-2 text-sm font-medium text-white bg-zambales-green hover:bg-green-700 rounded-md transition-colors hidden sm:inline-flex"
+            className="hidden sm:flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-zambales-green hover:bg-green-700 rounded-md transition-colors"
           >
+            <Plus className="w-4 h-4" />
             Create Announcement
           </button>
         )}
@@ -338,81 +340,87 @@ export default function AnnouncementManager({ onAnnouncementUpdated }: Announcem
         />
       )}
 
-      {/* Mobile FAB - Floating Action Button - positioned above mobile nav */}
-      {/* HIDDEN when any modal is open (showCreateModal, showModal) */}
-      <AnimatePresence>
-        {announcements.length > 0 && !showCreateModal && !showModal && (
-          <motion.div 
-            className="fixed bottom-20 right-4 z-50 sm:hidden"
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.8 }}
-            transition={{ duration: 0.2 }}
-          >
-            <motion.button
-              className="relative flex items-center justify-center bg-gradient-to-r from-green-600 to-green-700 text-white shadow-lg shadow-green-600/30 hover:shadow-green-600/50 transition-shadow"
-              onClick={() => {
-                if (fabExpanded) {
-                  setShowCreateModal(true)
-                  setFabExpanded(false)
-                } else {
-                  setFabExpanded(true)
-                }
-              }}
-              animate={{
-                width: fabExpanded ? 180 : 56,
-                height: 56,
-                borderRadius: 28,
-              }}
-              transition={{
-                type: "spring",
-                stiffness: 400,
-                damping: 25,
-              }}
-              whileTap={{ scale: 0.95 }}
-            >
-              <AnimatePresence mode="wait">
-                {fabExpanded ? (
-                  <motion.div
-                    key="expanded"
-                    className="flex items-center gap-2 px-4"
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.8 }}
-                    transition={{ duration: 0.15 }}
-                  >
-                    <Plus className="w-5 h-5 flex-shrink-0" />
-                    <span className="text-sm font-medium whitespace-nowrap">New Announcement</span>
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    key="collapsed"
-                    initial={{ opacity: 0, rotate: -90 }}
-                    animate={{ opacity: 1, rotate: 0 }}
-                    exit={{ opacity: 0, rotate: 90 }}
-                    transition={{ duration: 0.15 }}
-                  >
-                    <Plus className="w-6 h-6" />
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </motion.button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Floating Action Button - positioned above mobile nav, MOBILE ONLY */}
+      {/* HIDDEN when any modal is open (showCreateModal, showModal) or no announcements */}
+      {/* Using Portal to render outside parent container */}
+      {createPortal(
+        <>
+          <AnimatePresence>
+            {!showCreateModal && !showModal && announcements.length > 0 && (
+              <motion.div
+                className="fixed bottom-20 right-4 z-[9999] sm:hidden"
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                transition={{ duration: 0.2 }}
+              >
+                <motion.button
+                  className="relative flex items-center justify-center bg-gradient-to-r from-green-600 to-green-700 text-white shadow-lg shadow-green-600/30 hover:shadow-green-600/50 transition-shadow"
+                  onClick={() => {
+                    if (fabExpanded) {
+                      setShowCreateModal(true)
+                      setFabExpanded(false)
+                    } else {
+                      setFabExpanded(true)
+                    }
+                  }}
+                  animate={{
+                    width: fabExpanded ? 180 : 56,
+                    height: 56,
+                    borderRadius: 28,
+                  }}
+                  transition={{
+                    type: "spring",
+                    stiffness: 400,
+                    damping: 25,
+                  }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <AnimatePresence mode="wait">
+                    {fabExpanded ? (
+                      <motion.div
+                        key="expanded"
+                        className="flex items-center gap-2 px-4"
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.8 }}
+                        transition={{ duration: 0.15 }}
+                      >
+                        <Plus className="w-5 h-5 flex-shrink-0" />
+                        <span className="text-sm font-medium whitespace-nowrap">New Announcement</span>
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        key="collapsed"
+                        initial={{ opacity: 0, rotate: -90 }}
+                        animate={{ opacity: 1, rotate: 0 }}
+                        exit={{ opacity: 0, rotate: 90 }}
+                        transition={{ duration: 0.15 }}
+                      >
+                        <Plus className="w-6 h-6" />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.button>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-      {/* Backdrop to close FAB when clicking outside - must be separate from FAB container */}
-      <AnimatePresence>
-        {fabExpanded && !showCreateModal && (
-          <motion.div
-            className="fixed inset-0 z-40 sm:hidden"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setFabExpanded(false)}
-          />
-        )}
-      </AnimatePresence>
+          {/* Backdrop to close FAB when clicking outside - MOBILE ONLY */}
+          <AnimatePresence>
+            {fabExpanded && !showCreateModal && announcements.length > 0 && (
+              <motion.div
+                className="fixed inset-0 z-[9998] sm:hidden"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setFabExpanded(false)}
+              />
+            )}
+          </AnimatePresence>
+        </>,
+        document.body
+      )}
     </>
   )
 }
@@ -422,7 +430,7 @@ interface AnnouncementDetailModalProps {
   announcement: Announcement
   onClose: () => void
   onUpdate: (id: number, data: any) => Promise<void>
-  onDelete: (id: number) => void
+  onDelete: (id: number) => Promise<void>
   loading: boolean
   allowedScopes: readonly string[]
   staffMunicipalityId?: number
@@ -455,6 +463,7 @@ function AnnouncementDetailModal({
     pinned: !!announcement.pinned,
     pinned_until: toInputValue(announcement.pinned_until),
     shared_with_municipalities: announcement.shared_with_municipalities || [],
+    public_viewable: !!announcement.public_viewable,
   })
   const selectedMunicipalityId = formData.scope === 'PROVINCE' ? undefined : (formData.municipality_id || staffMunicipalityId)
   const barangayOptions = selectedMunicipalityId ? getBarangaysByMunicipalityId(selectedMunicipalityId) : []
@@ -464,6 +473,8 @@ function AnnouncementDetailModal({
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const hasImageChanges = JSON.stringify(images) !== JSON.stringify(announcement.images || [])
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   // Clamp index when images array changes
   useEffect(() => {
@@ -529,12 +540,21 @@ function AnnouncementDetailModal({
     if (!payload.publish_at) delete payload.publish_at
     if (!payload.expire_at) delete payload.expire_at
     if (!payload.pinned_until) delete payload.pinned_until
-    await onUpdate(announcement.id, payload)
+    try {
+      setSaving(true)
+      await onUpdate(announcement.id, payload)
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const handleDelete = () => {
-    if (window.confirm('Are you sure you want to delete this announcement?')) {
-      onDelete(announcement.id)
+  const handleDelete = async () => {
+    if (!window.confirm('Are you sure you want to delete this announcement?')) return
+    try {
+      setDeleting(true)
+      await onDelete(announcement.id)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -671,6 +691,7 @@ function AnnouncementDetailModal({
                       scope: next,
                       municipality_id: next === 'PROVINCE' ? undefined : (prev.municipality_id || staffMunicipalityId),
                       barangay_id: next === 'BARANGAY' ? (prev.barangay_id || staffBarangayId) : undefined,
+                      public_viewable: next === 'BARANGAY' ? false : prev.public_viewable,
                     }))
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-zambales-green"
@@ -806,6 +827,19 @@ function AnnouncementDetailModal({
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-zambales-green"
                 />
               </div>
+              <div className="flex items-start gap-2">
+                <input
+                  id="announcement-public"
+                  type="checkbox"
+                  checked={formData.public_viewable}
+                  disabled={formData.scope === 'BARANGAY'}
+                  onChange={(e) => setFormData(prev => ({ ...prev, public_viewable: e.target.checked }))}
+                  className="h-4 w-4 mt-1 rounded border-gray-300 text-zambales-green focus:ring-zambales-green disabled:opacity-50"
+                />
+                <label htmlFor="announcement-public" className="text-sm text-gray-700">
+                  Public on web (guest-visible). Barangay posts remain resident-only.
+                </label>
+              </div>
               <div className="flex items-center gap-2">
                 <input
                   id="announcement-pin"
@@ -858,10 +892,10 @@ function AnnouncementDetailModal({
             <div className="flex items-center justify-between pt-6 border-t mt-6">
               <button
                 onClick={handleDelete}
-                disabled={loading}
+                disabled={deleting}
                 className="px-4 py-2 text-sm font-medium text-red-700 bg-red-100 hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed rounded-md transition-colors"
               >
-                {loading ? 'Deleting...' : 'Delete'}
+                {deleting ? 'Deleting...' : 'Delete'}
               </button>
 
               <div className="flex items-center space-x-3">
@@ -877,10 +911,10 @@ function AnnouncementDetailModal({
                     )}
                     <button
                       onClick={handleSave}
-                      disabled={loading || uploading || (editMode && (!formData.title.trim() || !formData.content.trim()))}
+                      disabled={saving || uploading || (editMode && (!formData.title.trim() || !formData.content.trim()))}
                       className="px-4 py-2 text-sm font-medium text-white bg-zambales-green hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-md transition-colors"
                     >
-                      {(loading || uploading) ? 'Saving...' : 'Save Changes'}
+                      {(saving || uploading) ? 'Saving...' : 'Save Changes'}
                     </button>
                   </>
                 )}
@@ -920,6 +954,7 @@ function CreateAnnouncementModal({ onClose, onCreate, loading, allowedScopes, de
     pinned: false,
     pinned_until: '',
     shared_with_municipalities: [] as number[],
+    public_viewable: false,
   })
   const selectedMunicipalityId = formData.scope === 'PROVINCE' ? undefined : (formData.municipality_id || staffMunicipalityId)
   const barangayOptions = selectedMunicipalityId ? getBarangaysByMunicipalityId(selectedMunicipalityId) : []
@@ -1033,6 +1068,7 @@ function CreateAnnouncementModal({ onClose, onCreate, loading, allowedScopes, de
                       scope: next,
                       municipality_id: next === 'PROVINCE' ? undefined : (prev.municipality_id || staffMunicipalityId),
                       barangay_id: next === 'BARANGAY' ? (prev.barangay_id || staffBarangayId) : undefined,
+                      public_viewable: next === 'BARANGAY' ? false : prev.public_viewable,
                     }))
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-zambales-green"
@@ -1156,6 +1192,19 @@ function CreateAnnouncementModal({ onClose, onCreate, loading, allowedScopes, de
                   onChange={(e) => setFormData(prev => ({ ...prev, expire_at: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-zambales-green"
                 />
+              </div>
+              <div className="flex items-start gap-2">
+                <input
+                  id="create-announcement-public"
+                  type="checkbox"
+                  checked={formData.public_viewable}
+                  disabled={formData.scope === 'BARANGAY'}
+                  onChange={(e) => setFormData(prev => ({ ...prev, public_viewable: e.target.checked }))}
+                  className="h-4 w-4 mt-1 rounded border-gray-300 text-zambales-green focus:ring-zambales-green disabled:opacity-50"
+                />
+                <label htmlFor="create-announcement-public" className="text-sm text-gray-700">
+                  Public on web (guest-visible). Barangay posts remain resident-only.
+                </label>
               </div>
               <div className="flex items-center gap-2">
                 <input

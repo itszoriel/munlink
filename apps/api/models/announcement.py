@@ -41,6 +41,7 @@ class Announcement(db.Model):
     publish_at = db.Column(db.DateTime, nullable=True)
     expire_at = db.Column(db.DateTime, nullable=True)
     shared_with_municipalities = db.Column(db.JSON, nullable=True)  # Array of municipality IDs for cross-municipality sharing
+    public_viewable = db.Column(db.Boolean, nullable=False, default=False)  # True = guests can view when scoped
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -103,6 +104,7 @@ class Announcement(db.Model):
             'publish_at': publish_at.isoformat() if publish_at else None,
             'expire_at': expire_at.isoformat() if expire_at else None,
             'shared_with_municipalities': self.shared_with_municipalities or [],
+            'public_viewable': bool(self.public_viewable),
             'is_active': is_active,
             'created_at': created_at.isoformat() if created_at else None,
             'updated_at': updated_at.isoformat() if updated_at else None,

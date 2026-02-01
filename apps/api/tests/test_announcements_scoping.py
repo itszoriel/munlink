@@ -66,6 +66,7 @@ def build_app_with_announcements():
       status='PUBLISHED',
       publish_at=now,
       is_active=True,
+      public_viewable=True,
     )
     ann_other_muni = Announcement(
       title='Other Municipality',
@@ -89,6 +90,7 @@ def build_app_with_announcements():
       status='PUBLISHED',
       publish_at=now,
       is_active=True,
+      public_viewable=False,
     )
     ann_other_brgy = Announcement(
       title='Other Barangay',
@@ -110,6 +112,10 @@ def build_app_with_announcements():
       'barangay': ann_brgy.id,
       'other_municipality': ann_other_muni.id,
       'other_barangay': ann_other_brgy.id,
+      'municipality_id': muni.id,
+      'other_municipality_id': other_muni.id,
+      'barangay_id': brgy.id,
+      'other_barangay_id': other_brgy.id,
     }
 
 
@@ -139,3 +145,47 @@ def test_guest_only_sees_province_announcements():
   data = resp.get_json()
   returned_ids = [a['id'] for a in data.get('announcements', [])]
   assert returned_ids == [ids['province']]
+
+
+def test_guest_can_browse_public_municipality_only():
+  app, _user_id, ids = build_app_with_announcements()
+  client = app.test_client()
+  resp = client.get('/api/announcements', query_string={
+    'browse': 'true',
+    'municipality_id': ids['municipality_id'],
+  })
+  assert resp.status_code == 200
+  data = resp.get_json()
+  returned_ids = {a['id'] for a in data.get('announcements', [])}
+  # Province + public municipality visible
+  assert ids['province'] in returned_ids
+  assert ids['municipality'] in returned_ids
+  # Barangay (resident-only) is not shown to guests
+  assert ids['barangay'] not in returned_ids
+  # Other municipality/barangay are not shown
+  assert ids['other_municipality'] not in returned_ids
+  assert ids['other_barangay'] not in returned_ids
+
+
+def test_guest_cannot_open_barangay_detail_even_with_browse():
+  app, _user_id, ids = build_app_with_announcements()
+  client = app.test_client()
+  resp = client.get(f"/api/announcements/{ids['barangay']}", query_string={
+    'browse': 'true',
+    'municipality_id': ids['municipality_id'],
+    'barangay_id': ids['barangay_id'],
+  })
+  assert resp.status_code == 404
+
+
+def test_guest_browse_non_public_municipality_returns_only_province():
+  app, _user_id, ids = build_app_with_announcements()
+  client = app.test_client()
+  resp = client.get('/api/announcements', query_string={
+    'browse': 'true',
+    'municipality_id': ids['other_municipality_id'],
+  })
+  assert resp.status_code == 200
+  data = resp.get_json()
+  returned_ids = {a['id'] for a in data.get('announcements', [])}
+  assert returned_ids == {ids['province']}

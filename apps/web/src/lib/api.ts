@@ -326,7 +326,7 @@ export const marketplaceApi = {
 
 export const announcementsApi = {
   getAll: (params?: any) => api.get('/api/announcements', { params }),
-  getById: (id: number) => api.get(`/api/announcements/${id}`),
+  getById: (id: number, params?: any) => api.get(`/api/announcements/${id}`, { params }),
 }
 
 export const documentsApi = {

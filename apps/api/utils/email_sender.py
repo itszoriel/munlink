@@ -139,19 +139,40 @@ def _send_email(to_email: str, subject: str, body: str, attachment_data: bytes =
     """
     app = current_app
 
-    # Check for SendGrid first (production)
+    sendgrid_error = None
+
+    # Try SendGrid first (production)
     if app.config.get('SENDGRID_API_KEY'):
         current_app.logger.debug("Using SendGrid for email delivery")
-        _send_via_sendgrid(to_email, subject, body, attachment_data, attachment_name)
-        return
+        try:
+            _send_via_sendgrid(to_email, subject, body, attachment_data, attachment_name)
+            return
+        except Exception as exc:
+            # Capture SendGrid failure so we can fall back to SMTP if available
+            sendgrid_error = exc
+            current_app.logger.warning(
+                "SendGrid delivery failed, attempting SMTP fallback if configured: %s",
+                exc,
+            )
 
-    # Fall back to SMTP (development)
+    # Fall back to SMTP (development or when SendGrid quota is exhausted)
     if app.config.get('SMTP_SERVER'):
         current_app.logger.debug("Using SMTP for email delivery")
-        _send_via_smtp(to_email, subject, body, attachment_data, attachment_name)
-        return
+        try:
+            _send_via_smtp(to_email, subject, body, attachment_data, attachment_name)
+            return
+        except Exception as exc:
+            if sendgrid_error:
+                raise RuntimeError(
+                    f"SendGrid failed ({sendgrid_error}); SMTP fallback failed ({exc})"
+                ) from exc
+            raise
 
     # No email provider configured
+    if sendgrid_error:
+        # Preserve the SendGrid error when nothing else is configured
+        raise sendgrid_error
+
     raise RuntimeError(
         "No email provider configured. "
         "Set SENDGRID_API_KEY for production or SMTP_SERVER/SMTP_USERNAME/SMTP_PASSWORD for development."
