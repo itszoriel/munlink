@@ -22,8 +22,8 @@ except ImportError:
     # Ensure parent directory (API root) is in path
     sys.path.append(str(Path(__file__).parent.parent))
     
-    from app import create_app
-    from __init__ import db
+    from app import create_app, db
+    # db is imported from app to avoid importing scripts/__init__
     from models.notification import NotificationOutbox
     from models.user import User
     from utils.email_sender import send_generic_email

@@ -21,20 +21,12 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 
 # Import config - use relative imports
 from config import Config
-from __init__ import db, migrate, jwt
+from __init__ import db, migrate, jwt, limiter
 
-# Initialize rate limiter (will be configured with app later)
-limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"],
-    storage_uri="memory://",
-    strategy="fixed-window"
-)
+# Rate limiter is now imported from __init__ to avoid circular imports
 
 
 def create_app(config_class=Config):
