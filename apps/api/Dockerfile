@@ -29,11 +29,12 @@ RUN mkdir -p uploads/region3/marketplace/items \
 # Create startup script
 RUN echo '#!/bin/sh' > /start.sh && \
     echo 'set -e' >> /start.sh && \
+    echo 'export PYTHONPATH=$PYTHONPATH:/app' >> /start.sh && \
     echo 'echo "Starting MunLink API..."' >> /start.sh && \
     echo 'echo "Running database migrations..."' >> /start.sh && \
     echo 'flask db upgrade || echo "Warning: Migration failed or skipped"' >> /start.sh && \
     echo 'echo "Starting Notification Worker..."' >> /start.sh && \
-    echo 'nohup python scripts/notification_worker.py > /tmp/worker.log 2>&1 &' >> /start.sh && \
+    echo 'nohup python scripts/notification_worker.py > /dev/stdout 2>&1 &' >> /start.sh && \
     echo 'echo "Starting Gunicorn on port ${PORT:-5000}..."' >> /start.sh && \
     echo 'exec gunicorn app:app --bind 0.0.0.0:${PORT:-5000} --workers 2 --threads 2 --timeout 120 --max-requests 1000 --max-requests-jitter 50 --access-logfile - --error-logfile -' >> /start.sh && \
     chmod +x /start.sh
