@@ -44,8 +44,8 @@ export default function ProfilePage() {
 
   // Static province and municipality data
   const provinces = getProvinces()
-  const transferMunicipalities = transferForm.province_id 
-    ? getMunicipalities(Number(transferForm.province_id)) 
+  const transferMunicipalities = transferForm.province_id
+    ? getMunicipalities(Number(transferForm.province_id))
     : []
 
   // Compute the full address from location parts
@@ -73,17 +73,17 @@ export default function ProfilePage() {
       try {
         const profileRes = await authApi.getProfile()
         const data = (profileRes as any).data || profileRes
-        
+
         // Use API-provided names first (from database relationships)
         // Fall back to static lookup only if API doesn't return them
         let provinceName = data.province_name || ''
         let provinceId = undefined
-        
+
         // If API didn't return province_name, try static lookup
         if (!provinceName && data.municipality_id) {
           // Convert to number in case it's a string from JSON
-          const muniId = typeof data.municipality_id === 'string' 
-            ? parseInt(data.municipality_id, 10) 
+          const muniId = typeof data.municipality_id === 'string'
+            ? parseInt(data.municipality_id, 10)
             : data.municipality_id
           const userMuni = getMunicipalityById(muniId)
           if (userMuni) {
@@ -92,25 +92,25 @@ export default function ProfilePage() {
             provinceName = province?.name || ''
           }
         }
-        
+
         // For barangay_name, use API data directly (comes from database relationship)
         const barangayName = data.barangay_name || ''
-        
-          if (!cancelled) {
-            setForm({
-              first_name: data.first_name || '',
-              last_name: data.last_name || '',
-              username: data.username || '',
-              email: data.email || '',
-              phone: data.phone_number || '',
-              mobile: data.mobile_number || '',
-              notify_email_enabled: data.notify_email_enabled !== false,
-              notify_sms_enabled: !!data.notify_sms_enabled,
-              sms_provider_status: data.sms_provider_status || null,
-              profile_picture: data.profile_picture || '',
-              province_id: provinceId,
-              province_name: provinceName,
-              municipality_id: data.municipality_id,
+
+        if (!cancelled) {
+          setForm({
+            first_name: data.first_name || '',
+            last_name: data.last_name || '',
+            username: data.username || '',
+            email: data.email || '',
+            phone: data.phone_number || '',
+            mobile: data.mobile_number || '',
+            notify_email_enabled: data.notify_email_enabled !== false,
+            notify_sms_enabled: !!data.notify_sms_enabled,
+            sms_provider_status: data.sms_provider_status || null,
+            profile_picture: data.profile_picture || '',
+            province_id: provinceId,
+            province_name: provinceName,
+            municipality_id: data.municipality_id,
             municipality_name: data.municipality_name,
             barangay_id: data.barangay_id,
             barangay_name: barangayName,
@@ -319,28 +319,28 @@ export default function ProfilePage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Province</label>
-              <input 
-                type="text" 
-                value={form.province_name || ''} 
-                disabled 
+              <input
+                type="text"
+                value={form.province_name || ''}
+                disabled
                 className="input-field bg-gray-100 cursor-not-allowed"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Municipality</label>
-              <input 
-                type="text" 
-                value={form.municipality_name || ''} 
-                disabled 
+              <input
+                type="text"
+                value={form.municipality_name || ''}
+                disabled
                 className="input-field bg-gray-100 cursor-not-allowed"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Barangay</label>
-              <input 
-                type="text" 
-                value={form.barangay_name || ''} 
-                disabled 
+              <input
+                type="text"
+                value={form.barangay_name || ''}
+                disabled
                 className="input-field bg-gray-100 cursor-not-allowed"
               />
             </div>
@@ -348,9 +348,9 @@ export default function ProfilePage() {
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-4 pt-4 border-t">
             <div className="text-sm text-gray-600">
               <span>Need to move to a different municipality or province? </span>
-              <button 
+              <button
                 type="button"
-                onClick={() => setShowTransferModal(true)} 
+                onClick={() => setShowTransferModal(true)}
                 className="text-ocean-600 hover:text-ocean-700 font-medium underline"
               >
                 Request a transfer
@@ -377,10 +377,8 @@ export default function ProfilePage() {
             <Input name="mobile" value={form.mobile || ''} onChange={onChange} disabled={loading || saving} placeholder="09XXXXXXXXX" />
             <p className="text-xs text-gray-500 mt-1">Optional — add a mobile number to enable SMS notifications.</p>
           </FormField>
-          <FormField label="Phone">
-            <Input name="phone" value={form.phone || ''} onChange={onChange} disabled={loading || saving} />
-          </FormField>
-          
+
+
           <div className="col-span-full border rounded-lg p-4 space-y-3">
             <div>
               <h4 className="text-sm font-semibold text-gray-800">Notification Preferences</h4>
@@ -426,11 +424,11 @@ export default function ProfilePage() {
 
       {/* Transfer Modal with Province Selection - Full screen on mobile */}
       {showTransferModal && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50"
           onClick={() => setShowTransferModal(false)}
         >
-          <div 
+          <div
             className="bg-white w-full sm:w-[95%] sm:max-w-md max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
@@ -441,7 +439,7 @@ export default function ProfilePage() {
                 <X className="w-5 h-5" aria-hidden="true" />
               </button>
             </div>
-            
+
             {/* Content */}
             <div className="p-4 sm:p-6">
               <p className="text-sm text-gray-600 mb-4">
@@ -505,7 +503,7 @@ export default function ProfilePage() {
                     required
                   />
                 </div>
-                
+
                 {/* Footer buttons */}
                 <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-2">
                   <Button type="button" variant="secondary" className="w-full sm:w-auto" onClick={() => setShowTransferModal(false)}>
