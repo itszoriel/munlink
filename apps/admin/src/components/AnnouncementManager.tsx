@@ -320,7 +320,6 @@ export default function AnnouncementManager({ onAnnouncementUpdated }: Announcem
           }}
           onUpdate={handleUpdateAnnouncement}
           onDelete={handleDeleteAnnouncement}
-          loading={actionLoading === selectedAnnouncement.id}
           allowedScopes={allowedScopes}
           staffMunicipalityId={staffMunicipalityId}
           staffBarangayId={staffBarangayId}
@@ -431,7 +430,6 @@ interface AnnouncementDetailModalProps {
   onClose: () => void
   onUpdate: (id: number, data: any) => Promise<void>
   onDelete: (id: number) => Promise<void>
-  loading: boolean
   allowedScopes: readonly string[]
   staffMunicipalityId?: number
   staffBarangayId?: number
@@ -442,7 +440,6 @@ function AnnouncementDetailModal({
   onClose, 
   onUpdate, 
   onDelete, 
-  loading,
   allowedScopes,
   staffMunicipalityId,
   staffBarangayId,
