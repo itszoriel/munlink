@@ -9,7 +9,6 @@ import { useAdminStore } from './store'
 // API Configuration
 // Production URL for Railway deployment
 const PRODUCTION_API_URL = 'https://api-munlink.up.railway.app'
-const isBrowser = typeof window !== 'undefined'
 const API_BASE_URL =
   (import.meta as any).env?.VITE_API_BASE_URL ||
   (import.meta as any).env?.VITE_API_URL ||
