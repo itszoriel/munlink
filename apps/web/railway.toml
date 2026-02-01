@@ -1,0 +1,13 @@
+# Railway Configuration for MunLink Web App
+# Documentation: https://docs.railway.app/deploy/config-as-code
+# IMPORTANT: Set "Root Directory" to "." (project root) in Railway dashboard
+
+[build]
+builder = "NIXPACKS"
+buildCommand = "npm install --no-audit --no-fund && cd packages/ui && npm install --no-audit --no-fund && npm run build && cd ../../apps/web && npm install --no-audit --no-fund && npm run build"
+
+[deploy]
+startCommand = "bash -lc \"npx serve -s apps/web/dist -l $PORT\""
+
+[staticServe]
+publicPath = "apps/web/dist"

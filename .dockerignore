@@ -1,0 +1,17 @@
+# Keep the API image slim and avoid copying local artifacts
+.git
+node_modules
+.turbo
+.cp-images
+uploads
+tmp-tests
+venv
+apps/api/venv
+.pytest_cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.log
+*.sqlite

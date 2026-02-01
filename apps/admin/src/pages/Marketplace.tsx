@@ -1,0 +1,506 @@
+import { useMemo, useState } from 'react'
+import { adminApi, handleApiError, marketplaceApi, mediaUrl, showToast, transactionsAdminApi, userApi } from '../lib/api'
+import { useAdminStore } from '../lib/store'
+import { useCachedFetch } from '../lib/useCachedFetch'
+import { CACHE_KEYS } from '../lib/dataStore'
+import { ShoppingBag, Hourglass, CheckCircle, XCircle, Store, BadgeDollarSign, Handshake, Gift, Check, X } from 'lucide-react'
+import { EmptyState } from '@munlink/ui'
+import SafeImage from '../components/SafeImage'
+
+export default function Marketplace() {
+  const [tab, setTab] = useState<'items' | 'transactions'>('items')
+  const [filter, setFilter] = useState<'all' | 'sell' | 'lend' | 'donate'>('all')
+  const userRole = useAdminStore((s)=> s.user?.role)
+  const adminMunicipalityName = useAdminStore((s)=> s.user?.admin_municipality_name || s.user?.municipality_name)
+  const adminMunicipalityId = useAdminStore((s)=> s.user?.admin_municipality_id)
+  const [reviewItem, setReviewItem] = useState<any | null>(null)
+  const [decisionLoading, setDecisionLoading] = useState<'approve' | 'reject' | null>(null)
+  const [statusFilter, setStatusFilter] = useState<'all' | 'available' | 'pending' | 'rejected'>('pending')
+
+  // Use cached fetch for stats
+  const { data: statsData, refetch: refetchStats } = useCachedFetch(
+    'marketplace_stats',
+    () => marketplaceApi.getMarketplaceStats(),
+    { staleTime: 2 * 60 * 1000 }
+  )
+  const stats = (statsData as any)?.data || statsData
+
+  // Use cached fetch for items with filter-specific keys
+  const { data: itemsData, loading: itemsLoading, error: itemsError, update: updateItems } = useCachedFetch(
+    CACHE_KEYS.MARKETPLACE_ITEMS,
+    async () => {
+      if (statusFilter === 'pending') {
+        return adminApi.getItems({ page: 1, per_page: 24 })
+      } else {
+        return marketplaceApi.listPublicItems({
+          municipality_id: adminMunicipalityId,
+          status: statusFilter === 'all' ? undefined : statusFilter,
+          page: 1,
+          per_page: 24,
+        })
+      }
+    },
+    { dependencies: [statusFilter, adminMunicipalityId], staleTime: 2 * 60 * 1000 }
+  )
+
+  // Process items data
+  const rows = useMemo(() => {
+    const payload: any = (itemsData as any)?.data || itemsData
+    const items = payload?.items || payload || []
+    return items.map((it: any) => {
+      const u = it.user || it.seller || {}
+      const displayName = (
+        [u.first_name, u.last_name].filter(Boolean).join(' ').trim() || u.username || it.owner_name || 'User'
+      )
+      const initial = (displayName || 'U').trim().charAt(0).toUpperCase()
+      return {
+        id: it.id || it.item_id || it.code || 'ITEM',
+        title: it.title || it.name || 'Untitled',
+        user: displayName,
+        userInitial: initial,
+        userPhoto: u.profile_picture || null,
+        type: (it.type || it.transaction_type || 'sell').toLowerCase(),
+        category: it.category || 'General',
+        image: (Array.isArray(it.images) && it.images[0]) || it.image_url || null,
+        views: it.view_count || it.views || 0,
+        inquiries: it.inquiries || 0,
+        posted: (it.created_at || '').slice(0, 10),
+        status: it.status || 'active',
+      }
+    })
+  }, [itemsData])
+
+  const filtered = useMemo(() => rows.filter((i: any) => filter === 'all' || i.type === filter), [rows, filter])
+
+  // Transactions tab
+  const [txStatus, setTxStatus] = useState<string>('')
+  const [selectedTx, setSelectedTx] = useState<{ tx: any, audit: any[] } | null>(null)
+
+  const { data: txData, loading: txLoading } = useCachedFetch(
+    CACHE_KEYS.TRANSACTIONS,
+    () => transactionsAdminApi.list(txStatus ? { status: txStatus } : {}),
+    { enabled: tab === 'transactions', dependencies: [txStatus], staleTime: 2 * 60 * 1000 }
+  )
+  const txRows = (txData as any)?.transactions || (txData as any)?.data?.transactions || []
+
+  // Remove item from local cache after action
+  const removeItemFromCache = (itemId: number) => {
+    updateItems((prev: any) => {
+      const payload = prev?.data || prev
+      const items = payload?.items || payload || []
+      const filtered = items.filter((i: any) => i.id !== itemId)
+      return prev?.data ? { ...prev, data: { ...prev.data, items: filtered } } : filtered
+    })
+  }
+
+  return (
+    <div className="min-h-screen">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-8">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900 mb-2">Marketplace Management</h1>
+          <p className="text-neutral-600">Monitor and moderate community marketplace listings</p>
+        </div>
+        <div className="inline-flex rounded-xl border overflow-hidden">
+          <button className={`px-4 py-2 text-sm ${tab==='items'?'bg-ocean-600 text-white':'bg-white hover:bg-neutral-50'}`} onClick={()=>setTab('items')}>Items</button>
+          <button className={`px-4 py-2 text-sm ${tab==='transactions'?'bg-ocean-600 text-white':'bg-white hover:bg-neutral-50'}`} onClick={()=>setTab('transactions')}>Transactions</button>
+        </div>
+      </div>
+
+      {tab === 'items' && (
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 mb-8">
+        {[
+          { icon: 'total', label: 'Total Items', value: String(stats?.total_items ?? 0), color: 'ocean' },
+          { icon: 'pending', label: 'Pending Review', value: String(stats?.pending_items ?? 0), color: 'sunset' },
+          { icon: 'approved', label: 'Approved', value: String(stats?.approved_items ?? 0), color: 'forest' },
+          { icon: 'rejected', label: 'Rejected', value: String(stats?.rejected_items ?? 0), color: 'purple' },
+        ].map((stat, i) => (
+          <div key={i} className="bg-white/70 backdrop-blur-xl rounded-2xl p-6 border border-white/50 shadow-lg hover:scale-105 transition-transform">
+            <div className={`inline-flex w-12 h-12 bg-${stat.color}-100 rounded-xl items-center justify-center mb-3`}>
+              {stat.icon === 'total' && <ShoppingBag className="w-6 h-6" aria-hidden="true" />}
+              {stat.icon === 'pending' && <Hourglass className="w-6 h-6" aria-hidden="true" />}
+              {stat.icon === 'approved' && <CheckCircle className="w-6 h-6" aria-hidden="true" />}
+              {stat.icon === 'rejected' && <XCircle className="w-6 h-6" aria-hidden="true" />}
+            </div>
+            <p className="text-3xl font-bold text-neutral-900 mb-1">{stat.value}</p>
+            <p className="text-sm text-neutral-600 mb-2">{stat.label}</p>
+          </div>
+        ))}
+      </div>
+      )}
+
+      {tab === 'items' && (
+      <div className="bg-white/70 backdrop-blur-xl rounded-2xl p-4 shadow-lg border border-white/50 mb-6">
+        <div className="flex flex-col gap-3">
+          {/* Type filter - horizontal scroll on mobile */}
+          <div className="flex gap-2 overflow-x-auto pb-2">
+            {[
+              { value: 'all', label: 'All', icon: 'store' },
+              { value: 'sell', label: 'Sale', icon: 'money' },
+              { value: 'lend', label: 'Lend', icon: 'handshake' },
+              { value: 'donate', label: 'Free', icon: 'gift' },
+            ].map((type) => (
+              <button key={type.value} onClick={() => setFilter(type.value as any)} className={`shrink-0 px-3 py-2 rounded-xl font-medium transition-all text-sm ${filter === type.value ? 'bg-ocean-gradient text-white shadow-lg' : 'bg-neutral-50 text-neutral-700 hover:bg-neutral-100'}`}>
+                <span className="mr-1.5 inline-flex items-center">
+                  {type.icon === 'store' && <Store className="w-4 h-4" aria-hidden="true" />}
+                  {type.icon === 'money' && <BadgeDollarSign className="w-4 h-4" aria-hidden="true" />}
+                  {type.icon === 'handshake' && <Handshake className="w-4 h-4" aria-hidden="true" />}
+                  {type.icon === 'gift' && <Gift className="w-4 h-4" aria-hidden="true" />}
+                </span>
+                <span className="hidden sm:inline">{type.label === 'All' ? 'All Items' : type.label === 'Sale' ? 'For Sale' : type.label === 'Lend' ? 'For Lending' : 'Free'}</span>
+                <span className="sm:hidden">{type.label}</span>
+              </button>
+            ))}
+          </div>
+          
+          {/* Status filter and municipality - stack on mobile */}
+          <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+            <select
+              name="statusFilter"
+              id="marketplace-status-filter"
+              aria-label="Filter by status"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              className="flex-1 sm:flex-none px-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-sm font-medium"
+            >
+              <option value="all">All Status</option>
+              <option value="available">Approved</option>
+              <option value="pending">Pending Review</option>
+              <option value="rejected">Rejected</option>
+            </select>
+            {userRole === 'admin' ? (
+              <select name="municipalityFilter" id="marketplace-municipality-filter" aria-label="Filter by municipality" className="flex-1 sm:flex-none px-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-sm font-medium"><option>All Municipalities</option></select>
+            ) : (
+              <div className="flex-1 sm:flex-none px-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-sm font-medium inline-flex items-center gap-2" aria-label="Municipality">
+                <svg className="w-4 h-4 text-neutral-500" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a4 4 0 00-4 4v2H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-1V6a4 4 0 00-4-4zm-2 6V6a2 2 0 114 0v2H8z"/></svg>
+                <span className="truncate max-w-[12rem]">{adminMunicipalityName || 'Municipality'}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      )}
+
+      {tab === 'items' && itemsError && <div className="mb-4 rounded-md border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-sm">{itemsError}</div>}
+      {tab === 'items' && (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        {itemsLoading && rows.length === 0 && [...Array(8)].map((_, i) => (
+          <div key={i} className="bg-white rounded-2xl overflow-hidden shadow-lg p-4">
+            <div className="aspect-square skeleton rounded-xl mb-3" />
+            <div className="h-4 w-40 skeleton rounded mb-2" />
+            <div className="h-3 w-24 skeleton rounded" />
+          </div>
+        ))}
+        {filtered.map((item: any) => (
+          <div key={item.id} className="group bg-white rounded-2xl overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-300 hover:scale-105">
+            <div className="relative aspect-square bg-gradient-to-br from-ocean-200 to-forest-200">
+              {item.image && (
+                <img
+                  src={mediaUrl(item.image)}
+                  alt={item.title}
+                  loading="lazy"
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+              )}
+              <div className="absolute top-3 left-3 z-10">
+                <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold text-white backdrop-blur-md ${item.type === 'sell' ? 'bg-forest-500/90' : item.type === 'lend' ? 'bg-ocean-500/90' : 'bg-sunset-500/90'}`}>
+                  {item.type === 'sell' && <><BadgeDollarSign className="w-4 h-4" aria-hidden="true" /><span>For Sale</span></>}
+                  {item.type === 'lend' && <><Handshake className="w-4 h-4" aria-hidden="true" /><span>For Lending</span></>}
+                  {item.type === 'donate' && <><Gift className="w-4 h-4" aria-hidden="true" /><span>Free</span></>}
+                </span>
+              </div>
+              <div className="absolute bottom-3 left-3"><span className="inline-flex items-center gap-1 px-3 py-1 bg-forest-100 text-forest-700 rounded-full text-xs font-semibold"><Check className="w-4 h-4" aria-hidden="true" /> Active</span></div>
+            </div>
+            <div className="p-4">
+              <div className="flex items-start justify-between mb-2">
+                <h3 className="font-bold text-neutral-900 line-clamp-2 flex-1 group-hover:text-ocean-600 transition-colors">{item.title}</h3>
+              </div>
+              <p className="text-xs text-neutral-600 mb-3">{item.category}</p>
+              <div className="flex items-center gap-2 mb-3 pb-3 border-b border-neutral-200">
+                {item.userPhoto ? (
+                  <img src={mediaUrl(item.userPhoto)} alt="profile" className="w-6 h-6 rounded-full object-cover border" />
+                ) : (
+                  <div className="w-6 h-6 rounded-full bg-ocean-gradient text-white text-xs font-bold flex items-center justify-center border">
+                    {item.userInitial || 'U'}
+                  </div>
+                )}
+                <p className="text-xs text-neutral-700">{item.user}</p>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                <div><p className="text-xs text-neutral-600">Views</p><p className="text-sm font-bold text-neutral-900">{item.views}</p></div>
+                <div><p className="text-xs text-neutral-600">Inquiries</p><p className="text-sm font-bold text-neutral-900">{item.inquiries}</p></div>
+                <div><p className="text-xs text-neutral-600">Posted</p><p className="text-xs font-medium text-neutral-700">{item.posted}</p></div>
+              </div>
+              <div className="flex">
+                <button onClick={() => setReviewItem(item)} className="flex-1 py-2 bg-ocean-100 hover:bg-ocean-200 text-ocean-700 rounded-lg text-xs font-medium transition-colors">{item.status === 'pending' ? 'Review' : 'View'}</button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {!itemsLoading && filtered.length === 0 && (
+          <div className="col-span-full">
+            <EmptyState
+              icon="cart"
+              title={filter !== 'all' || statusFilter !== 'pending' ? "No items match your filters" : "No pending items"}
+              description={filter !== 'all' || statusFilter !== 'pending' ? "Try adjusting your category or status filters." : "No marketplace items are awaiting review."}
+              action={filter !== 'all' || statusFilter !== 'pending' ? (
+                <button className="btn btn-secondary" onClick={() => { setFilter('all'); setStatusFilter('pending') }}>Reset Filters</button>
+              ) : undefined}
+            />
+          </div>
+        )}
+      </div>
+      )}
+
+
+      {tab === 'transactions' && (
+        <div className="bg-white/70 backdrop-blur-xl rounded-2xl p-4 shadow-lg border border-white/50">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold">Transactions</h2>
+            <select className="border rounded px-2 py-1" value={txStatus} onChange={(e)=>setTxStatus(e.target.value)}>
+              <option value="">All</option>
+              <option value="pending">pending</option>
+              <option value="awaiting_buyer">awaiting_buyer</option>
+              <option value="accepted">accepted</option>
+              <option value="handed_over">handed_over</option>
+              <option value="received">received</option>
+              <option value="returned">returned</option>
+              <option value="completed">completed</option>
+              <option value="disputed">disputed</option>
+            </select>
+          </div>
+          {txLoading && txRows.length === 0 ? (
+            <div>Loading…</div>
+          ) : (
+            <div className="overflow-auto">
+              <table className="w-full text-sm border">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="text-left p-2 border">ID</th>
+                    <th className="text-left p-2 border">Item</th>
+                    <th className="text-left p-2 border">Type</th>
+                    <th className="text-left p-2 border">Buyer</th>
+                    <th className="text-left p-2 border">Seller</th>
+                    <th className="text-left p-2 border">Status</th>
+                    <th className="text-left p-2 border">Created</th>
+                    <th className="text-left p-2 border">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {txRows.map((r: any) => (
+                    <tr key={r.id} className="hover:bg-gray-50">
+                      <td className="p-2 border">{r.id}</td>
+                      <td className="p-2 border">{r.item_title || r.item_id}</td>
+                      <td className="p-2 border">{r.transaction_type}</td>
+                      <td className="p-2 border">{r.buyer_name || r.buyer_id}</td>
+                      <td className="p-2 border">{r.seller_name || r.seller_id}</td>
+                      <td className="p-2 border">{r.status}</td>
+                      <td className="p-2 border">{(r.created_at || '').slice(0, 19).replace('T',' ')}</td>
+                      <td className="p-2 border">
+                        <button className="text-xs px-2 py-1 border rounded" onClick={async ()=>{
+                          const res = await transactionsAdminApi.get(r.id)
+                          const tx = (res as any).transaction
+                          const audit = (res as any).audit || []
+                          try {
+                            const [b, s] = await Promise.allSettled([
+                              userApi.getUserById(Number(tx.buyer_id)),
+                              userApi.getUserById(Number(tx.seller_id)),
+                            ])
+                            const buyer = b.status === 'fulfilled' ? (b.value as any).data : undefined
+                            const seller = s.status === 'fulfilled' ? (s.value as any).data : undefined
+                            setSelectedTx({ tx: { ...tx, buyer, seller }, audit })
+                          } catch {
+                            setSelectedTx({ tx, audit })
+                          }
+                        }}>View</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {txRows.length === 0 && (
+                <div className="mt-4">
+                  <EmptyState
+                    icon="cart"
+                    title={txStatus ? "No transactions match this status" : "No transactions yet"}
+                    description={txStatus ? "Try selecting a different status." : "Marketplace transactions will appear here."}
+                    compact
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {reviewItem && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" role="dialog" aria-modal="true" onKeyDown={(e) => { if (e.key === 'Escape') setReviewItem(null) }}>
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setReviewItem(null)} />
+          <div className="relative bg-white w-full sm:w-[95%] sm:max-w-2xl xl:max-w-3xl max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl shadow-2xl" tabIndex={-1} autoFocus>
+            {/* Header - sticky */}
+            <div className="sticky top-0 z-10 bg-white border-b px-4 py-3 sm:px-6 sm:py-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg sm:text-xl font-semibold">Review Listing</h2>
+                <p className="text-xs text-neutral-600">Ensure this item complies with community guidelines.</p>
+              </div>
+              <button onClick={() => setReviewItem(null)} className="p-2 -mr-2 text-neutral-500 hover:text-neutral-700 hover:bg-neutral-100 rounded-full transition-colors" aria-label="Close">
+                <X className="w-5 h-5" aria-hidden="true" />
+              </button>
+            </div>
+            {/* Content */}
+            <div className="p-4 sm:p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <div className="aspect-[4/3] bg-neutral-100 rounded-xl overflow-hidden">
+                  {Array.isArray(reviewItem.image ? [reviewItem.image] : reviewItem.images) && (reviewItem.image || reviewItem.images?.[0]) ? (
+                    <SafeImage src={mediaUrl(reviewItem.image || reviewItem.images?.[0])} alt={reviewItem.title} className="w-full h-full object-cover" fallbackIcon="image" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-neutral-400">No image</div>
+                  )}
+                </div>
+                {Array.isArray(reviewItem.images) && reviewItem.images.length > 1 && (
+                  <div className="flex gap-2 overflow-x-auto pt-1">
+                    {reviewItem.images.slice(1).map((img: string, idx: number) => (
+                      <SafeImage key={idx} src={mediaUrl(img)} alt="thumb" className="w-16 h-16 rounded-lg object-cover border" fallbackIcon="image" />
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs text-neutral-500">Type</p>
+                <p className="font-semibold capitalize">{reviewItem.type || reviewItem.transaction_type}</p>
+                <p className="text-xs text-neutral-500 mt-3">Title</p>
+                <p className="font-semibold">{reviewItem.title}</p>
+                <p className="text-xs text-neutral-500 mt-3">Category</p>
+                <p className="font-medium">{reviewItem.category}</p>
+                <p className="text-xs text-neutral-500 mt-3">Posted</p>
+                <p className="font-medium">{reviewItem.posted}</p>
+              </div>
+            </div>
+            </div>
+            {/* Footer - sticky on mobile */}
+            <div className="sticky bottom-0 z-10 bg-white border-t px-4 py-3 sm:px-6 sm:py-4 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2">
+              {reviewItem.status === 'pending' ? (
+                <>
+                  <button disabled={decisionLoading !== null} onClick={async () => {
+                    setDecisionLoading('reject')
+                    try {
+                      await marketplaceApi.rejectItem(reviewItem.id, 'Does not comply')
+                      removeItemFromCache(reviewItem.id)
+                      showToast('Item rejected', 'success')
+                      await refetchStats()
+                      setReviewItem(null)
+                    } catch (e: any) {
+                      showToast(handleApiError(e as any), 'error')
+                    } finally {
+                      setDecisionLoading(null)
+                    }
+                  }} className="w-full sm:w-auto px-4 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-sm font-medium transition-colors">{decisionLoading === 'reject' ? 'Rejecting...' : 'Reject'}</button>
+                  <button disabled={decisionLoading !== null} onClick={async () => {
+                    setDecisionLoading('approve')
+                    try {
+                      await marketplaceApi.approveItem(reviewItem.id)
+                      removeItemFromCache(reviewItem.id)
+                      showToast('Item approved and published', 'success')
+                      await refetchStats()
+                      setReviewItem(null)
+                    } catch (e: any) {
+                      showToast(handleApiError(e as any), 'error')
+                    } finally {
+                      setDecisionLoading(null)
+                    }
+                  }} className="w-full sm:w-auto px-4 py-2.5 bg-forest-600 hover:bg-forest-700 text-white rounded-lg text-sm font-medium transition-colors">{decisionLoading === 'approve' ? 'Approving...' : 'Approve'}</button>
+                </>
+              ) : (
+                <button onClick={() => setReviewItem(null)} className="w-full sm:w-auto px-4 py-2.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 rounded-lg text-sm font-medium transition-colors">Close</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {selectedTx && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={()=>setSelectedTx(null)}>
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+          <div className="relative bg-white w-full sm:w-[95%] sm:max-w-4xl max-h-[90vh] overflow-hidden rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col" onClick={(e)=>e.stopPropagation()}>
+            {/* Header - sticky */}
+            <div className="flex-shrink-0 px-4 py-3 sm:px-6 sm:py-4 border-b flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg sm:text-xl font-semibold tracking-tight">Transaction #{selectedTx.tx.id}</h2>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${selectedTx.tx.status==='completed'?'bg-emerald-100 text-emerald-700': selectedTx.tx.status==='disputed'?'bg-rose-100 text-rose-700': selectedTx.tx.status==='accepted'?'bg-blue-100 text-blue-700':'bg-neutral-100 text-neutral-700'}`}>{selectedTx.tx.status}</span>
+                  {selectedTx.tx.transaction_type && (
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-neutral-50 border border-neutral-200 capitalize">{selectedTx.tx.transaction_type}</span>
+                  )}
+                </div>
+              </div>
+              <button className="p-2 -mr-2 rounded-full hover:bg-neutral-100 text-neutral-500 hover:text-neutral-700 transition-colors" onClick={()=>setSelectedTx(null)} aria-label="Close">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content - scrollable */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+            {/* Parties */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+              {[{label:'Buyer', user:selectedTx.tx.buyer, id:selectedTx.tx.buyer_id, hue:'ocean', fallback:selectedTx.tx.buyer_name, photo:selectedTx.tx.buyer?.profile_picture || selectedTx.tx.buyer_profile_picture},{label:'Seller', user:selectedTx.tx.seller, id:selectedTx.tx.seller_id, hue:'sunset', fallback:selectedTx.tx.seller_name, photo:selectedTx.tx.seller?.profile_picture || selectedTx.tx.seller_profile_picture}].map((u,i)=>{
+                const name = u.user?.first_name ? `${u.user.first_name} ${u.user.last_name}` : (u.fallback || `#${u.id}`)
+                const initials = (u.user?.first_name||name||'').split(' ').map((s: string)=>s.charAt(0)).join('').slice(0,2)
+                return (
+                  <div key={i} className="flex items-center gap-3 p-3 rounded-xl border border-neutral-200 bg-white/80">
+                    {u.photo ? (
+                      <img src={mediaUrl(u.photo)} alt={`${u.label} avatar`} className="w-10 h-10 rounded-full object-cover border" />
+                    ) : (
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold ${u.hue==='ocean'?'bg-ocean-500':'bg-sunset-500'}`}>{(initials||'U')}</div>
+                    )}
+                    <div className="min-w-0">
+                      <div className="text-xs text-neutral-500">{u.label}</div>
+                      <div className="font-medium truncate">{name}</div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Timeline */}
+            <div className="mt-4">
+              <h3 className="text-sm font-semibold text-neutral-700 mb-3">Timeline</h3>
+              <div className="relative pl-4">
+                <div className="absolute left-1 top-0 bottom-0 w-px bg-neutral-200" />
+                {(selectedTx.audit || []).map((a: any, i: number) => {
+                  const isDispute = String(a.action||'') === 'dispute'
+                  const actorId = a.actor_id
+                  const buyerId = selectedTx.tx.buyer_id
+                  const sellerId = selectedTx.tx.seller_id
+                  const reporterName = actorId === buyerId
+                    ? (selectedTx.tx.buyer ? `${selectedTx.tx.buyer.first_name} ${selectedTx.tx.buyer.last_name}` : (selectedTx.tx.buyer_name || `#${buyerId}`))
+                    : (selectedTx.tx.seller ? `${selectedTx.tx.seller.first_name} ${selectedTx.tx.seller.last_name}` : (selectedTx.tx.seller_name || `#${sellerId}`))
+                  const reportedId = a.metadata?.reported_user_id || (actorId === buyerId ? sellerId : buyerId)
+                  const reportedName = reportedId === buyerId
+                    ? (selectedTx.tx.buyer ? `${selectedTx.tx.buyer.first_name} ${selectedTx.tx.buyer.last_name}` : (selectedTx.tx.buyer_name || `#${buyerId}`))
+                    : (selectedTx.tx.seller ? `${selectedTx.tx.seller.first_name} ${selectedTx.tx.seller.last_name}` : (selectedTx.tx.seller_name || `#${sellerId}`))
+                  const reporterRole = actorId === buyerId ? 'Buyer' : 'Seller'
+                  const reportedRole = reportedId === buyerId ? 'Buyer' : 'Seller'
+                  const chip = String(a.action||'')
+                  const chipCls = chip==='dispute'?'bg-rose-100 text-rose-700': chip==='complete'?'bg-emerald-100 text-emerald-700': chip.includes('handover')?'bg-blue-100 text-blue-700':'bg-neutral-100 text-neutral-700'
+                  return (
+                    <div key={i} className="relative pl-4 py-2">
+                      <div className="absolute left-0 top-3 w-2 h-2 rounded-full bg-neutral-400" />
+                      <div className="text-xs text-neutral-500">{(a.created_at || '').replace('T',' ').slice(0,19)}</div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${chipCls}`}>{String(a.action || '').replace(/_/g,' ')}</span>
+                        <span className="text-sm text-neutral-700">{a.from_status} → {a.to_status}</span>
+                        {a.notes && <span className="text-sm text-neutral-800 break-words">• {a.notes}</span>}
+                        {isDispute && <span className="text-sm text-rose-700 break-words">• Reported by {reporterRole} {reporterName} against {reportedRole} {reportedName}</span>}
+                      </div>
+                    </div>
+                  )
+                })}
+                {selectedTx.audit?.length ? null : <div className="text-sm text-gray-600">No audit entries.</div>}
+              </div>
+            </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

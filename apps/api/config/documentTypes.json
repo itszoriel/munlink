@@ -1,0 +1,135 @@
+{
+  "residency": {
+    "level": "barangay",
+    "title": "Certificate of Residency",
+    "body": "This is to certify that {{residentName}}, of {{address}}, is a bona fide resident of this municipality.",
+    "footer": "This document is issued upon request for {{purpose}}.",
+    "signatory": {
+      "name": "Hon. Ana Lopez",
+      "position": "Municipal Secretary"
+    }
+  },
+  "certificate_of_residency": {
+    "level": "barangay",
+    "title": "Certificate of Residency",
+    "body": "This is to certify that {{residentName}}, of {{address}}, is a bona fide resident of this municipality.",
+    "footer": "This document is issued upon request for {{purpose}}.",
+    "signatory": {
+      "name": "Hon. Ana Lopez",
+      "position": "Municipal Secretary"
+    }
+  },
+  "indigency": {
+    "level": "municipal",
+    "title": "Certificate of Indigency",
+    "body": "This certifies that {{residentName}} of {{address}} is among the indigent residents of this municipality and is in need of assistance.",
+    "footer": "Issued for {{purpose}}.",
+    "signatory": {
+      "name": "Hon. Ana Lopez",
+      "position": "Municipal Secretary"
+    }
+  },
+  "certificate_of_indigency": {
+    "level": "municipal",
+    "title": "Certificate of Indigency",
+    "body": "This certifies that {{residentName}} of {{address}} is among the indigent residents of this municipality and is in need of assistance.",
+    "footer": "Issued for {{purpose}}.",
+    "signatory": {
+      "name": "Hon. Ana Lopez",
+      "position": "Municipal Secretary"
+    }
+  },
+  "clearance": {
+    "level": "barangay",
+    "title": "Barangay Clearance",
+    "body": "This is to certify that {{residentName}}, residing at {{address}}, has no pending violations or cases in this barangay.",
+    "footer": "Issued for {{purpose}}.",
+    "signatory": {
+      "name": "Hon. Ana Lopez",
+      "position": "Municipal Secretary"
+    }
+  },
+  "barangay_clearance": {
+    "level": "barangay",
+    "title": "Barangay Clearance",
+    "body": "This is to certify that {{residentName}}, residing at {{address}}, has no pending violations or cases in this barangay.",
+    "footer": "Issued for {{purpose}}.",
+    "signatory": {
+      "name": "Hon. Ana Lopez",
+      "position": "Municipal Secretary"
+    }
+  },
+  "brgy_clearance": {
+    "level": "barangay",
+    "title": "Barangay Clearance",
+    "body": "This is to certify that {{residentName}}, residing at {{address}}, has no pending violations or cases in this barangay.",
+    "footer": "Issued for {{purpose}}.",
+    "signatory": {
+      "name": "Hon. Ana Lopez",
+      "position": "Municipal Secretary"
+    }
+  },
+  "brgy_residency": {
+    "level": "barangay",
+    "title": "Certificate of Residency",
+    "body": "This is to certify that {{residentName}}, of {{address}}, is a bona fide resident of this barangay and municipality.",
+    "footer": "This document is issued upon request for {{purpose}}.",
+    "signatory": {
+      "name": "Hon. Ana Lopez",
+      "position": "Municipal Secretary"
+    }
+  },
+  "brgy_indigency": {
+    "level": "barangay",
+    "title": "Certificate of Indigency",
+    "body": "This certifies that {{residentName}} of {{address}} is among the indigent residents of this barangay and is in need of assistance.",
+    "footer": "Issued for {{purpose}}.",
+    "signatory": {
+      "name": "Hon. Ana Lopez",
+      "position": "Municipal Secretary"
+    }
+  },
+  
+  "brgy_good_moral": {
+    "level": "barangay",
+    "title": "Certificate of Good Moral Character",
+    "body": "This is to certify that {{residentName}}, a resident of {{address}}, is known to be of good moral character and has exhibited proper conduct within this barangay.",
+    "footer": "Issued for {{purpose}}.",
+    "signatory": {
+      "name": "Hon. Ana Lopez",
+      "position": "Municipal Secretary"
+    }
+  },
+  "brgy_no_case": {
+    "level": "barangay",
+    "title": "Certificate of No Barangay Case",
+    "body": "This certifies that {{residentName}} has no pending barangay case recorded against them in this barangay as of {{date}}.",
+    "footer": "Issued for {{purpose}}.",
+    "signatory": {
+      "name": "Hon. Ana Lopez",
+      "position": "Municipal Secretary"
+    }
+  },
+  "business_permit": {
+    "level": "municipal",
+    "title": "Business Clearance",
+    "body": "This certifies that the business {{businessName}}, owned by {{residentName}}, located at {{address}}, is registered and permitted to operate within this municipality.",
+    "footer": "Valid until {{validity}}.",
+    "signatory": {
+      "name": "Hon. Ana Lopez",
+      "position": "Municipal Secretary"
+    }
+  },
+  "generic": {
+    "level": "municipal",
+    "title": "Certification",
+    "body": "This certifies that {{residentName}} requested {{documentType}} for {{purpose}}.",
+    "footer": "Issued this {{date}} at the Municipality of {{municipality}}.",
+    "signatory": {
+      "name": "Hon. Ana Lopez",
+      "position": "Municipal Secretary"
+    }
+  }
+}
+
+

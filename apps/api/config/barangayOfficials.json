@@ -1,0 +1,602 @@
+{
+  "Botolan": {
+    "Bangan": "ROEL P. DELIGUIN",
+    "Batonlapoc": "HENRY D. BALANGON",
+    "Beneg": "STELLA MARIE D. MAHINAY",
+    "Capayawan": "JOSEPH S. DIAL",
+    "Carael": "Allan D. Domacena",
+    "Danacbunga": "Angel G. Devera Jr",
+    "Maguisguis": "ROSELLER TABUNDAY",
+    "Mambog": "ARIS GEORGE D. LINGAT SR",
+    "Moraza": "YANGILENA P. DARIA",
+    "Paco": "MARLENE D. DILAG",
+    "Panan": "ALBERTO D. VILORIA",
+    "Parel": "ISAGANI AGUILAR",
+    "Paudpod": "JOSELITO H. CABALIC",
+    "Poonbato": "GARRY R. GUEVARRA",
+    "Porac": "LOLITA E. ANGELES",
+    "San Isidro": "DOROTEO R. DILAG",
+    "San Juan": "Marycel M. Villanueva",
+    "San Miguel": "ALVIN D. DULLAS",
+    "Santiago": "ALBERTO R. VILLANUEVA",
+    "Tampo": "Roberto Y. Divino Jr",
+    "Taugtog": "MERCEDITA B. PANES",
+    "Villar": "ERNIE B. JULIANO",
+    "Bancal": "EMILY D. DIÑOSO",
+    "Belbel": "GEORGE C. DUMLAO",
+    "Binoclutan": "FERNANDO D. ONATE JR",
+    "Burgos": "JESSICA L. DOMULOT",
+    "Cabatuan": "EDILBERTO L. FRONDA",
+    "Malomboy": "ERWIN D. DOLOJAN",
+    "Nacolcol": "ARMAN L. CRUZADO",
+    "Owaog-Nebloc": "GELYN C. ROMERO",
+    "Palis": "MANUEL F. DELA CRUZ"
+  },
+  "Cabangan": {
+    "Anonang": "CRIS G. REYES",
+    "Apo-apo": "LEVI M. AMAGNA",
+    "Arew": "AUGUSTO N. VILLALOBOS",
+    "Banuanbayo": "JONATHAN A. GELAGO",
+    "Cadmang-Reserva": "DAVID D. SANTOS",
+    "Camiling": "RONALD E. DURAN",
+    "Camiing": "RONALD E. DURAN",
+    "Casabaab": "JOVEN R. DE GUZMAN",
+    "Dolores": "ENRIQUE A. ALINEA",
+    "Del Carmen": "ERIC E. ALFEROS",
+    "Laoag": "GEORGE D. MANGLICMOT",
+    "Lomboy": "ROEL D. TORRES",
+    "Longos": "ALEJO PAYUMO",
+    "Mabanglit": "JOEWY D. MANGINDIN",
+    "New San Juan": "LEO C. DALIN",
+    "San Antonio": "GLENNFORD B. BADA",
+    "San Isidro": "APOLINARIO D. SANTOS",
+    "San Juan": "NOEL D. DE GUZMAN",
+    "San Rafael": "MELINDA R. RAMOS",
+    "Santa Rita": "JOSE A. ARCA",
+    "Santo Niño": "JOSE G. BUENO",
+    "Tondo": "JUANITO M. CASTILLEJOS SR",
+    "Felmida-Diaz": "LUIS D. DANIEL"
+  },
+  "Candelaria": {
+    "Babancal": "JIMMY ISAAC T. EDNAVE",
+    "Binabalian": "FREDDIE A. COLLADO",
+    "Catol": "DALIN E. ESPINOSA",
+    "Dampay": "CHRISTOPHER V. AFGAO",
+    "Lauis": "RICKY E. ECLARINO",
+    "Libertador": "JOEY T. DELA LLANA",
+    "Malabon": "NICOLAS E. ESPINOSA JR",
+    "Malimanga": "DANILO E. PULUSAN SR",
+    "Pamibian": "MELVIN B. ECHON",
+    "Panayonan": "DENNIS E. EDANGAL",
+    "Pinagrealan": "ROLAND N. ECHAURE",
+    "Poblacion": "MICHAEL E. CATAQUIAN",
+    "Sinabacan": "NESTOR E. PACHECO",
+    "Taposo": "Roel D. Ejan Sr",
+    "Uacon": "HERBERT E. ERRAZO",
+    "Yamot": "ANDRES I. ACIERTO"
+  },
+  "Castillejos": {
+    "Balaybay": "ROWELL M. ESTEBAN",
+    "Buenavista": "ELENA A. RAGADIO",
+    "Del Pilar": "ANGELICA G. PAEZ",
+    "Looc": "EDDIE D. GUTIERREZ",
+    "Magsaysay": "ALOHA C. BAUTISTA",
+    "Nagbayan": "QUIRINO R. ADOLFO",
+    "Nagbunga": "FERMIN I. YABUT",
+    "San Agustin": "darren ray v. dalit",
+    "San Jose": "JOEL L. LAZARO",
+    "San Juan": "MARCOS P. ALFONSO",
+    "San Nicolas": "YAM S. DADURAL",
+    "San Pablo": "Ronaldo R. Boquiren",
+    "San Roque": "RONNIE T. ISIDRO",
+    "Santa Maria": "SUSAN R. SORIA"
+  },
+  "Iba": {
+    "Amungan": "Richard N. Redondo",
+    "Zone 2 Pob.": "Jessie C. Echon",
+    "Zone 5 Pob.": "Edison E. Martinez",
+    "Bangantalinga": "Pascual M. Coloma",
+    "Zone 6 Pob.": "Rommel M. Butaran",
+    "Zone 3 Pob.": "Theody D. Bundang",
+    "Dirita-Baloguen": "Crispin A. Fisco",
+    "Zone 1 Pob.": "Augusto E. Abong",
+    "Lipay-Dingin-Panibuatan": "Victor S. Buenaventura",
+    "Palanginan": "Raedag A. Villamin Jr",
+    "Zone 4 Pob.": "Ulysssses M. Escusa",
+    "San Agustin": "Arbel L. Sison",
+    "Santa Barbara": "Merla R. Payumo",
+    "Santo Rosario": "Rosalino P. Paular"
+  },
+  "Masinloc": {
+    "Baloganon": "ROY A. EBDANE",
+    "Bamban": "GINA E. EDUAD",
+    "Bani": "SEAN A. ELAD",
+    "Collat": "MARLON E. DELOS REYES",
+    "Inhobol": "EDGAR D. ANGELES",
+    "North Poblacion": "REYNALDO E. MERETE JR",
+    "San Lorenzo": "BENJAMIN T. ALQUIZA",
+    "San Salvador": "RICHARD D. PASCUAL",
+    "Santa Rita": "ROLANDO E. PONILAS",
+    "Santo Rosario": "CHRISTIAN PIERRE T. NACIN",
+    "South Poblacion": "ORLINO E. EDNILAO",
+    "Taltal": "RAMIR E. HERMOSILLA",
+    "Tapuac": "HARRISON E. HEBRON"
+  },
+  "Palauig": {
+    "Alwa": "LYN V. MERCURIO",
+    "Bato": "TONY A. ALVES",
+    "Bulawen": "ERNESTO S. DEQUIÑA JR",
+    "Cauyan": "ANTONIO A. ASIS",
+    "East Poblacion": "Carlos P. Anulao",
+    "Garreta": "RAFAEL Z. CASTILLO",
+    "Libaba": "GENEVIEVE A. CATOLICO",
+    "Liozon": "ELMER R. ASIATICO",
+    "Lipay": "LLOYD E. AMBUYOC",
+    "Locloc": "EDDIE S. AURELIO SR",
+    "Macarang": "GERALD D. ABUTIN",
+    "Magalawa": "ROMULO A. ARAGON",
+    "Pangolingan": "HOWARD HERSONE M. CAASI",
+    "Salaza": "BEL P. ALTARES",
+    "San Juan": "JESUS B. ARIGO JR",
+    "Sto. Niño": "JOY A. ESCOBAL",
+    "Sto. Tomas": "ROMIR B. ALTARES",
+    "Tition": "Glen A. Elpus",
+    "West Poblacion": "Franklin T. Nacin"
+  },
+  "San Antonio": {
+    "Angeles": "MARLON A. JARDIN",
+    "Antipolo": "MARIE HAZEL E. ARLANTICO",
+    "Burgos (Pob.)": "JESSIE G. CABILES",
+    "East Dirita": "EFREN V. LABRADOR",
+    "Luna (Pob.)": "JERRY J. CABASAL",
+    "Pundaquit": "ERWELL S. SADERNAS",
+    "Rizal (Pob.)": "frederick s. yambao",
+    "San Esteban": "ALMA V. JARDIN",
+    "San Gregorio (Pob.)": "Tony P. Concepcion",
+    "San Juan (Pob.)": "CRISTY D. EVANGELISTA",
+    "San Miguel": "SIEGFRED T. GONZALES",
+    "San Nicolas (Pob.)": "ROLANDO M. FUNIESTAS",
+    "Santiago (Pob.)": "ROLANDO C. BORJA",
+    "West Dirita": "ERIC F. CALLO"
+  },
+  "San Felipe": {
+    "Amagna": "Ronald L. Borja",
+    "Apostol": "Dana F. Damaso",
+    "Balincaguing": "JESSIE R. DANSALAN",
+    "Farañal": "TIBURCIO R. REYES JR",
+    "Feria": "AVELINO J. BONACHITA",
+    "Maloma": "ALBERTO A. FALLORAN",
+    "Manglicmot": "GLENN F. PEÑARUBIA",
+    "Rosete": "NOEL S. MALALA",
+    "San Rafael": "MARLITA B. SANTOS",
+    "Sto. Niño": "ELBERT A. ABILLE",
+    "Sindol": "REX DANIEL A. ASUTILLA"
+  },
+  "San Marcelino": {
+    "Aglao": "MARIO B. TAGAPUEN",
+    "Buhawen": "EDGARDO S. DUEÑAS",
+    "Consuelo Norte": "CHURCHILL B. FABUNAN",
+    "Consuelo Sur": "DESIREE F. BRINDEZ",
+    "La Paz": "FILCAR J. ASPIRAS",
+    "Laoag": "JERRY M. MARIANO",
+    "Linasin": "ISAGANI I. PIMENTEL",
+    "Linusungan": "JEFFREY M. DELA CRUZ",
+    "Lucero": "JULIE ANN B. DELA CRUZ",
+    "Nagbunga": "CARMELITA R. ESTRADA",
+    "Rizal": "REX F. FERIDO",
+    "San Guillermo": "RICARDO C. RAFACON",
+    "San Isidro": "ROMEO A. JALASCO",
+    "San Rafael": "MAUREEN E. ARQUERO",
+    "Santa Fe": "RICO DIEGO F. ARQUERO",
+    "Central": "GENE L. CORPUS",
+    "Rabanes": "CONRADO A. SOLER"
+  },
+  "San Narciso": {
+    "Alusiis": "FRANCIS T. TIMAJO",
+    "Beddeng": "EDCEL D. ABINSAY",
+    "Candelaria": "ISRAEL A. ANCHETA",
+    "Dallipawen": "JESSIE A. REQUIŇO",
+    "Grullo": "Anthony A. Padua",
+    "La Paz": "Bienvenido V. Paz Jr",
+    "Libertad": "RANDY M. LAVARIAS",
+    "Namatacan": "JOE D. LAGUITAN",
+    "Natividad": "PRISCILLANO P. VINCA",
+    "Paite": "MARCOS A. FALSARIO",
+    "Patrocinio": "EDWIN F. DUMLAO",
+    "San Jose": "PACITA F. FARRE",
+    "San Juan": "CAREY T. RELORCAZA",
+    "San Pascual": "ZALDY S. MADRIAGA",
+    "San Rafael": "ADRELITO F. LEOLIGAO",
+    "Simminublan": "Adela A. Aquino",
+    "Omaya": "JOE N. OBISPO"
+  },
+  "Santa Cruz": {
+    "Babuyan": "Rogelio M. Mista",
+    "Bolitoc": "ARNEL M. MONSALUD",
+    "Bangcol": "GLORIA M. MENDIGORIN",
+    "Bayto": "LEO E. MOVILLA",
+    "Biay": "Ronald M. Tamayo",
+    "Canaynayan": "FELMAR M. MOVILLA",
+    "Gama": "ROLANDO V. ESPANO",
+    "Guinabon": "MARITES M. TABUCOL",
+    "Guisguis": "RAMIL M. ESQUIJO",
+    "Lipay": "DEWEY M. VENUS JR",
+    "Lomboy": "MIGUEL M. MURCIA",
+    "Lucapon North": "ALVIN A. EBANCULLA",
+    "Lucapon South": "JULIUS L. EBANCULLA",
+    "Malabago": "LEOPOLDO M. MANILA",
+    "Naulo": "ROMY M. MORETE",
+    "Poblacion North": "OSCAR M. MANILA",
+    "Pagatpat": "SAMMY B. ESPINOSA",
+    "Pamonoran": "KIMBERLY ROSE M. NARCISO",
+    "Sabang": "MARISA M. BRIVA",
+    "San Fernando": "EDGAR E. MARCELLANA",
+    "Poblacion South": "Robert M. Alviz",
+    "Tabalong": "Benson M. Fernandez",
+    "Tubotubo North": "LUIS M. MISTICA SR",
+    "Tubotubo South": "NOEL M. LADINO",
+    "Bulawon": "ARNIEL M. MEDIDA"
+  },
+  "Subic": {
+    "Aningway Sacatihan": "EDDIE T. DE GUZMAN",
+    "Asinan Poblacion": "BENJAMIN G. SANTOS",
+    "Baraca-Camachile": "NELSON S. DELA PAZ",
+    "Batiawan": "JOSE L. LAWAG",
+    "Calapacuan": "EARL ROD C. ARBOLEDA",
+    "Calapandayan": "ERNESTO D. BONILLA JR",
+    "Cawag": "MARVIN M. MARTINEZ",
+    "Ilwas": "JENNIFER E. SIMBOL",
+    "Mangan-Vaca": "OLIVER F. REYES",
+    "Matain": "MARVIN B. CHUA",
+    "Naugsol": "TADEO R. BINUYA",
+    "Pamatawan": "DISODADO S. DIVOSORA",
+    "San Isidro": "MAURICIO A. SAWEY",
+    "Santo Tomas": "JAYSAR M. LEONARDO",
+    "Wawandue": "FRANCIS G. CEJARES"
+  },
+  "Baler": {
+    "Poblacion": ""
+  },
+  "Casiguran": {
+    "Poblacion": ""
+  },
+  "Dilasag": {
+    "Poblacion": ""
+  },
+  "Dinalungan": {
+    "Poblacion": ""
+  },
+  "Dingalan": {
+    "Poblacion": ""
+  },
+  "Dipaculao": {
+    "Poblacion": ""
+  },
+  "Maria Aurora": {
+    "Poblacion": ""
+  },
+  "San Luis": {
+    "Poblacion": ""
+  },
+  "Abucay": {
+    "Poblacion": ""
+  },
+  "Bagac": {
+    "Poblacion": ""
+  },
+  "City of Balanga": {
+    "Poblacion": ""
+  },
+  "Dinalupihan": {
+    "Poblacion": ""
+  },
+  "Hermosa": {
+    "Poblacion": ""
+  },
+  "Limay": {
+    "Poblacion": ""
+  },
+  "Mariveles": {
+    "Poblacion": ""
+  },
+  "Morong": {
+    "Poblacion": ""
+  },
+  "Orani": {
+    "Poblacion": ""
+  },
+  "Orion": {
+    "Poblacion": ""
+  },
+  "Pilar": {
+    "Poblacion": ""
+  },
+  "Samal": {
+    "Poblacion": ""
+  },
+  "Angat": {
+    "Poblacion": ""
+  },
+  "Balagtas": {
+    "Poblacion": ""
+  },
+  "City of Baliwag": {
+    "Poblacion": ""
+  },
+  "Bocaue": {
+    "Poblacion": ""
+  },
+  "Bulacan": {
+    "Poblacion": ""
+  },
+  "Bustos": {
+    "Poblacion": ""
+  },
+  "Calumpit": {
+    "Poblacion": ""
+  },
+  "Guiguinto": {
+    "Poblacion": ""
+  },
+  "Hagonoy": {
+    "Poblacion": ""
+  },
+  "City of Malolos": {
+    "Poblacion": ""
+  },
+  "Marilao": {
+    "Poblacion": ""
+  },
+  "City of Meycauayan": {
+    "Poblacion": ""
+  },
+  "Norzagaray": {
+    "Poblacion": ""
+  },
+  "Obando": {
+    "Poblacion": ""
+  },
+  "Pandi": {
+    "Poblacion": ""
+  },
+  "Paombong": {
+    "Poblacion": ""
+  },
+  "Plaridel": {
+    "Poblacion": ""
+  },
+  "Pulilan": {
+    "Poblacion": ""
+  },
+  "San Ildefonso": {
+    "Poblacion": ""
+  },
+  "City of San Jose Del Monte": {
+    "Poblacion": ""
+  },
+  "San Miguel": {
+    "Poblacion": ""
+  },
+  "San Rafael": {
+    "Poblacion": ""
+  },
+  "Santa Maria": {
+    "Poblacion": ""
+  },
+  "Doña Remedios Trinidad": {
+    "Poblacion": ""
+  },
+  "Aliaga": {
+    "Poblacion": ""
+  },
+  "Bongabon": {
+    "Poblacion": ""
+  },
+  "City of Cabanatuan": {
+    "Poblacion": ""
+  },
+  "Cabiao": {
+    "Poblacion": ""
+  },
+  "Carranglan": {
+    "Poblacion": ""
+  },
+  "Cuyapo": {
+    "Poblacion": ""
+  },
+  "Gabaldon": {
+    "Poblacion": ""
+  },
+  "City of Gapan": {
+    "Poblacion": ""
+  },
+  "General Mamerto Natividad": {
+    "Poblacion": ""
+  },
+  "General Tinio": {
+    "Poblacion": ""
+  },
+  "Guimba": {
+    "Poblacion": ""
+  },
+  "Jaen": {
+    "Poblacion": ""
+  },
+  "Laur": {
+    "Poblacion": ""
+  },
+  "Licab": {
+    "Poblacion": ""
+  },
+  "Llanera": {
+    "Poblacion": ""
+  },
+  "Lupao": {
+    "Poblacion": ""
+  },
+  "Science City of Muñoz": {
+    "Poblacion": ""
+  },
+  "Nampicuan": {
+    "Poblacion": ""
+  },
+  "City of Palayan": {
+    "Poblacion": ""
+  },
+  "Pantabangan": {
+    "Poblacion": ""
+  },
+  "Peñaranda": {
+    "Poblacion": ""
+  },
+  "Quezon": {
+    "Poblacion": ""
+  },
+  "Rizal": {
+    "Poblacion": ""
+  },
+  "San Isidro": {
+    "Poblacion": ""
+  },
+  "San Jose City": {
+    "Poblacion": ""
+  },
+  "San Leonardo": {
+    "Poblacion": ""
+  },
+  "Santa Rosa": {
+    "Poblacion": ""
+  },
+  "Santo Domingo": {
+    "Poblacion": ""
+  },
+  "Talavera": {
+    "Poblacion": ""
+  },
+  "Talugtug": {
+    "Poblacion": ""
+  },
+  "Zaragoza": {
+    "Poblacion": ""
+  },
+  "Apalit": {
+    "Poblacion": ""
+  },
+  "Arayat": {
+    "Poblacion": ""
+  },
+  "Bacolor": {
+    "Poblacion": ""
+  },
+  "Candaba": {
+    "Poblacion": ""
+  },
+  "Floridablanca": {
+    "Poblacion": ""
+  },
+  "Guagua": {
+    "Poblacion": ""
+  },
+  "Lubao": {
+    "Poblacion": ""
+  },
+  "Mabalacat City": {
+    "Poblacion": ""
+  },
+  "Macabebe": {
+    "Poblacion": ""
+  },
+  "Magalang": {
+    "Poblacion": ""
+  },
+  "Masantol": {
+    "Poblacion": ""
+  },
+  "Mexico": {
+    "Poblacion": ""
+  },
+  "Minalin": {
+    "Poblacion": ""
+  },
+  "Porac": {
+    "Poblacion": ""
+  },
+  "City of San Fernando": {
+    "Poblacion": ""
+  },
+  "San Simon": {
+    "Poblacion": ""
+  },
+  "Santa Ana": {
+    "Poblacion": ""
+  },
+  "Santa Rita": {
+    "Poblacion": ""
+  },
+  "Sto. Tomas": {
+    "Poblacion": ""
+  },
+  "Sasmuan": {
+    "Poblacion": ""
+  },
+  "City of Angeles": {
+    "Poblacion": ""
+  },
+  "Anao": {
+    "Baguindoc": "Rey G. Mariano"
+  },
+  "Bamban": {
+    "Poblacion": ""
+  },
+  "Camiling": {
+    "Poblacion": ""
+  },
+  "Capas": {
+    "Poblacion": ""
+  },
+  "Concepcion": {
+    "Poblacion": ""
+  },
+  "Gerona": {
+    "Poblacion": ""
+  },
+  "La Paz": {
+    "Poblacion": ""
+  },
+  "Mayantoc": {
+    "Poblacion": ""
+  },
+  "Moncada": {
+    "Poblacion": ""
+  },
+  "Paniqui": {
+    "Poblacion": ""
+  },
+  "Pura": {
+    "Poblacion": ""
+  },
+  "Ramos": {
+    "Poblacion": ""
+  },
+  "San Clemente": {
+    "Poblacion": ""
+  },
+  "San Manuel": {
+    "Poblacion": ""
+  },
+  "Santa Ignacia": {
+    "Poblacion": ""
+  },
+  "City of Tarlac": {
+    "Poblacion": ""
+  },
+  "Victoria": {
+    "Poblacion": ""
+  },
+  "San Jose": {
+    "Poblacion": ""
+  },
+  "City of Olongapo": {
+    "Poblacion": ""
+  }
+}

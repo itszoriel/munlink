@@ -1,0 +1,32 @@
+# MunLink Region 3 - Robots.txt
+# Allows search engines to crawl public pages while protecting private content
+
+# Allow all crawlers
+User-agent: *
+
+# Allow public pages
+Allow: /
+Allow: /announcements
+Allow: /marketplace
+Allow: /about
+Allow: /terms-of-service
+Allow: /privacy-policy
+Allow: /verify/
+
+# Disallow private/authenticated areas
+Disallow: /dashboard
+Disallow: /profile
+Disallow: /my-marketplace
+Disallow: /upload-id
+Disallow: /login
+Disallow: /register
+Disallow: /api/
+
+# Disallow admin dashboard (separate site)
+Disallow: /admin/
+
+# Sitemap location
+Sitemap: https://munlink-web-production-327f.up.railway.app/sitemap.xml
+
+# Crawl delay (be respectful of server resources)
+Crawl-delay: 1

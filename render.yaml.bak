@@ -1,0 +1,149 @@
+﻿# MunLink Zambales - Render Deployment Configuration
+# Uses Supabase for database (PostgreSQL)
+
+services:
+  # ============================================
+  # Backend API (Python/Flask)
+  # ============================================
+  - type: web
+    name: munlink-api
+    region: singapore
+    runtime: python
+    rootDir: apps/api
+    buildCommand: |
+      pip install --upgrade pip
+      pip install --no-cache-dir python-dotenv==1.0.0
+      pip install --no-cache-dir -r requirements.txt
+      pip install --no-cache-dir psycopg2-binary==2.9.9 gunicorn==21.2.0
+    startCommand: "gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 120 --max-requests 1000 --max-requests-jitter 50 --worker-class sync"
+    healthCheckPath: /health
+    envVars:
+      # Pin Python version (Render currently defaults to Python 3.13, which breaks psycopg2-binary)
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      # Flask Configuration
+      - key: FLASK_ENV
+        value: production
+      - key: DEBUG
+        value: "False"
+      - key: FLASK_APP
+        value: app.py
+      - key: APP_NAME
+        value: MunLink Zambales
+      
+      # Security Keys (set in Render Dashboard)
+      - key: SECRET_KEY
+        sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: JWT_ACCESS_TOKEN_EXPIRES
+        value: "86400"
+      - key: ADMIN_SECRET_KEY
+        sync: false
+      - key: CLAIM_CODE_ENC_KEY
+        sync: false
+      
+      # Supabase Database (set in Render Dashboard)
+      # Use the Transaction Pooler connection string from Supabase
+      - key: DATABASE_URL
+        sync: false
+      
+      # Supabase API (set in Render Dashboard)
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      
+      # Frontend URLs
+      - key: WEB_URL
+        value: https://munlink-web-y9lj.onrender.com
+      - key: ADMIN_URL
+        value: https://munlink-admin-s7o1.onrender.com
+      - key: BASE_URL
+        value: https://munlink-api-9c02.onrender.com
+      - key: QR_BASE_URL
+        value: https://munlink-web-y9lj.onrender.com/verify
+      
+      # File Uploads
+      - key: UPLOAD_FOLDER
+        value: uploads/region3
+      - key: MAX_FILE_SIZE
+        value: "10485760"
+      - key: ALLOWED_EXTENSIONS
+        value: pdf,jpg,jpeg,png,doc,docx
+      
+      # Email Configuration (set in Render Dashboard)
+      - key: SMTP_SERVER
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: FROM_EMAIL
+        sync: false
+    
+    # Note: For production, consider adding a persistent disk (requires paid plan)
+    # Or use Supabase Storage for file uploads
+    postdeployCommand: "FLASK_APP=app:create_app flask db upgrade"
+    
+    plan: free
+
+  # ============================================
+  # Public Website (React/Vite)
+  # ============================================
+  - type: web
+    name: munlink-web
+    runtime: static
+    rootDir: .
+    buildCommand: npm install --no-audit --no-fund && cd packages/ui && npm install --no-audit --no-fund && npm run build && cd ../../apps/web && npm install --no-audit --no-fund && npm run build
+    staticPublishPath: apps/web/dist
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        value: https://munlink-api-9c02.onrender.com
+      - key: VITE_APP_NAME
+        value: MunLink Zambales
+
+  # ============================================
+  # Admin Dashboard (React/Vite)
+  # ============================================
+  - type: web
+    name: munlink-admin
+    runtime: static
+    rootDir: .
+    buildCommand: npm install --no-audit --no-fund && cd packages/ui && npm install --no-audit --no-fund && npm run build && cd ../../apps/admin && npm install --no-audit --no-fund && npm run build
+    staticPublishPath: apps/admin/dist
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        value: https://munlink-api-9c02.onrender.com
+      - key: VITE_APP_NAME
+        value: MunLink Zambales Admin
+      - key: VITE_PUBLIC_SITE_URL
+        value: https://munlink-web-y9lj.onrender.com
+
+# No Render database needed - using Supabase

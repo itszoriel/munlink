@@ -1,0 +1,14 @@
+# MunLink API - Railway Configuration
+# This file tells Railway to use Docker for the API service
+
+[build]
+# Use the Dockerfile in this directory
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Health check endpoint
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+numReplicas = 1

@@ -1,0 +1,30 @@
+{
+  "name": "@munlink/ui",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "src/index.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "dev": "tsup src/index.ts --format esm,cjs --watch",
+    "build": "tsup src/index.ts --format esm,cjs --clean"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18",
+    "tailwindcss": ">=3.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "tsup": "^7",
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@tanstack/react-table": "^8.21.3"
+  }
+}

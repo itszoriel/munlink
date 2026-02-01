@@ -1,0 +1,25 @@
+﻿# MunLink Monorepo - Railway Configuration
+#
+# This project has 3 services. Configure each in Railway dashboard:
+#
+# 1. munlink-api:
+#    - Root Directory: apps/api
+#    - Builder: Dockerfile (uses apps/api/Dockerfile automatically)
+#    - Healthcheck: /health (configured in apps/api/railway.toml)
+#
+# 2. munlink-web:
+#    - Root Directory: . (project root)
+#    - Builder: Dockerfile
+#    - Dockerfile Path: Dockerfile.web
+#
+# 3. munlink-admin:
+#    - Root Directory: . (project root)
+#    - Builder: Dockerfile
+#    - Dockerfile Path: Dockerfile.admin
+#
+# IMPORTANT: Ensure all environment variables are set in Railway dashboard:
+# - API: DATABASE_URL, JWT_SECRET_KEY, FLASK_APP=app.py, etc.
+# - Web: VITE_API_URL
+# - Admin: VITE_API_URL
+#
+# See RAILWAY_DEPLOYMENT.md for full setup instructions.

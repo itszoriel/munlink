@@ -1,0 +1,54 @@
+{
+  "Botolan": {
+    "psgc_code": "037101000",
+    "is_capital": false
+  },
+  "Cabangan": {
+    "psgc_code": "037102000",
+    "is_capital": false
+  },
+  "Candelaria": {
+    "psgc_code": "037103000",
+    "is_capital": false
+  },
+  "Castillejos": {
+    "psgc_code": "037104000",
+    "is_capital": false
+  },
+  "Iba": {
+    "psgc_code": "037105000",
+    "is_capital": true
+  },
+  "Masinloc": {
+    "psgc_code": "037106000",
+    "is_capital": false
+  },
+  "Palauig": {
+    "psgc_code": "037107000",
+    "is_capital": false
+  },
+  "San Antonio": {
+    "psgc_code": "037108000",
+    "is_capital": false
+  },
+  "San Felipe": {
+    "psgc_code": "037109000",
+    "is_capital": false
+  },
+  "San Marcelino": {
+    "psgc_code": "037110000",
+    "is_capital": false
+  },
+  "San Narciso": {
+    "psgc_code": "037111000",
+    "is_capital": false
+  },
+  "Santa Cruz": {
+    "psgc_code": "037112000",
+    "is_capital": false
+  },
+  "Subic": {
+    "psgc_code": "037113000",
+    "is_capital": false
+  }
+}

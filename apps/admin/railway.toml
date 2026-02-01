@@ -1,0 +1,13 @@
+# Railway Configuration for MunLink Admin Dashboard
+# Documentation: https://docs.railway.app/deploy/config-as-code
+# IMPORTANT: Set "Root Directory" to "." (project root) in Railway dashboard
+# This service uses Dockerfile.admin from the project root
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.admin"
+
+[deploy]
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3

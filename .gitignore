@@ -1,0 +1,77 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+ENV/
+
+# Build outputs
+dist/
+build/
+.next/
+*.egg-info/
+*.egg
+
+# Environment variables - NEVER commit these!
+.env
+.env.local
+.env.*.local
+*.env
+ENV_*.txt
+env_*.txt
+*SECRETS*.txt
+*_COPY.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Uploads (local development)
+uploads/**/*
+!uploads/.gitkeep
+
+# Testing
+coverage/
+.pytest_cache/
+.coverage
+
+# Turborepo
+.turbo/
+
+# Package manager lock files (keep package-lock.json for Docker builds)
+yarn.lock
+pnpm-lock.yaml
+
+# Large data files
+*.xlsx
+*.xls
+
+# Reference/temporary files
+# NOTE: public/reference/ is NOT ignored - it contains hero background images needed for production
+docs/
+
+
+# Terminal Paste Image folder
+.cp-images/

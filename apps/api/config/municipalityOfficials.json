@@ -1,0 +1,514 @@
+{
+  "Subic": {
+    "mayor": "Jonathan \"Jon\" Khonghun",
+    "vice_mayor": "Lauro B. Simbol"
+  },
+  "Castillejos": {
+    "mayor": "Jeffrey D. Khonghun",
+    "vice_mayor": "Cristian T. Esposo"
+  },
+  "San Marcelino": {
+    "mayor": "Elmer Soria",
+    "vice_mayor": "Jimbo Gongora"
+  },
+  "San Antonio": {
+    "mayor": "DOK Arvin Antipolo",
+    "vice_mayor": "ATTY. Jojo Bactad"
+  },
+  "San Narciso": {
+    "mayor": "La Rainne Abad-Sarmiento",
+    "vice_mayor": "Lance Ritual"
+  },
+  "San Felipe": {
+    "mayor": "Hart Jeresano",
+    "vice_mayor": "Mary Ann Quiba"
+  },
+  "Cabangan": {
+    "mayor": "Ronald Apostol",
+    "vice_mayor": "Leo Bringas"
+  },
+  "Botolan": {
+    "mayor": "Jun Omar Ebdane",
+    "vice_mayor": "ATTY. Ed Perez"
+  },
+  "Iba": {
+    "mayor": "Irene Maniquiz",
+    "vice_mayor": "Joan Ballesteros"
+  },
+  "Palauig": {
+    "mayor": "Cristian Aceron",
+    "vice_mayor": "Billy Aceron"
+  },
+  "Masinloc": {
+    "mayor": "Hazel Lim",
+    "vice_mayor": "Senyang Lim"
+  },
+  "Candelaria": {
+    "mayor": "Nik-Nok Edquilang",
+    "vice_mayor": "Gilbert Hermoso"
+  },
+  "Santa Cruz": {
+    "mayor": "Consolacion Marty",
+    "vice_mayor": "Miguel Jr. Maniago"
+  },
+  "City of Olongapo": {
+    "mayor": "Rolen Paulino Jr.",
+    "vice_mayor": "Kaye Ann Legaspi"
+  },
+  "Baler": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Casiguran": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Dilasag": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Dinalungan": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Dingalan": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Dipaculao": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Maria Aurora": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "San Luis": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Abucay": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Bagac": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "City of Balanga": {
+    "mayor": "Raquel Garcia",
+    "vice_mayor": ""
+  },
+  "Dinalupihan": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Hermosa": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Limay": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Mariveles": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Morong": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Orani": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Orion": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Pilar": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Samal": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Angat": {
+    "mayor": "Reynante \"Jowar\" S. Bautista",
+    "vice_mayor": "Arvin L. Agustin"
+  },
+  "Balagtas": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "City of Baliwag": {
+    "mayor": "Sonia Estrella",
+    "vice_mayor": ""
+  },
+  "Bocaue": {
+    "mayor": "Eduardo J. Villanueva Jr.",
+    "vice_mayor": "Sherwin N. Tugna"
+  },
+  "Bulacan": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Bustos": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Calumpit": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Guiguinto": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Hagonoy": {
+    "mayor": "Ma. Rosario \"Ate Charo\" Sy-Alvarado Mendoza",
+    "vice_mayor": "Jhane Dela Cruz"
+  },
+  "City of Malolos": {
+    "mayor": "Christian Natividad",
+    "vice_mayor": ""
+  },
+  "Marilao": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "City of Meycauayan": {
+    "mayor": "Henry R. Villarica",
+    "vice_mayor": "Josefina O. Violago"
+  },
+  "Norzagaray": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Obando": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Pandi": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Paombong": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Plaridel": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Pulilan": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "San Ildefonso": {
+    "mayor": "Fernando \"Gazo\" Galvez",
+    "vice_mayor": "Robert Miguel"
+  },
+  "City of San Jose Del Monte": {
+    "mayor": "Rida Robes",
+    "vice_mayor": ""
+  },
+  "San Miguel": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "San Rafael": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Santa Maria": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Doña Remedios Trinidad": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Aliaga": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Bongabon": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "City of Cabanatuan": {
+    "mayor": "Myca Vergara",
+    "vice_mayor": ""
+  },
+  "Cabiao": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Carranglan": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Cuyapo": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Gabaldon": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "City of Gapan": {
+    "mayor": "Joy Pascual",
+    "vice_mayor": ""
+  },
+  "General Mamerto Natividad": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "General Tinio": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Guimba": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Jaen": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Laur": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Licab": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Llanera": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Lupao": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Science City of Muñoz": {
+    "mayor": "Armi Alvarez",
+    "vice_mayor": ""
+  },
+  "Nampicuan": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "City of Palayan": {
+    "mayor": "Vianne Cuevas",
+    "vice_mayor": ""
+  },
+  "Pantabangan": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Peñaranda": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Quezon": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Rizal": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "San Isidro": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "San Jose City": {
+    "mayor": "James Violago",
+    "vice_mayor": ""
+  },
+  "San Leonardo": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Santa Rosa": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Santo Domingo": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Talavera": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Talugtug": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Zaragoza": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Apalit": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Arayat": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Bacolor": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Candaba": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Floridablanca": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Guagua": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Lubao": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Mabalacat City": {
+    "mayor": "Geld Aquino",
+    "vice_mayor": ""
+  },
+  "Macabebe": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Magalang": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Masantol": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Mexico": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Minalin": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Porac": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "City of San Fernando": {
+    "mayor": "Vilma Caluag",
+    "vice_mayor": ""
+  },
+  "San Simon": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Santa Ana": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Santa Rita": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Sto. Tomas": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Sasmuan": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "City of Angeles": {
+    "mayor": "Carmelo Lazatin Jr.",
+    "vice_mayor": ""
+  },
+  "Anao": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Bamban": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Camiling": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Capas": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Concepcion": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Gerona": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "La Paz": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Mayantoc": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Moncada": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Paniqui": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Pura": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Ramos": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "San Clemente": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "San Manuel": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "Santa Ignacia": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "City of Tarlac": {
+    "mayor": "Susan Yap",
+    "vice_mayor": ""
+  },
+  "Victoria": {
+    "mayor": "",
+    "vice_mayor": ""
+  },
+  "San Jose": {
+    "mayor": "",
+    "vice_mayor": ""
+  }
+}

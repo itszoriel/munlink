@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: munlink-db
+    environment:
+      POSTGRES_USER: munlink_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-munlink_password}
+      POSTGRES_DB: munlink_zambales
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U munlink_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Flask API Backend
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: munlink-api
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://munlink_user:${DB_PASSWORD:-munlink_password}@db:5432/munlink_zambales
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - ADMIN_SECRET_KEY=${ADMIN_SECRET_KEY}
+      - FLASK_ENV=${FLASK_ENV:-production}
+      - DEBUG=${DEBUG:-False}
+    volumes:
+      - ./uploads:/app/uploads
+      - ./data:/app/data:ro
+      - ./assets:/app/assets:ro
+    networks:
+      - internal
+      - public
+    ports:
+      - "5000:5000"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: gunicorn -w 4 -b 0.0.0.0:5000 app:app --timeout 120
+
+  # Public Website (React)
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: munlink-web
+    environment:
+      - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:5000/api}
+    networks:
+      - public
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+  # Admin Dashboard (React - Internal Only)
+  admin:
+    build:
+      context: ./apps/admin
+      dockerfile: Dockerfile
+    container_name: munlink-admin
+    environment:
+      - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://api:5000/api}
+      - ADMIN_SECRET_KEY=${ADMIN_SECRET_KEY}
+    networks:
+      - internal
+    ports:
+      - "3001:80"
+    depends_on:
+      - api
+
+networks:
+  public:
+    driver: bridge
+  internal:
+    driver: bridge
+    internal: false  # Set to true in production to block external access
+
+volumes:
+  postgres_data:
+    driver: local
+

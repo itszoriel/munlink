@@ -1,0 +1,29 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ESNext",
+        "lib": [
+            "ES2022",
+            "DOM",
+            "DOM.Iterable"
+        ],
+        "skipLibCheck": true,
+        "moduleResolution": "bundler",
+        "allowImportingTsExtensions": true,
+        "verbatimModuleSyntax": true,
+        "noEmit": true,
+        "strict": true,
+        "jsx": "react-jsx"
+    },
+    "references": [
+        {
+            "path": "./apps/web"
+        },
+        {
+            "path": "./apps/admin"
+        },
+        {
+            "path": "./packages/ui"
+        }
+    ]
+}

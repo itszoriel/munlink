@@ -1,0 +1,45 @@
+{
+  "name": "munilink-reg-3",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Municipality-first digital governance platform for Region 3 (Central Luzon).",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "clean": "turbo run clean",
+    "setup": "npm install && npm run setup:all",
+    "setup:all": "cd apps/api && pip install -r requirements.txt && cd ../web && npm install && cd ../admin && npm install"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.14",
+    "turbo": "^1.10.16",
+    "typescript": "^5.0.0",
+    "eslint": "^8.57.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "eslint-plugin-react": "^7.35.0",
+    "eslint-plugin-react-hooks": "^4.6.0"
+  },
+  "engines": {
+    "node": "20.x",
+    "npm": ">=9.0.0"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.90.3",
+    "axios": "^1.12.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.9.4",
+    "zustand": "^5.0.8"
+  }
+}
