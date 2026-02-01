@@ -17,6 +17,7 @@ RUN npm ci --no-audit --no-fund
 # Copy source code needed for build
 COPY packages/ui ./packages/ui
 COPY apps/admin ./apps/admin
+COPY data ./data
 COPY tsconfig.json ./
 
 # Build shared UI package
