@@ -14,8 +14,9 @@ COPY apps/admin/package.json apps/admin/
 RUN npm ci --no-audit --no-fund
 
 # Copy source code needed for build
+# Copy source code needed for build
 COPY packages/ui packages/ui
-COPY apps/admin apps/admin
+COPY apps/admin/ apps/admin/
 COPY tsconfig.json ./
 
 # Build shared UI package
@@ -42,6 +43,12 @@ RUN echo '#!/bin/sh' > /start.sh && \
     echo '    index index.html;' >> /start.sh && \
     echo '    location / {' >> /start.sh && \
     echo '        try_files \$uri \$uri/ /index.html;' >> /start.sh && \
+    echo '    }' >> /start.sh && \
+    echo '    location /api/ {' >> /start.sh && \
+    echo '        proxy_pass https://api-munlink.up.railway.app;' >> /start.sh && \
+    echo '        proxy_ssl_server_name on;' >> /start.sh && \
+    echo '        proxy_set_header Host api-munlink.up.railway.app;' >> /start.sh && \
+    echo '        proxy_set_header X-Real-IP \$remote_addr;' >> /start.sh && \
     echo '    }' >> /start.sh && \
     echo '    gzip on;' >> /start.sh && \
     echo '    gzip_types text/plain text/css application/json application/javascript;' >> /start.sh && \
