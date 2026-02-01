@@ -32,7 +32,7 @@ RUN echo '#!/bin/sh' > /start.sh && \
     echo 'export PYTHONPATH=$PYTHONPATH:/app' >> /start.sh && \
     echo 'echo "Starting MunLink API..."' >> /start.sh && \
     echo 'echo "Running database migrations..."' >> /start.sh && \
-    echo 'flask db upgrade || echo "Warning: Migration failed or skipped"' >> /start.sh && \
+    echo 'flask db upgrade heads || echo "Warning: Migration failed or skipped"' >> /start.sh && \
     echo 'echo "Starting Notification Worker..."' >> /start.sh && \
     echo 'nohup python scripts/notification_worker.py > /dev/stdout 2>&1 &' >> /start.sh && \
     echo 'echo "Starting Gunicorn on port ${PORT:-5000}..."' >> /start.sh && \

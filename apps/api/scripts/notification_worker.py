@@ -19,8 +19,9 @@ try:
 except ImportError:
     import sys
     from pathlib import Path
-    # Ensure parent directory (API root) is in path
-    sys.path.append(str(Path(__file__).parent.parent))
+    # Ensure parent directory (API root) is in path at the beginning
+    # This prevents 'import __init__' in app.py from picking up scripts/__init__.py
+    sys.path.insert(0, str(Path(__file__).parent.parent))
     
     from app import create_app, db
     # db is imported from app to avoid importing scripts/__init__
