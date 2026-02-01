@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
 import { getProvinces, getMunicipalities, getBarangaysByMunicipalitySlug } from '@/lib/locations'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api-munlink.up.railway.app'
 
 type AdminRole = 'provincial_admin' | 'municipal_admin' | 'barangay_admin'
 

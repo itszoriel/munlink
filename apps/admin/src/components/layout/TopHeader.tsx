@@ -43,7 +43,7 @@ export default function TopHeader({ sidebarCollapsed, onOpenMobile }: TopHeaderP
     return 'Dashboard'
   }
   
-  const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000'
+  const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 'https://api-munlink.up.railway.app'
   // Resolve public site URL: prefer explicit env; otherwise, if running on a dev port (e.g., 3001), link to 3000
   const PUBLIC_SITE_URL = (import.meta as any).env?.VITE_PUBLIC_SITE_URL || (() => {
     try {

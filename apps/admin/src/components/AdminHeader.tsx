@@ -61,7 +61,7 @@ export default function AdminHeader() {
     return new URL('../../../../public/logos/zambales/128px-Seal_of_Province_of_Zambales.svg.png', import.meta.url).toString()
   }
 
-  const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000'
+  const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 'https://api-munlink.up.railway.app'
   const resolveImageUrl = (path?: string) => {
     if (!path) return undefined
     if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('data:') || path.startsWith('blob:')) return path

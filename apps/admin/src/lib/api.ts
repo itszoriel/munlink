@@ -7,13 +7,13 @@ import type { AxiosResponse, AxiosError, AxiosInstance } from 'axios'
 import { useAdminStore } from './store'
 
 // API Configuration
-// Local-only: rely on explicit env or default to localhost
+// Production URL for Railway deployment
+const PRODUCTION_API_URL = 'https://api-munlink.up.railway.app'
 const isBrowser = typeof window !== 'undefined'
 const API_BASE_URL =
   (import.meta as any).env?.VITE_API_BASE_URL ||
   (import.meta as any).env?.VITE_API_URL ||
-  // Use relative path in browser so Vite dev proxy handles CORS; fall back to localhost for server contexts
-  (isBrowser ? '' : 'http://localhost:5000')
+  PRODUCTION_API_URL
 
 // In-memory access token (sessionStorage for persistence across page loads)
 let accessToken: string | null = null
@@ -35,7 +35,7 @@ export const setAccessToken = (token: string | null) => {
     } else {
       sessionStorage.removeItem('admin:access_token')
     }
-  } catch {}
+  } catch { }
 }
 export const clearAccessToken = () => {
   accessToken = null
@@ -43,7 +43,7 @@ export const clearAccessToken = () => {
     sessionStorage.removeItem('admin:access_token')
     // Clear session flag on logout
     localStorage.removeItem(HAS_SESSION_KEY)
-  } catch {}
+  } catch { }
 }
 
 // Check if admin has ever had a session (to avoid unnecessary refresh calls on fresh loads)
@@ -92,7 +92,7 @@ export async function bootstrapAuth(): Promise<boolean> {
         void doRefresh()
         return true
       }
-    } catch {}
+    } catch { }
 
     // Only attempt refresh if admin has had a session before
     // This prevents 401 errors on fresh loads when user has never logged in
@@ -151,7 +151,7 @@ apiClient.interceptors.response.use(
           originalRequest.headers['Authorization'] = `Bearer ${newToken}`
           return apiClient(originalRequest)
         }
-      } catch {}
+      } catch { }
 
       // Refresh failed - if we're bootstrapping, don't redirect (let the store handle it)
       if (!isBootstrapping) {
@@ -176,7 +176,7 @@ apiClient.interceptors.response.use(
           window.location.href = '/'
           return Promise.reject(error)
         }
-      } catch {}
+      } catch { }
     }
 
     // Log detailed error info for debugging (422 and others)
@@ -185,7 +185,7 @@ apiClient.interceptors.response.use(
       const data: any = error.response?.data
       const url = (error.config as any)?.url
       console.error('API Error:', { status, url, data })
-    } catch {}
+    } catch { }
 
     return Promise.reject(error)
   }
@@ -306,7 +306,7 @@ export const issueApi = {
     if (filters.category) params.append('category', filters.category)
     if (filters.page) params.append('page', filters.page.toString())
     if (filters.per_page) params.append('per_page', filters.per_page.toString())
-    
+
     return apiClient.get(`/api/admin/issues?${params.toString()}`).then(res => res.data)
   },
 
@@ -506,7 +506,7 @@ export const dashboardApi = {
 
 // Transfers (Resident Municipality Transfers)
 export const transferAdminApi = {
-  list: (params: { status?: string; q?: string; page?: number; per_page?: number; sort?: string; order?: 'asc'|'desc' } = {}): Promise<ApiResponse<{ transfers: any[]; count?: number; page?: number; pages?: number; per_page?: number; total?: number }>> =>
+  list: (params: { status?: string; q?: string; page?: number; per_page?: number; sort?: string; order?: 'asc' | 'desc' } = {}): Promise<ApiResponse<{ transfers: any[]; count?: number; page?: number; pages?: number; per_page?: number; total?: number }>> =>
     apiClient.get('/api/admin/transfers', { params }).then(res => res.data),
   updateStatus: (id: number, status: 'approved' | 'rejected' | 'accepted'): Promise<ApiResponse<{ transfer: any }>> =>
     apiClient.put(`/api/admin/transfers/${id}/status`, { status }).then(res => res.data),
@@ -645,11 +645,11 @@ export const municipalitiesAdminApi = {
 
 // Admin Exports & Audit
 export const exportAdminApi = {
-  exportPdf: (entity: 'users'|'benefits'|'requests'|'issues'|'items'|'announcements'|'audit', filters?: any): Promise<ApiResponse<{ url: string; summary?: any }>> =>
+  exportPdf: (entity: 'users' | 'benefits' | 'requests' | 'issues' | 'items' | 'announcements' | 'audit', filters?: any): Promise<ApiResponse<{ url: string; summary?: any }>> =>
     apiClient.post(`/api/admin/exports/${entity}.pdf`, filters || {}).then(res => res.data),
-  exportExcel: (entity: 'users'|'benefits'|'requests'|'issues'|'items'|'announcements'|'audit', filters?: any): Promise<ApiResponse<{ url: string; summary?: any }>> =>
+  exportExcel: (entity: 'users' | 'benefits' | 'requests' | 'issues' | 'items' | 'announcements' | 'audit', filters?: any): Promise<ApiResponse<{ url: string; summary?: any }>> =>
     apiClient.post(`/api/admin/exports/${entity}.xlsx`, filters || {}).then(res => res.data),
-  cleanup: (payload: { entity: 'announcements'|'requests'|'users'|'benefits'|'issues'|'items'; before?: string; confirm: 'DELETE'; archive?: boolean }): Promise<ApiResponse<{ deleted_count: number; archived_url?: string }>> =>
+  cleanup: (payload: { entity: 'announcements' | 'requests' | 'users' | 'benefits' | 'issues' | 'items'; before?: string; confirm: 'DELETE'; archive?: boolean }): Promise<ApiResponse<{ deleted_count: number; archived_url?: string }>> =>
     apiClient.post('/api/admin/cleanup', payload).then(res => res.data),
 }
 

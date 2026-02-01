@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 // Local-only: rely on explicit env or default to localhost
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api-munlink.up.railway.app'
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -54,7 +54,7 @@ export const setAccessToken = (token: string | null) => {
     } else {
       sessionStorage.removeItem('access_token')
     }
-  } catch {}
+  } catch { }
 }
 export const clearAccessToken = () => {
   accessToken = null
@@ -62,11 +62,11 @@ export const clearAccessToken = () => {
     clearTimeout(refreshTimer)
     refreshTimer = null
   }
-  try { 
+  try {
     sessionStorage.removeItem('access_token')
     // Clear session flag on logout
     localStorage.removeItem(HAS_SESSION_KEY)
-  } catch {}
+  } catch { }
 }
 
 // Check if user has ever had a session (to avoid unnecessary refresh calls for guests)
@@ -122,7 +122,7 @@ function scheduleRefresh(token: string) {
   const delayMs = Math.max((expSec - nowSec - bufferSec) * 1000, 0)
   refreshTimer = setTimeout(() => {
     // fire and forget
-    void doRefresh().catch(() => {})
+    void doRefresh().catch(() => { })
   }, delayMs)
 }
 
@@ -134,14 +134,14 @@ async function doRefresh(): Promise<string | null> {
     if (csrfToken) {
       headers['X-CSRF-TOKEN'] = csrfToken
     }
-    
+
     const resp = await axios.post(
       `${API_BASE_URL}/api/auth/refresh`,
       {},
-      { 
-        withCredentials: true, 
+      {
+        withCredentials: true,
         validateStatus: () => true,
-        headers 
+        headers
       }
     )
     if (resp.status !== 200) return null
@@ -168,14 +168,14 @@ export async function bootstrapAuth(): Promise<boolean> {
       void doRefresh()
       return true
     }
-  } catch {}
-  
+  } catch { }
+
   // Only attempt refresh if user has had a session before
   // This prevents 401 errors for guests who have never logged in
   if (!hasHadSession()) {
     return false
   }
-  
+
   // Attempt to hydrate from refresh cookie once on app load
   const token = await doRefresh()
   return !!token
@@ -188,7 +188,7 @@ api.interceptors.request.use((config: any) => {
     try {
       config.headers['Authorization'] = `Bearer ${accessToken}`
     } catch {
-      ;(config.headers as any).Authorization = `Bearer ${accessToken}`
+      ; (config.headers as any).Authorization = `Bearer ${accessToken}`
     }
   }
   return config
@@ -214,7 +214,7 @@ api.interceptors.response.use(
           }
           return api(originalRequest)
         }
-      } catch {}
+      } catch { }
       // If refresh failed, clear and redirect to login
       clearAccessToken()
       window.location.href = '/login'
@@ -231,11 +231,11 @@ api.interceptors.response.use(
               localStorage.removeItem('munlink:role')
               localStorage.removeItem('munlink:user')
             }
-          } catch {}
+          } catch { }
           window.location.href = '/login'
           return Promise.reject(error)
         }
-      } catch {}
+      } catch { }
     }
 
     return Promise.reject(error)
@@ -247,7 +247,7 @@ export const authApi = {
   register: (data: any, files?: { profile_picture?: File, valid_id_front?: File, valid_id_back?: File, selfie_with_id?: File, municipality_slug?: string }) => {
     if (files) {
       const form = new FormData()
-      Object.entries(data || {}).forEach(([k,v]) => form.append(k, String(v ?? '')))
+      Object.entries(data || {}).forEach(([k, v]) => form.append(k, String(v ?? '')))
       if (files.municipality_slug) form.append('municipality_slug', files.municipality_slug)
       if (files.profile_picture) form.append('profile_picture', files.profile_picture)
       // Optional: accept verification docs at registration if provided
@@ -359,7 +359,7 @@ export const benefitsApi = {
 export const transferApi = {
   request: (to_municipality_id: number, notes: string, to_barangay_id?: number) => api.post('/api/auth/transfer', { to_municipality_id, notes, to_barangay_id }),
   listAdmin: (): Promise<any> => api.get('/api/admin/transfers'),
-  updateAdmin: (id: number, status: 'approved'|'rejected'|'accepted') => api.put(`/api/admin/transfers/${id}/status`, { status }),
+  updateAdmin: (id: number, status: 'approved' | 'rejected' | 'accepted') => api.put(`/api/admin/transfers/${id}/status`, { status }),
 }
 
 // Toast helper for consistent notifications
@@ -387,7 +387,7 @@ let keepAliveInterval: ReturnType<typeof setInterval> | null = null
 
 export const startKeepAlive = () => {
   if (keepAliveInterval) return // Already running
-  
+
   const ping = async () => {
     // Only ping if the page is visible (don't waste resources when tab is hidden)
     if (document.visibilityState === 'visible') {
@@ -399,14 +399,14 @@ export const startKeepAlive = () => {
       }
     }
   }
-  
+
   // Initial ping to warm up the server immediately
   void ping()
-  
+
   // Ping every 10 minutes (600,000ms) to keep server warm
   // Render's free tier spins down after ~15 mins of inactivity
   keepAliveInterval = setInterval(ping, 10 * 60 * 1000)
-  
+
   // Also ping when the page becomes visible again (user returns to tab)
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
