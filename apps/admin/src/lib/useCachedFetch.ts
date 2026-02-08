@@ -42,14 +42,14 @@ export function useCachedFetch<T>(
   
   const fetch = useCallback(async () => {
     if (options?.enabled === false) return
-    
+
     // Read fresh values from store inside the callback
     const currentCached = dataStore.getCached<T>(finalCacheKey)
     const currentIsFresh = dataStore.isFresh(finalCacheKey, staleTime)
-    
+
     if (currentIsFresh && currentCached !== null) return // Already have fresh data
     if (fetchingRef.current) return // Already fetching
-    
+
     fetchingRef.current = true
     dataStore.setLoading(finalCacheKey, true)
     dataStore.setError(finalCacheKey, null)
@@ -63,18 +63,36 @@ export function useCachedFetch<T>(
       fetchingRef.current = false
     }
   }, [finalCacheKey, staleTime, options?.enabled]) // Read isFresh and cached inside callback
-  
+
+  // Force refetch that bypasses enabled/freshness guards.
+  // Use this after mutations (approve, reject, etc.) to reload data immediately.
+  const forceRefetch = useCallback(async () => {
+    if (fetchingRef.current) return
+    fetchingRef.current = true
+    dataStore.setLoading(finalCacheKey, true)
+    dataStore.setError(finalCacheKey, null)
+    try {
+      const result = await fetcherRef.current()
+      dataStore.setData(finalCacheKey, result)
+    } catch (e: any) {
+      dataStore.setError(finalCacheKey, e?.message || 'Failed to fetch')
+    } finally {
+      dataStore.setLoading(finalCacheKey, false)
+      fetchingRef.current = false
+    }
+  }, [finalCacheKey])
+
   // Only refetch when cache key or dependencies change, not when loading state changes
   useEffect(() => {
     fetch()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finalCacheKey]) // Only depend on the cache key, not fetch itself (to prevent infinite loop)
-  
+
   return {
     data: cached,
     loading: isLoading && !cached, // Only show loading if no cached data
     error,
-    refetch: fetch,
+    refetch: forceRefetch,
     invalidate: () => dataStore.invalidate(finalCacheKey),
     update: (updater: (data: T) => T) => dataStore.updateCached(finalCacheKey, updater),
   }

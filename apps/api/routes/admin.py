@@ -1509,7 +1509,7 @@ def create_announcement():
             data = request.form.to_dict()
             if 'shared_with_municipalities' in request.form:
                 shared_values = request.form.getlist('shared_with_municipalities')
-                if len(shared_values) > 1:
+                if shared_values:
                     data['shared_with_municipalities'] = shared_values
             # Convert string booleans to actual booleans for FormData
             if 'pinned' in data:
@@ -1647,7 +1647,7 @@ def update_announcement(announcement_id):
             data = request.form.to_dict()
             if 'shared_with_municipalities' in request.form:
                 shared_values = request.form.getlist('shared_with_municipalities')
-                if len(shared_values) > 1:
+                if shared_values:
                     data['shared_with_municipalities'] = shared_values
             # Convert string booleans to actual booleans for FormData
             if 'pinned' in data:

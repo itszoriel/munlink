@@ -181,11 +181,22 @@ def list_announcements():
             shared_scope_filter = Announcement.scope.in_(['MUNICIPALITY', 'BARANGAY'])
             if is_guest:
                 shared_scope_filter = (Announcement.scope == 'MUNICIPALITY')
+            # Use TEXT cast + boundary-aware LIKE to check shared municipalities.
+            # Strip spaces first so we match consistently regardless of JSON formatting,
+            # then require bracket/comma boundaries to avoid substring false positives
+            # (e.g. ID 11 accidentally matching inside 112).
+            shared_text = func.replace(func.cast(Announcement.shared_with_municipalities, sa.TEXT), ' ', '')
+            id_str = str(effective_muni_id)
             shared_filter = and_(
                 shared_scope_filter,
                 Announcement.shared_with_municipalities != None,
-                func.json_array_length(Announcement.shared_with_municipalities) > 0,
-                func.cast(Announcement.shared_with_municipalities, sa.TEXT).like(f'%{effective_muni_id}%')
+                shared_text.notin_(['null', '[]', '']),
+                or_(
+                    shared_text.like(f'%[{id_str}]%'),
+                    shared_text.like(f'%[{id_str},%'),
+                    shared_text.like(f'%,{id_str},%'),
+                    shared_text.like(f'%,{id_str}]%'),
+                )
             )
             if is_guest:
                 muni_filter = and_(muni_filter, Announcement.public_viewable == True)
@@ -234,8 +245,10 @@ def list_announcements():
             'message': guest_message
         }), 200
 
-    except (sqlite3.OperationalError, SAOperationalError, SAProgrammingError):
-        # Likely missing table in SQLite; return safe empty shape instead of 500
+    except (sqlite3.OperationalError, SAOperationalError, SAProgrammingError) as e:
+        # Likely missing table/column; log so it's visible in Railway logs
+        import logging
+        logging.getLogger(__name__).warning('Announcements query DB error (returning empty): %s', e)
         page = max(1, request.args.get('page', 1, type=int) or 1)
         per_page = max(1, request.args.get('per_page', 20, type=int) or 20)
         return jsonify({
@@ -249,6 +262,8 @@ def list_announcements():
             }
         }), 200
     except Exception as e:
+        import logging
+        logging.getLogger(__name__).error('Announcements query failed: %s', e)
         return jsonify({'error': 'Failed to get announcements', 'details': str(e)}), 500
 
 

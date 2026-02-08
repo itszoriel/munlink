@@ -127,11 +127,11 @@ export default function Requests() {
     if (effectiveDelivery !== 'all' && r.delivery_method !== (effectiveDelivery === 'pickup' ? 'pickup' : 'digital')) return false
     return true
   })
-  // Refresh helper - uses the cached fetch refetch
+  // Use refetch from the primary hook (now force-fetches, bypassing freshness/enabled guards)
   const { refetch: refetchRequests } = useCachedFetch(
     CACHE_KEYS.DOCUMENT_REQUESTS,
     () => adminApi.getRequests({ page: 1, per_page: 50, status: statusFilter === 'all' ? undefined : statusFilter }),
-    { dependencies: [statusFilter], staleTime: 2 * 60 * 1000, enabled: false }
+    { dependencies: [statusFilter], staleTime: 2 * 60 * 1000 }
   )
   const refresh = async () => {
     try {
