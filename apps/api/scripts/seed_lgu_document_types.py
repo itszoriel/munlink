@@ -257,7 +257,13 @@ def seed_lgu_document_types():
             print("Zambales province not found. Run the main seed script first.")
             return
 
-        municipalities = Municipality.query.filter_by(province_id=zambales.id).all()
+        # ZAMBALES SCOPE: Exclude Olongapo City (ID 130) from seeding
+        EXCLUDED_MUNICIPALITY_SLUGS = ['city-of-olongapo']
+        all_municipalities = Municipality.query.filter_by(province_id=zambales.id).all()
+        municipalities = [m for m in all_municipalities if m.slug not in EXCLUDED_MUNICIPALITY_SLUGS]
+        excluded_count = len(all_municipalities) - len(municipalities)
+        if excluded_count:
+            print(f"Excluded {excluded_count} municipality(ies) (Olongapo) from seeding.")
         if not municipalities:
             print("No municipalities found for Zambales. Seed municipalities first.")
             return

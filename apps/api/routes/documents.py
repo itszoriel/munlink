@@ -12,7 +12,7 @@ from apps.api.utils.time import utc_now
 from datetime import datetime
 from flask import Blueprint, jsonify, request, current_app, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from sqlalchemy import or_
+from sqlalchemy import or_, and_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 import requests
@@ -255,20 +255,22 @@ def list_document_types():
 
         query = DocumentType.query.filter_by(is_active=True)
 
-        if barangay_id:
+        if barangay_id and municipality_id:
+            # Show: barangay docs for this barangay + municipal docs for this municipality
             query = query.filter(
                 or_(
                     DocumentType.barangay_id == barangay_id,
-                    DocumentType.municipality_id == municipality_id,
-                    DocumentType.barangay_id.is_(None)
+                    and_(
+                        DocumentType.municipality_id == municipality_id,
+                        DocumentType.barangay_id.is_(None)
+                    )
                 )
             )
         elif municipality_id:
+            # Show: municipal docs for this municipality only
             query = query.filter(
-                or_(
-                    DocumentType.municipality_id == municipality_id,
-                    DocumentType.municipality_id.is_(None)
-                )
+                DocumentType.municipality_id == municipality_id,
+                DocumentType.barangay_id.is_(None)
             )
 
         types = query.all()

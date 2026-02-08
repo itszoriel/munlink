@@ -129,83 +129,11 @@ ZAMBALES_MUNICIPALITIES = [
     }
 ]
 
-# Document types (legally-safe defaults aligned to project scope)
-# Digital availability is controlled per document type; paid digital requires Stripe.
-DOCUMENT_TYPES = [
-    {
-        'name': 'Barangay Clearance',
-        'code': 'BRGY_CLEARANCE',
-        'description': 'Clearance for general purposes (employment, school, etc.)',
-        'authority_level': 'barangay',
-        'requirements': ['Cedula', 'Valid ID'],
-        'fee': 50.00,
-        'exemption_rules': {'student': {'requires_purpose': 'educational'}},
-        'processing_days': 1,
-        'supports_physical': True,
-        'supports_digital': True,
-    },
-    {
-        'name': 'Barangay Certification',
-        'code': 'BRGY_CERTIFICATION',
-        'description': 'General barangay certification for residents',
-        'authority_level': 'barangay',
-        'requirements': ['Valid ID'],
-        'fee': 50.00,
-        'exemption_rules': {'pwd': True, 'senior': True},
-        'processing_days': 1,
-        'supports_physical': True,
-        'supports_digital': True,
-    },
-    {
-        'name': 'Barangay Records',
-        'code': 'BRGY_RECORDS',
-        'description': 'Certification or copy of barangay records',
-        'authority_level': 'barangay',
-        'requirements': ['Valid ID'],
-        'fee': 50.00,
-        'processing_days': 2,
-        'supports_physical': True,
-        'supports_digital': True,
-    },
-    {
-        'name': 'Barangay Residency',
-        'code': 'BRGY_RESIDENCY',
-        'description': 'Certification that the requester resides in the barangay',
-        'authority_level': 'barangay',
-        'requirements': ['Valid ID'],
-        'fee': 50.00,
-        'processing_days': 3,
-        'supports_physical': True,
-        'supports_digital': True,
-    },
-    {
-        'name': 'Barangay Indigency',
-        'code': 'BRGY_INDIGENCY',
-        'description': 'Certification for indigent residents (for assistance programs)',
-        'authority_level': 'barangay',
-        'requirements': ['Valid ID'],
-        'fee': 50.00,
-        'processing_days': 2,
-        'supports_physical': True,
-        'supports_digital': True,
-    },
-    {
-        'name': 'Business Clearance',
-        'code': 'BRGY_BUSINESS_CLEARANCE',
-        'description': 'Clearance for businesses operating within the barangay',
-        'authority_level': 'barangay',
-        'requirements': ['Valid ID', 'DTI Registration', 'Proof of Ownership'],
-        'fee': 300.00,
-        'fee_tiers': {
-            'big_business': 300,
-            'small_business': 150,
-            'banca_tricycle': 100
-        },
-        'processing_days': 2,
-        'supports_physical': True,
-        'supports_digital': False,
-    },
-]
+# Document types - REMOVED: Global unscoped document types previously here had
+# municipality_id=NULL which caused them to appear for ALL users regardless of
+# location. All document types are now seeded per-municipality and per-barangay
+# by seed_lgu_document_types.py with proper municipality_id/barangay_id set.
+DOCUMENT_TYPES = []
 
 def _slugify(text: str) -> str:
     """Basic slugify for province/municipality/barangay names."""
