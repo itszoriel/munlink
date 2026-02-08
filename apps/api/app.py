@@ -5,6 +5,9 @@ Main application entry point
 import sys
 import os
 import json
+import importlib
+import importlib.util
+import types
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -12,13 +15,54 @@ from dotenv import load_dotenv
 API_DIR = Path(__file__).parent.resolve()
 PROJECT_ROOT = API_DIR.parent.parent.resolve()
 
-# Load environment variables from .env file at project root
-env_path = PROJECT_ROOT / '.env'
-if env_path.exists():
-    load_dotenv(env_path)
+# Load environment variables from nearest supported .env location
+for env_path in (PROJECT_ROOT / '.env', API_DIR / '.env'):
+    if env_path.exists():
+        load_dotenv(env_path)
+        break
 
-# Add project root to path for absolute imports
-sys.path.insert(0, str(PROJECT_ROOT))
+# Add project root and API directory to path for absolute imports
+for path_entry in (str(PROJECT_ROOT), str(API_DIR)):
+    if path_entry not in sys.path:
+        sys.path.insert(0, path_entry)
+
+
+def _ensure_apps_api_importable() -> None:
+    """
+    Support both monorepo layout and API-only deployments.
+
+    In production containers for this service, only apps/api may be present.
+    In that layout, `apps.api` package path does not exist by default, so we
+    bootstrap it dynamically from this directory.
+    """
+    try:
+        importlib.import_module("apps.api")
+        return
+    except ModuleNotFoundError:
+        pass
+
+    apps_pkg = sys.modules.get("apps")
+    if apps_pkg is None:
+        apps_pkg = types.ModuleType("apps")
+        apps_pkg.__path__ = [str(API_DIR.parent)]
+        sys.modules["apps"] = apps_pkg
+
+    init_file = API_DIR / "__init__.py"
+    spec = importlib.util.spec_from_file_location(
+        "apps.api",
+        str(init_file),
+        submodule_search_locations=[str(API_DIR)],
+    )
+    if spec is None or spec.loader is None:
+        raise ModuleNotFoundError("Unable to bootstrap apps.api package")
+
+    api_pkg = importlib.util.module_from_spec(spec)
+    sys.modules["apps.api"] = api_pkg
+    setattr(apps_pkg, "api", api_pkg)
+    spec.loader.exec_module(api_pkg)
+
+
+_ensure_apps_api_importable()
 
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
