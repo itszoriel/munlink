@@ -100,7 +100,9 @@ def create_app(config_class=Config):
     # Initialize rate limiter
     if app.config.get('RATELIMIT_ENABLED', True):
         limiter.init_app(app)
-        app.logger.info("Rate limiting enabled")
+        # Exempt CORS preflight OPTIONS requests from rate limiting
+        limiter.request_filter(lambda: request.method == 'OPTIONS')
+        app.logger.info("Rate limiting enabled (OPTIONS preflight exempt)")
     else:
         app.logger.warning("Rate limiting is DISABLED - not recommended for production")
     
