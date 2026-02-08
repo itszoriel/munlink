@@ -1,14 +1,15 @@
 """Notification helpers for queuing announcements and request updates."""
 from __future__ import annotations
+from apps.api.utils.time import utc_now
 from datetime import datetime
 from typing import Dict, Any, List, Tuple, Set
 from flask import current_app
 from sqlalchemy import or_
 
-from __init__ import db
-from models.notification import NotificationOutbox
-from models.user import User
-from utils.zambales_scope import (
+from apps.api import db
+from apps.api.models.notification import NotificationOutbox
+from apps.api.models.user import User
+from apps.api.utils.zambales_scope import (
     ZAMBALES_MUNICIPALITY_IDS,
     is_valid_zambales_municipality,
 )
@@ -72,7 +73,7 @@ def queue_notification_for_user(
         payload=payload,
         status='pending',
         attempts=0,
-        next_attempt_at=schedule_at or datetime.utcnow(),
+        next_attempt_at=schedule_at or utc_now(),
         dedupe_key=dedupe_key,
     )
     db.session.add(entry)
@@ -93,7 +94,11 @@ def _doc_status_templates(new_status: str, req, doc_name: str, reason: str | Non
     if new_status == 'ready':
         pickup_hint = "Your document is ready for release."
         if getattr(req, 'delivery_method', '').lower() in ('physical', 'pickup'):
-            pickup_hint = "Your document is ready for pickup. Please bring your valid ID."
+            pickup_hint = (
+                "Your document is ready for pickup.\n"
+                "Please log in to your MunLink account and view your claim ticket.\n"
+                "Bring the claim ticket QR code (or fallback code) and your valid ID to the office."
+            )
         lines.append(pickup_hint)
     if new_status == 'completed':
         lines.append("Your digital copy is available in your account.")
@@ -114,7 +119,7 @@ def queue_document_request_created(user: User, req, doc_name: str) -> Dict[str, 
         f"We'll notify you as soon as it is processed."
     )
     sms_message = f"{doc_name} request received. Ref: {getattr(req, 'request_number', '')}. We'll update you once it's processing."
-    schedule_at = datetime.utcnow()
+    schedule_at = utc_now()
 
     email_state = queue_notification_for_user(
         user,
@@ -211,7 +216,7 @@ def queue_announcement_notifications(announcement) -> Dict[str, int]:
     """Queue notifications for a published announcement."""
     results = {'queued': 0, 'skipped': 0}
     status = (getattr(announcement, 'status', '') or '').upper()
-    now = datetime.utcnow()
+    now = utc_now()
 
     publish_at = getattr(announcement, 'publish_at', None)
     expire_at = getattr(announcement, 'expire_at', None)
@@ -338,7 +343,7 @@ def queue_benefit_program_notifications(program) -> Dict[str, int]:
     )
     sms_message = f"New benefit program available: {program_name}. Check MunLink to apply."
     batch_key = f"benefit_program:{program.id}"
-    schedule_at = datetime.utcnow()
+    schedule_at = utc_now()
 
     # Bulk dedupe check
     keys: Set[str] = set()
@@ -398,3 +403,21 @@ def queue_benefit_program_notifications(program) -> Dict[str, int]:
             results['skipped'] += 1
 
     return results
+
+
+def flush_pending_notifications(max_items: int = 50):
+    """Best-effort inline delivery of queued notifications.
+
+    Called after admin actions that queue notifications so that
+    delivery happens immediately without waiting for the background
+    worker.  Failures are silently swallowed -- the worker will
+    retry any remaining rows on its next pass.
+    """
+    try:
+        from apps.api.utils.notification_delivery import process_batch
+        process_batch(max_items=max_items, newest_first=True)
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass

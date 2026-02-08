@@ -12,10 +12,11 @@ Security model:
 4. On logout: Invalidate token and optionally entire family
 """
 from datetime import datetime
+from apps.api.utils.time import utc_now
 try:
-    from __init__ import db
+    from apps.api import db
 except ImportError:
-    from __init__ import db
+    from apps.api import db
 from sqlalchemy import Index
 import uuid
 
@@ -41,8 +42,8 @@ class RefreshTokenFamily(db.Model):
     ip_address = db.Column(db.String(45), nullable=True)
     
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    last_used_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    last_used_at = db.Column(db.DateTime, default=utc_now)
     invalidated_at = db.Column(db.DateTime, nullable=True)
     
     # Relationships
@@ -59,13 +60,13 @@ class RefreshTokenFamily(db.Model):
         """Invalidate this token family and all its tokens."""
         self.is_active = False
         self.invalidated_reason = reason
-        self.invalidated_at = datetime.utcnow()
+        self.invalidated_at = utc_now()
         
         # Invalidate all tokens in this family
         for token in self.tokens:
             if not token.is_revoked:
                 token.is_revoked = True
-                token.revoked_at = datetime.utcnow()
+                token.revoked_at = utc_now()
                 token.revoked_reason = f'family_{reason}'
     
     @classmethod
@@ -105,7 +106,7 @@ class RefreshToken(db.Model):
     revoked_reason = db.Column(db.String(50), nullable=True)
     
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
     expires_at = db.Column(db.DateTime, nullable=False)
     used_at = db.Column(db.DateTime, nullable=True)
     revoked_at = db.Column(db.DateTime, nullable=True)
@@ -122,15 +123,15 @@ class RefreshToken(db.Model):
     def mark_used(self):
         """Mark token as used (after successful refresh)."""
         self.is_used = True
-        self.used_at = datetime.utcnow()
+        self.used_at = utc_now()
         # Update family last_used_at
         if self.family:
-            self.family.last_used_at = datetime.utcnow()
+            self.family.last_used_at = utc_now()
     
     def revoke(self, reason: str = 'manual'):
         """Revoke this specific token."""
         self.is_revoked = True
-        self.revoked_at = datetime.utcnow()
+        self.revoked_at = utc_now()
         self.revoked_reason = reason
     
     @classmethod
@@ -165,7 +166,7 @@ class RefreshToken(db.Model):
         if token.is_revoked:
             return False, 'revoked', token
         
-        if token.expires_at < datetime.utcnow():
+        if token.expires_at < utc_now():
             return False, 'expired', token
         
         if not token.family or not token.family.is_active:
@@ -186,7 +187,7 @@ class RefreshToken(db.Model):
     def cleanup_expired(cls):
         """Remove expired tokens older than 30 days."""
         from datetime import timedelta
-        cutoff = datetime.utcnow() - timedelta(days=30)
+        cutoff = utc_now() - timedelta(days=30)
         cls.query.filter(cls.expires_at < cutoff).delete()
         db.session.commit()
 

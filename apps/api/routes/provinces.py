@@ -4,11 +4,11 @@ SCOPE: Zambales province only. Other provinces in Region 3 are retained
 in the database for compatibility but are NOT exposed to users.
 """
 from flask import Blueprint, jsonify, request
-from models.province import Province
-from models.municipality import Municipality
-from __init__ import db
-from utils.db_retry import with_db_retry
-from utils.zambales_scope import (
+from apps.api.models.province import Province
+from apps.api.models.municipality import Municipality
+from apps.api import db
+from apps.api.utils.db_retry import with_db_retry
+from apps.api.utils.zambales_scope import (
     ZAMBALES_PROVINCE_ID,
     ZAMBALES_PROVINCE_SLUG,
     ZAMBALES_MUNICIPALITY_IDS,
@@ -69,7 +69,7 @@ def get_province(province_id):
         if province_id != ZAMBALES_PROVINCE_ID:
             return jsonify({'error': 'Province not available'}), 404
         
-        province = Province.query.get(province_id)
+        province = db.session.get(Province, province_id)
         
         if not province:
             return jsonify({'error': 'Province not found'}), 404
@@ -139,7 +139,7 @@ def list_province_municipalities(province_id):
         if province_id != ZAMBALES_PROVINCE_ID:
             return jsonify({'error': 'Province not available'}), 404
         
-        province = Province.query.get(province_id)
+        province = db.session.get(Province, province_id)
         
         if not province:
             return jsonify({'error': 'Province not found'}), 404

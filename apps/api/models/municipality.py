@@ -1,9 +1,10 @@
 """Municipality and Barangay models."""
 from datetime import datetime
+from apps.api.utils.time import utc_now
 try:
-    from __init__ import db
+    from apps.api import db
 except ImportError:
-    from __init__ import db
+    from apps.api import db
 
 class Municipality(db.Model):
     __tablename__ = 'municipalities'
@@ -40,8 +41,8 @@ class Municipality(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationships
     barangays = db.relationship('Barangay', backref='municipality', lazy='dynamic', cascade='all, delete-orphan')
@@ -108,8 +109,8 @@ class Barangay(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
     
     # Unique constraint for name within municipality
     __table_args__ = (

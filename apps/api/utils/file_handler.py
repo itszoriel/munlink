@@ -1,9 +1,10 @@
 """File upload and storage utilities."""
 import os
+from apps.api.utils.time import utc_now
 import uuid
 from datetime import datetime
 from werkzeug.utils import secure_filename
-from utils.validators import validate_file_size, validate_file_extension, ALLOWED_IMAGE_EXTENSIONS, ALLOWED_DOCUMENT_EXTENSIONS
+from apps.api.utils.validators import validate_file_size, validate_file_extension, ALLOWED_IMAGE_EXTENSIONS, ALLOWED_DOCUMENT_EXTENSIONS
 
 # MIME type sets for validation
 ALLOWED_IMAGE_MIMES = {
@@ -87,7 +88,7 @@ def generate_unique_filename(original_filename):
     _, ext = os.path.splitext(original_filename)
     
     # Generate unique name with timestamp and UUID
-    timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+    timestamp = utc_now().strftime('%Y%m%d_%H%M%S')
     unique_id = str(uuid.uuid4())[:8]
     
     return f"{timestamp}_{unique_id}{ext}"
@@ -139,7 +140,7 @@ def save_uploaded_file(file, category, municipality_slug, subcategory=None, allo
     # Validate MIME type if enabled (defense in depth)
     if validate_mime:
         try:
-            from utils.security import validate_file_mime_type
+            from apps.api.utils.security import validate_file_mime_type
             
             # Determine allowed MIME types based on allowed extensions
             if allowed_extensions == ALLOWED_IMAGE_EXTENSIONS:

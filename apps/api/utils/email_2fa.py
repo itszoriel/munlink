@@ -4,7 +4,7 @@ Handles sending 2FA codes via email for super admin authentication.
 """
 from flask import current_app
 
-from utils.email_sender import _send_email
+from apps.api.utils.email_sender import _send_email
 
 
 def send_2fa_code(to_email: str, code: str, ip_address: str = None) -> None:

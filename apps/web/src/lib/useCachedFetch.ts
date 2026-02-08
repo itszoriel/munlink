@@ -64,11 +64,11 @@ export function useCachedFetch<T>(
     }
   }, [finalCacheKey, staleTime, options?.enabled]) // Read isFresh and cached inside callback
   
-  // Only refetch when cache key or dependencies change, not when loading state changes
+  // Refetch when cache key changes or when enabled flips on (e.g., after auth bootstrap).
   useEffect(() => {
     fetch()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [finalCacheKey]) // Only depend on the cache key, not fetch itself (to prevent infinite loop)
+  }, [finalCacheKey, options?.enabled]) // Avoid depending on fetch to prevent loops.
   
   return {
     data: cached,
@@ -79,4 +79,3 @@ export function useCachedFetch<T>(
     update: (updater: (data: T) => T) => dataStore.updateCached(finalCacheKey, updater),
   }
 }
-

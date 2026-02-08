@@ -1,9 +1,10 @@
 """User model for authentication and profile management."""
 from datetime import datetime
+from apps.api.utils.time import utc_now, utc_today
 try:
-    from __init__ import db
+    from apps.api import db
 except ImportError:
-    from __init__ import db
+    from apps.api import db
 from sqlalchemy import Index
 
 class User(db.Model):
@@ -62,8 +63,8 @@ class User(db.Model):
     created_via = db.Column(db.String(50), nullable=True)  # 'setup_script', 'admin_panel', 'self_registration'
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
     email_verified_at = db.Column(db.DateTime, nullable=True)
     admin_verified_at = db.Column(db.DateTime, nullable=True)
     last_login = db.Column(db.DateTime, nullable=True)
@@ -96,6 +97,8 @@ class User(db.Model):
             'suffix': self.suffix,
             'municipality_id': self.municipality_id,
             'barangay_id': self.barangay_id,
+            'admin_municipality_id': self.admin_municipality_id,
+            'admin_barangay_id': self.admin_barangay_id,
             'phone_number': self.phone_number if include_sensitive else None,
             'mobile_number': self.mobile_number if include_sensitive else None,
             'date_of_birth': self.date_of_birth.isoformat() if self.date_of_birth else None,
@@ -146,7 +149,7 @@ class User(db.Model):
         if not self.date_of_birth:
             return True  # Default to restricted if DOB not provided
         
-        today = datetime.utcnow().date()
+        today = utc_today()
         age = today.year - self.date_of_birth.year
         if (today.month, today.day) < (self.date_of_birth.month, self.date_of_birth.day):
             age -= 1

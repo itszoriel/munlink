@@ -1,9 +1,10 @@
 """Resident municipality transfer request model."""
 from datetime import datetime
+from apps.api.utils.time import utc_now
 try:
-    from __init__ import db
+    from apps.api import db
 except ImportError:
-    from __init__ import db
+    from apps.api import db
 
 class TransferRequest(db.Model):
     __tablename__ = 'transfer_requests'
@@ -15,8 +16,8 @@ class TransferRequest(db.Model):
     to_barangay_id = db.Column(db.Integer, db.ForeignKey('barangays.id'), nullable=False)
     status = db.Column(db.String(20), default='pending')  # pending, approved, rejected, accepted
     notes = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
     approved_at = db.Column(db.DateTime, nullable=True)
     accepted_at = db.Column(db.DateTime, nullable=True)
 

@@ -1,9 +1,10 @@
 """Token blacklist for logout functionality."""
 from datetime import datetime
+from apps.api.utils.time import utc_now
 try:
-    from __init__ import db
+    from apps.api import db
 except ImportError:
-    from __init__ import db
+    from apps.api import db
 from sqlalchemy import Index
 
 class TokenBlacklist(db.Model):
@@ -20,7 +21,7 @@ class TokenBlacklist(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     
     # Revocation Details
-    revoked_at = db.Column(db.DateTime, default=datetime.utcnow)
+    revoked_at = db.Column(db.DateTime, default=utc_now)
     expires_at = db.Column(db.DateTime, nullable=False)
     
     # Relationships
@@ -57,6 +58,6 @@ class TokenBlacklist(db.Model):
     @classmethod
     def cleanup_expired_tokens(cls):
         """Remove expired tokens from the blacklist."""
-        cls.query.filter(cls.expires_at < datetime.utcnow()).delete()
+        cls.query.filter(cls.expires_at < utc_now()).delete()
         db.session.commit()
 

@@ -240,6 +240,15 @@ export default function AdminLoginPage() {
               </div>
             </div>
 
+            <div className="flex items-center justify-end text-sm">
+              <Link
+                to="/forgot-password"
+                className="text-blue-600 hover:text-blue-700 font-semibold hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </div>
+
             {/* Submit Button */}
             <button
               type="submit"

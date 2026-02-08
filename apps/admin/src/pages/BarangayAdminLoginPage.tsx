@@ -224,6 +224,15 @@ export default function BarangayAdminLoginPage() {
                 </div>
               </div>
 
+              <div className="flex items-center justify-end text-sm">
+                <Link
+                  to="/forgot-password"
+                  className="text-emerald-600 hover:text-emerald-700 font-semibold hover:underline"
+                >
+                  Forgot password?
+                </Link>
+              </div>
+
               {/* Submit Button */}
               <button
                 type="submit"

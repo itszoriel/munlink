@@ -163,6 +163,52 @@ NOTIFICATION_TYPES = [
     'system_announcement'
 ]
 
+# Purpose Types for Document Requests
+PURPOSE_TYPES = [
+    ('educational', 'Educational'),
+    ('employment', 'Employment'),
+    ('legal', 'Legal'),
+    ('personal', 'Personal'),
+    ('business', 'Business'),
+    ('travel', 'Travel'),
+    ('other', 'Other'),
+]
+
+# Civil Status Options
+CIVIL_STATUS_OPTIONS = [
+    ('single', 'Single'),
+    ('married', 'Married'),
+    ('widowed', 'Widowed'),
+    ('separated', 'Separated'),
+    ('divorced', 'Divorced'),
+]
+
+# Business Types for Business Clearance
+BUSINESS_TYPES = [
+    ('big_business', 'Big Business'),
+    ('small_business', 'Small Business'),
+    ('banca_tricycle', 'Banca/Tricycle'),
+]
+
+# Special Status Types
+SPECIAL_STATUS_TYPES = [
+    'student',
+    'pwd',
+    'senior',
+]
+
+# Special Status Application Statuses
+SPECIAL_STATUS_STATUSES = [
+    'pending',
+    'approved',
+    'rejected',
+    'expired',
+    'revoked',
+]
+
+# Student Status Expiry (in days) - fallback when semester end is unavailable
+STUDENT_STATUS_EXPIRY_DAYS = 180
+
 # Activity Log Actions
 ACTIVITY_ACTIONS = [
     'user_login',
@@ -189,4 +235,3 @@ ACTIVITY_ACTIONS = [
     'profile_updated',
     'admin_account_created'
 ]
-

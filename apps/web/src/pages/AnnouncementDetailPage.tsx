@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
-import { announcementsApi, mediaUrl } from '@/lib/api'
+import { useParams, Link, useSearchParams } from 'react-router-dom'
+import { announcementsApi } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
+import ImageGallery from '@/components/ImageGallery'
 
 type Announcement = {
   id: number
@@ -20,11 +21,12 @@ type Announcement = {
 
 export default function AnnouncementDetailPage() {
   const { id } = useParams()
+  const [searchParams] = useSearchParams()
+  const searchKey = searchParams.toString()
   const selectedMunicipality = useAppStore((s) => s.selectedMunicipality)
   const selectedBarangay = useAppStore((s) => s.selectedBarangay)
   const [a, setA] = useState<Announcement | null>(null)
   const [loading, setLoading] = useState(true)
-  const [idx, setIdx] = useState(0)
   const scopeLabel = useMemo(() => {
     if (!a) return ''
     const sc = (a as any)?.scope
@@ -45,13 +47,19 @@ export default function AnnouncementDetailPage() {
     const load = async () => {
       setLoading(true)
       try {
+        const queryMunicipalityId = searchParams.get('municipality_id')
+        const queryBarangayId = searchParams.get('barangay_id')
+        const queryBrowse = searchParams.get('browse')
+        const resolvedMunicipalityId = queryMunicipalityId ? Number(queryMunicipalityId) : selectedMunicipality?.id
+        const resolvedBarangayId = queryBarangayId ? Number(queryBarangayId) : selectedBarangay?.id
+        const browseEnabled = queryBrowse === 'true' || (!!resolvedMunicipalityId && !queryBrowse)
         const params: any = {}
-        if (selectedMunicipality?.id) {
-          params.municipality_id = selectedMunicipality.id
-          params.browse = true
+        if (resolvedMunicipalityId) {
+          params.municipality_id = resolvedMunicipalityId
+          if (browseEnabled) params.browse = true
         }
-        if (selectedBarangay?.id) {
-          params.barangay_id = selectedBarangay.id
+        if (resolvedBarangayId) {
+          params.barangay_id = resolvedBarangayId
         }
         const res = await announcementsApi.getById(Number(id), Object.keys(params).length ? params : undefined)
         const data: any = (res as any)?.data || res
@@ -64,52 +72,18 @@ export default function AnnouncementDetailPage() {
     }
     if (id) load()
     return () => { cancelled = true }
-  }, [id, selectedMunicipality?.id, selectedBarangay?.id])
-
-  const images = a?.images || []
-  const count = images.length
-  const safeIdx = Math.min(Math.max(0, idx), Math.max(0, count - 1))
-  const hasMany = count > 1
+  }, [id, selectedMunicipality?.id, selectedBarangay?.id, searchKey])
 
   return (
     <div className="container-responsive py-10">
-      <div className="mb-4"><Link to="/announcements" className="text-sm text-ocean-700 hover:underline">← Back to Announcements</Link></div>
+      <div className="mb-4"><Link to="/announcements" className="text-sm text-ocean-700 hover:underline">Back to Announcements</Link></div>
       {loading ? (
         <div className="h-64 rounded-xl bg-neutral-100" />
         ) : !a ? (
           <div className="text-neutral-600">Announcement not found.</div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div className="relative w-full aspect-[4/3] bg-neutral-100 rounded-xl overflow-hidden">
-            {images[safeIdx] ? (
-              <img src={mediaUrl(images[safeIdx])} alt={a.title} className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full" />
-            )}
-            {hasMany && (
-              <>
-                <button
-                  type="button"
-                  aria-label="Prev"
-                  className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full p-3 z-10 shadow-lg border bg-white/90 hover:bg-white"
-                  onClick={() => setIdx(i => (i - 1 + count) % count)}
-                >
-                  ◀
-                </button>
-                <button
-                  type="button"
-                  aria-label="Next"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-3 z-10 shadow-lg border bg-white/90 hover:bg-white"
-                  onClick={() => setIdx(i => (i + 1) % count)}
-                >
-                  ▶
-                </button>
-                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1">
-                  {images.map((_, i) => (<span key={i} className={`h-1.5 w-1.5 rounded-full ${i===safeIdx?'bg-white':'bg-white/50'}`} />))}
-                </div>
-              </>
-            )}
-          </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <ImageGallery images={a.images || []} alt={a.title} aspect="aspect-[4/3]" />
           <div>
             <h1 className="text-2xl font-semibold text-neutral-900 mb-2">{a.title}</h1>
             <div className="flex items-center gap-2 mb-2">

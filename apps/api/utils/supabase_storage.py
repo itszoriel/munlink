@@ -12,7 +12,7 @@ Features:
 - File size limits
 
 Usage:
-    from utils.supabase_storage import (
+    from apps.api.utils.supabase_storage import (
         upload_file,
         upload_bytes,
         get_public_url,
@@ -23,10 +23,12 @@ Usage:
 """
 from __future__ import annotations
 
+from apps.api.utils.time import utc_now
 import os
 import uuid
 import logging
 from datetime import datetime
+from urllib.parse import urlparse, unquote
 from io import BytesIO
 from typing import Optional, Tuple, Union, BinaryIO
 from pathlib import Path
@@ -81,9 +83,41 @@ def _get_supabase_config() -> Tuple[str, str]:
     return supabase_url, supabase_key
 
 
-def _get_storage_bucket() -> str:
-    """Get the storage bucket name."""
+def _get_storage_bucket(bucket_override: Optional[str] = None) -> str:
+    """Get the storage bucket name (optionally overridden)."""
+    if bucket_override:
+        return bucket_override
     return current_app.config.get('SUPABASE_STORAGE_BUCKET') or os.getenv('SUPABASE_STORAGE_BUCKET') or STORAGE_BUCKET
+
+
+def _normalize_storage_path(storage_path: str, bucket: str) -> str:
+    """Normalize a storage path (strip bucket or public URLs if provided)."""
+    if not storage_path:
+        return storage_path
+    path = storage_path.strip()
+    if path.startswith('http://') or path.startswith('https://'):
+        path = urlparse(path).path
+    path = unquote(path)
+    path = path.lstrip('/')
+
+    # Strip known storage prefixes
+    for prefix in (
+        'storage/v1/object/public/',
+        'storage/v1/object/sign/',
+        'storage/v1/object/',
+        'object/public/',
+        'object/sign/',
+        'object/',
+    ):
+        if path.startswith(prefix):
+            path = path[len(prefix):]
+            break
+
+    # Remove bucket prefix if present
+    if path.startswith(f"{bucket}/"):
+        path = path[len(bucket) + 1:]
+
+    return path
 
 
 def _get_headers(service_key: str, content_type: Optional[str] = None) -> dict:
@@ -113,7 +147,7 @@ def generate_unique_filename(original_filename: str, prefix: str = '') -> str:
     ext = ext.lower()
     
     # Generate unique name with timestamp and UUID
-    timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+    timestamp = utc_now().strftime('%Y%m%d_%H%M%S')
     unique_id = str(uuid.uuid4())[:8]
     
     if prefix:
@@ -162,8 +196,10 @@ def upload_file(
     subcategory: Optional[str] = None,
     user_type: str = 'residents',
     content_type: Optional[str] = None,
-    max_size_mb: int = 10
-) -> Tuple[str, str]:
+    max_size_mb: int = 10,
+    bucket: Optional[str] = None,
+    public: bool = True,
+) -> Tuple[str, Optional[str]]:
     """
     Upload a file to Supabase Storage using REST API.
     
@@ -215,7 +251,7 @@ def upload_file(
         
         # Get Supabase config
         supabase_url, service_key = _get_supabase_config()
-        bucket = _get_storage_bucket()
+        bucket = _get_storage_bucket(bucket)
         
         # Determine content type
         if not content_type:
@@ -246,13 +282,91 @@ def upload_file(
         if response.status_code not in (200, 201):
             raise SupabaseStorageError(f"Upload failed: {response.status_code} - {response.text}")
         
-        # Build public URL
-        public_url = f"{supabase_url}/storage/v1/object/public/{bucket}/{storage_path}"
+        # Build public URL (optional; private buckets should use signed URLs)
+        public_url = None
+        if public:
+            public_url = f"{supabase_url}/storage/v1/object/public/{bucket}/{storage_path}"
         
         logger.info(f"File uploaded to Supabase Storage: {storage_path}")
         
         return storage_path, public_url
     
+    except SupabaseStorageError:
+        raise
+    except Exception as e:
+        logger.error(f"Supabase Storage upload failed: {e}")
+        raise SupabaseStorageError(f"Upload failed: {e}")
+
+
+def upload_file_to_path(
+    file: BinaryIO,
+    storage_path: str,
+    content_type: Optional[str] = None,
+    max_size_mb: int = 10,
+    bucket: Optional[str] = None,
+) -> str:
+    """
+    Upload a file to a specific storage path (no auto path building).
+
+    Returns:
+        storage_path
+    """
+    try:
+        if not storage_path:
+            raise SupabaseStorageError("Storage path is required")
+
+        # Ensure file pointer is at start
+        file.seek(0)
+
+        # Check file size
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)
+
+        max_size_bytes = max_size_mb * 1024 * 1024
+        if file_size > max_size_bytes:
+            raise SupabaseStorageError(f"File size exceeds {max_size_mb}MB limit")
+
+        # Read file content
+        content = file.read()
+        file.seek(0)
+
+        # Determine content type
+        if not content_type:
+            # Try to guess from extension
+            ext = os.path.splitext(storage_path)[1].lower()
+            content_type_map = {
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.png': 'image/png',
+                '.gif': 'image/gif',
+                '.webp': 'image/webp',
+                '.pdf': 'application/pdf',
+                '.doc': 'application/msword',
+                '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            }
+            content_type = content_type_map.get(ext, 'application/octet-stream')
+
+        # Get Supabase config
+        supabase_url, service_key = _get_supabase_config()
+        bucket = _get_storage_bucket(bucket)
+
+        # Upload via REST API
+        upload_url = f"{supabase_url}/storage/v1/object/{bucket}/{storage_path}"
+        headers = {
+            'Authorization': f'Bearer {service_key}',
+            'apikey': service_key,
+            'Content-Type': content_type,
+        }
+
+        response = requests.post(upload_url, headers=headers, data=content)
+
+        if response.status_code not in (200, 201):
+            raise SupabaseStorageError(f"Upload failed: {response.status_code} - {response.text}")
+
+        logger.info(f"File uploaded to Supabase Storage: {storage_path}")
+        return storage_path
+
     except SupabaseStorageError:
         raise
     except Exception as e:
@@ -267,8 +381,10 @@ def upload_bytes(
     filename: str,
     subcategory: Optional[str] = None,
     user_type: str = 'residents',
-    content_type: str = 'application/octet-stream'
-) -> Tuple[str, str]:
+    content_type: str = 'application/octet-stream',
+    bucket: Optional[str] = None,
+    public: bool = True,
+) -> Tuple[str, Optional[str]]:
     """
     Upload raw bytes to Supabase Storage.
     
@@ -292,11 +408,13 @@ def upload_bytes(
         original_filename=filename,
         subcategory=subcategory,
         user_type=user_type,
-        content_type=content_type
+        content_type=content_type,
+        bucket=bucket,
+        public=public,
     )
 
 
-def get_public_url(storage_path: str) -> str:
+def get_public_url(storage_path: str, bucket: Optional[str] = None) -> str:
     """
     Get the public URL for a file in Supabase Storage.
     
@@ -308,14 +426,15 @@ def get_public_url(storage_path: str) -> str:
     """
     try:
         supabase_url, _ = _get_supabase_config()
-        bucket = _get_storage_bucket()
+        bucket = _get_storage_bucket(bucket)
+        storage_path = _normalize_storage_path(storage_path, bucket)
         return f"{supabase_url}/storage/v1/object/public/{bucket}/{storage_path}"
     except Exception as e:
         logger.error(f"Failed to get public URL: {e}")
         raise SupabaseStorageError(f"Failed to get public URL: {e}")
 
 
-def get_signed_url(storage_path: str, expires_in: int = 3600) -> str:
+def get_signed_url(storage_path: str, expires_in: int = 3600, bucket: Optional[str] = None) -> str:
     """
     Get a signed (temporary) URL for a file in Supabase Storage.
     
@@ -328,7 +447,8 @@ def get_signed_url(storage_path: str, expires_in: int = 3600) -> str:
     """
     try:
         supabase_url, service_key = _get_supabase_config()
-        bucket = _get_storage_bucket()
+        bucket = _get_storage_bucket(bucket)
+        storage_path = _normalize_storage_path(storage_path, bucket)
         
         url = f"{supabase_url}/storage/v1/object/sign/{bucket}/{storage_path}"
         headers = _get_headers(service_key, 'application/json')
@@ -340,7 +460,18 @@ def get_signed_url(storage_path: str, expires_in: int = 3600) -> str:
             data = response.json()
             signed_url = data.get('signedURL') or data.get('signedUrl', '')
             if signed_url:
-                return f"{supabase_url}{signed_url}"
+                if signed_url.startswith('http://') or signed_url.startswith('https://'):
+                    return signed_url
+                # Supabase sometimes returns /object/sign/...; normalize to /storage/v1/object/sign/...
+                if signed_url.startswith('/storage/'):
+                    return f"{supabase_url}{signed_url}"
+                if signed_url.startswith('/object/'):
+                    return f"{supabase_url}/storage/v1{signed_url}"
+                if signed_url.startswith('storage/'):
+                    return f"{supabase_url}/{signed_url}"
+                if signed_url.startswith('object/'):
+                    return f"{supabase_url}/storage/v1/{signed_url}"
+                return f"{supabase_url}/{signed_url.lstrip('/')}"
         
         raise SupabaseStorageError(f"Failed to create signed URL: {response.text}")
     except SupabaseStorageError:
@@ -350,7 +481,7 @@ def get_signed_url(storage_path: str, expires_in: int = 3600) -> str:
         raise SupabaseStorageError(f"Failed to get signed URL: {e}")
 
 
-def delete_file(storage_path: str) -> bool:
+def delete_file(storage_path: str, bucket: Optional[str] = None) -> bool:
     """
     Delete a file from Supabase Storage.
     
@@ -362,7 +493,7 @@ def delete_file(storage_path: str) -> bool:
     """
     try:
         supabase_url, service_key = _get_supabase_config()
-        bucket = _get_storage_bucket()
+        bucket = _get_storage_bucket(bucket)
         
         url = f"{supabase_url}/storage/v1/object/{bucket}/{storage_path}"
         headers = _get_headers(service_key)
@@ -380,7 +511,7 @@ def delete_file(storage_path: str) -> bool:
         return False
 
 
-def file_exists(storage_path: str) -> bool:
+def file_exists(storage_path: str, bucket: Optional[str] = None) -> bool:
     """
     Check if a file exists in Supabase Storage.
     
@@ -392,7 +523,7 @@ def file_exists(storage_path: str) -> bool:
     """
     try:
         supabase_url, service_key = _get_supabase_config()
-        bucket = _get_storage_bucket()
+        bucket = _get_storage_bucket(bucket)
         
         # Try to get file metadata
         url = f"{supabase_url}/storage/v1/object/info/public/{bucket}/{storage_path}"
@@ -461,10 +592,10 @@ def is_legacy_path(path: str) -> bool:
     return False
 
 
-def get_supabase_base_url() -> str:
+def get_supabase_base_url(bucket: Optional[str] = None) -> str:
     """Get the base URL for Supabase storage."""
     supabase_url = current_app.config.get('SUPABASE_URL') or os.getenv('SUPABASE_URL', '')
-    bucket = _get_storage_bucket()
+    bucket = _get_storage_bucket(bucket)
     return f"{supabase_url}/storage/v1/object/public/{bucket}"
 
 
@@ -656,4 +787,3 @@ def upload_document_request_file(
         user_type='residents',
         max_size_mb=10
     )
-

@@ -16,8 +16,15 @@ import json
 from flask import current_app
 
 
-def _send_via_smtp(to_email: str, subject: str, body: str, attachment_data: bytes = None, attachment_name: str = None) -> None:
-    """Send email via SMTP (for development with Gmail) with optional PDF attachment."""
+def _send_via_smtp(
+    to_email: str,
+    subject: str,
+    body: str,
+    attachment_data: bytes = None,
+    attachment_name: str = None,
+    html_content: str = None,
+) -> None:
+    """Send email via SMTP (for development with Gmail) with optional HTML and PDF attachment."""
     app = current_app
     smtp_server = app.config.get('SMTP_SERVER')
     smtp_port = app.config.get('SMTP_PORT', 587)
@@ -43,7 +50,14 @@ def _send_via_smtp(to_email: str, subject: str, body: str, attachment_data: byte
         msg['From'] = f"{app_name} <{from_email}>"
         msg['To'] = to_email
         msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'plain'))
+        if html_content:
+            alternative = MIMEMultipart('alternative')
+            if body:
+                alternative.attach(MIMEText(body, 'plain'))
+            alternative.attach(MIMEText(html_content, 'html'))
+            msg.attach(alternative)
+        else:
+            msg.attach(MIMEText(body or "", 'plain'))
 
         # Attach PDF if provided
         if attachment_data and attachment_name:
@@ -72,8 +86,15 @@ def _send_via_smtp(to_email: str, subject: str, body: str, attachment_data: byte
         raise RuntimeError(error_msg) from e
 
 
-def _send_via_sendgrid(to_email: str, subject: str, body: str, attachment_data: bytes = None, attachment_name: str = None) -> None:
-    """Send email via SendGrid API (works on Render free tier) with optional PDF attachment."""
+def _send_via_sendgrid(
+    to_email: str,
+    subject: str,
+    body: str,
+    attachment_data: bytes = None,
+    attachment_name: str = None,
+    html_content: str = None,
+) -> None:
+    """Send email via SendGrid API (works on Render free tier) with optional HTML and PDF attachment."""
     import base64
     app = current_app
     api_key = app.config.get('SENDGRID_API_KEY')
@@ -91,11 +112,19 @@ def _send_via_sendgrid(to_email: str, subject: str, body: str, attachment_data: 
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
+    contents = []
+    if body:
+        contents.append({"type": "text/plain", "value": body})
+    if html_content:
+        contents.append({"type": "text/html", "value": html_content})
+    if not contents:
+        contents.append({"type": "text/plain", "value": ""})
+
     payload = {
         "personalizations": [{"to": [{"email": to_email}]}],
         "from": {"email": from_email, "name": app_name},
         "subject": subject,
-        "content": [{"type": "text/plain", "value": body}]
+        "content": contents,
     }
 
     # Add PDF attachment if provided
@@ -129,9 +158,16 @@ def _send_via_sendgrid(to_email: str, subject: str, body: str, attachment_data: 
         raise RuntimeError(error_msg) from e
 
 
-def _send_email(to_email: str, subject: str, body: str, attachment_data: bytes = None, attachment_name: str = None) -> None:
+def _send_email(
+    to_email: str,
+    subject: str,
+    body: str,
+    attachment_data: bytes = None,
+    attachment_name: str = None,
+    html_content: str = None,
+) -> None:
     """
-    Send email using the best available method with optional PDF attachment.
+    Send email using the best available method with optional HTML or PDF attachment.
 
     Priority:
     1. SendGrid API (if SENDGRID_API_KEY is set) - preferred for production
@@ -145,7 +181,14 @@ def _send_email(to_email: str, subject: str, body: str, attachment_data: bytes =
     if app.config.get('SENDGRID_API_KEY'):
         current_app.logger.debug("Using SendGrid for email delivery")
         try:
-            _send_via_sendgrid(to_email, subject, body, attachment_data, attachment_name)
+            _send_via_sendgrid(
+                to_email,
+                subject,
+                body,
+                attachment_data,
+                attachment_name,
+                html_content=html_content,
+            )
             return
         except Exception as exc:
             # Capture SendGrid failure so we can fall back to SMTP if available
@@ -159,7 +202,14 @@ def _send_email(to_email: str, subject: str, body: str, attachment_data: bytes =
     if app.config.get('SMTP_SERVER'):
         current_app.logger.debug("Using SMTP for email delivery")
         try:
-            _send_via_smtp(to_email, subject, body, attachment_data, attachment_name)
+            _send_via_smtp(
+                to_email,
+                subject,
+                body,
+                attachment_data,
+                attachment_name,
+                html_content=html_content,
+            )
             return
         except Exception as exc:
             if sendgrid_error:
@@ -176,6 +226,26 @@ def _send_email(to_email: str, subject: str, body: str, attachment_data: bytes =
     raise RuntimeError(
         "No email provider configured. "
         "Set SENDGRID_API_KEY for production or SMTP_SERVER/SMTP_USERNAME/SMTP_PASSWORD for development."
+    )
+
+
+def send_email(
+    to_email: str,
+    subject: str,
+    html_content: str = None,
+    text_content: str = None,
+    attachment_data: bytes = None,
+    attachment_name: str = None,
+) -> None:
+    """Send an email with optional HTML + text content."""
+    body = text_content or ""
+    _send_email(
+        to_email,
+        subject,
+        body,
+        attachment_data,
+        attachment_name,
+        html_content=html_content,
     )
 
 
@@ -198,6 +268,28 @@ def send_verification_email(to_email: str, verify_link: str) -> None:
         _send_email(to_email, subject, body)
     except Exception as exc:
         current_app.logger.exception("Failed to send verification email to %s: %s", to_email, exc)
+        raise
+
+
+def send_password_reset_email(to_email: str, reset_link: str, ttl_minutes: int = 30) -> None:
+    """Send a password reset email with a single-use link."""
+    app = current_app
+    app_name = app.config.get('APP_NAME', 'MunLink Zambales')
+
+    subject = f"Reset your password for {app_name}"
+    body = (
+        f"Hello,\n\n"
+        f"We received a request to reset your password for {app_name}.\n\n"
+        f"Click the link below to set a new password (valid for {ttl_minutes} minutes):\n"
+        f"{reset_link}\n\n"
+        f"If you did not request this, you can ignore this email.\n\n"
+        f"Thank you,\n{app_name} Team"
+    )
+
+    try:
+        _send_email(to_email, subject, body)
+    except Exception as exc:
+        current_app.logger.exception("Failed to send password reset email to %s: %s", to_email, exc)
         raise
 
 
@@ -267,7 +359,7 @@ def send_admin_welcome_email(to_email: str, admin_name: str, role: str) -> None:
 
     # Generate PDF
     try:
-        from utils.pdf_generator import generate_admin_terms_pdf
+        from apps.api.utils.pdf_generator import generate_admin_terms_pdf
         pdf_data = generate_admin_terms_pdf()
     except Exception as e:
         current_app.logger.error(f"Failed to generate admin terms PDF: {e}")

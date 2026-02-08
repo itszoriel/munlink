@@ -60,7 +60,7 @@ export default function MobileNav() {
           <NavLink
             key={item.path}
             to={item.path}
-            className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-ocean-600' : 'text-neutral-600'}`}
+            className={({ isActive }) => `flex flex-col items-center gap-1 ${isActive ? 'text-[color:var(--admin-accent-600)]' : 'text-neutral-600'}`}
           >
             <span className="text-xl">{IconFor(item.icon, 'w-5 h-5')}</span>
             <span className="text-xs font-medium">{item.label}</span>

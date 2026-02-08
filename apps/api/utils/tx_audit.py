@@ -5,11 +5,12 @@ status transitions are enforced consistently and every action
 is recorded in the audit trail.
 """
 
+from apps.api.utils.time import utc_now
 from datetime import datetime
 from typing import Iterable, Optional, Dict, Any
 
-from __init__ import db
-from models.marketplace import Transaction, Item, TransactionAuditLog
+from apps.api import db
+from apps.api.models.marketplace import Transaction, Item, TransactionAuditLog
 
 
 class TransitionError(Exception):
@@ -59,7 +60,7 @@ def log_tx_action(
         ip_address=ip_address,
         user_agent=user_agent,
         metadata_json=metadata or {},
-        created_at=datetime.utcnow(),
+        created_at=utc_now(),
     )
     db.session.add(log)
     return log

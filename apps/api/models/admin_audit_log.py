@@ -7,11 +7,12 @@ This model is specifically for:
 - Province-wide administrative actions
 """
 from datetime import datetime
+from apps.api.utils.time import utc_now
 
 try:
-    from __init__ import db
+    from apps.api import db
 except ImportError:
-    from __init__ import db
+    from apps.api import db
 
 from sqlalchemy import Index
 
@@ -40,7 +41,7 @@ class AdminAuditLog(db.Model):
     details = db.Column(db.JSON, nullable=True)
 
     # Timestamp
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
 
     # Relationships
     admin = db.relationship('User', backref=db.backref('admin_audit_logs', lazy='dynamic'))

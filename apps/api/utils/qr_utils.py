@@ -4,6 +4,7 @@ Reuses existing DocumentRequest.qr_code (string path) and qr_data (JSON dict).
 """
 from __future__ import annotations
 
+from apps.api.utils.time import utc_now
 import os
 import uuid
 from datetime import datetime, timedelta
@@ -62,7 +63,7 @@ def sign_claim_token(request_obj) -> Dict[str, Any]:
         or "change-me"
     )
     lifetime_days = int(current_app.config.get("CLAIM_TOKEN_DAYS", 14))
-    now = datetime.utcnow()
+    now = utc_now()
     jti = str(uuid.uuid4())
     payload = {
         "sub": f"request:{getattr(request_obj, 'id', None)}",
@@ -110,7 +111,7 @@ def build_qr_png(data: str, request_id: int, municipality_slug: str) -> Tuple[Pa
     # In production, upload to Supabase Storage
     if _is_production():
         try:
-            from utils.storage_handler import save_bytes
+            from apps.api.utils.storage_handler import save_bytes
             
             public_url = save_bytes(
                 data=qr_bytes,

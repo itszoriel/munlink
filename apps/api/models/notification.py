@@ -1,9 +1,10 @@
 """Notification outbox model for email and SMS delivery."""
 from datetime import datetime
+from apps.api.utils.time import utc_now
 try:
-    from __init__ import db
+    from apps.api import db
 except ImportError:
-    from __init__ import db
+    from apps.api import db
 
 
 class NotificationOutbox(db.Model):
@@ -15,13 +16,13 @@ class NotificationOutbox(db.Model):
     event_type = db.Column(db.String(100), nullable=False)
     entity_id = db.Column(db.Integer, nullable=True)
     payload = db.Column(db.JSON, nullable=True)
-    status = db.Column(db.String(20), nullable=False, default='pending')  # pending, sent, failed, skipped
+    status = db.Column(db.String(20), nullable=False, default='pending')  # pending, processing, sent, failed, skipped
     attempts = db.Column(db.Integer, nullable=False, default=0)
-    next_attempt_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=True)
+    next_attempt_at = db.Column(db.DateTime, default=utc_now, nullable=True)
     last_error = db.Column(db.Text, nullable=True)
     dedupe_key = db.Column(db.String(255), nullable=False, unique=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     __table_args__ = (
         db.Index('ix_notification_outbox_status_next', 'status', 'next_attempt_at'),

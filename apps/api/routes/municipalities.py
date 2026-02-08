@@ -5,10 +5,10 @@ Other municipalities in Region 3 are retained in the database
 for compatibility but are NOT exposed to users.
 """
 from flask import Blueprint, jsonify, request
-from models.municipality import Municipality, Barangay
-from models.province import Province
-from __init__ import db
-from utils.zambales_scope import (
+from apps.api.models.municipality import Municipality, Barangay
+from apps.api.models.province import Province
+from apps.api import db
+from apps.api.utils.zambales_scope import (
     ZAMBALES_PROVINCE_ID,
     ZAMBALES_MUNICIPALITY_IDS,
     OLONGAPO_MUNICIPALITY_ID,
@@ -58,7 +58,7 @@ def get_municipality(municipality_id):
         if not is_valid_zambales_municipality(municipality_id):
             return jsonify({'error': 'Municipality not available'}), 404
         
-        municipality = Municipality.query.get(municipality_id)
+        municipality = db.session.get(Municipality, municipality_id)
         
         if not municipality:
             return jsonify({'error': 'Municipality not found'}), 404
@@ -112,7 +112,7 @@ def list_barangays(municipality_id):
         if not is_valid_zambales_municipality(municipality_id):
             return jsonify({'error': 'Municipality not available'}), 404
         
-        municipality = Municipality.query.get(municipality_id)
+        municipality = db.session.get(Municipality, municipality_id)
         
         if not municipality:
             return jsonify({'error': 'Municipality not found'}), 404
@@ -139,7 +139,7 @@ def get_barangay(barangay_id):
     Note: Only barangays in Zambales municipalities (excluding Olongapo) are accessible.
     """
     try:
-        barangay = Barangay.query.get(barangay_id)
+        barangay = db.session.get(Barangay, barangay_id)
         
         if not barangay:
             return jsonify({'error': 'Barangay not found'}), 404

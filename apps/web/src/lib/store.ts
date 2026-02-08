@@ -104,7 +104,6 @@ export const useAppStore = create<AppState>((set) => {
   const refreshUserProfile = async () => {
     if (typeof window !== 'undefined' && getApiAccessToken()) {
       try {
-        const { authApi } = await import('./api')
         const response = await authApi.getProfile()
         const userData = response.data
         if (userData) {

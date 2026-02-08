@@ -24,5 +24,15 @@ export default defineConfig({
       '@munlink/ui': path.resolve(__dirname, '../../packages/ui/src'),
     },
   },
+  build: {
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router-dom'],
+          vendor: ['axios', 'zustand'],
+        },
+      },
+    },
+  },
 })
-

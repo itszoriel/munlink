@@ -1,13 +1,12 @@
 import { Link } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { announcementsApi, marketplaceApi, mediaUrl } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 import { useCachedFetch } from '@/lib/useCachedFetch'
 import { CACHE_KEYS } from '@/lib/dataStore'
-import AnnouncementCard from '@/components/AnnouncementCard'
-import MarketplaceCard from '@/components/MarketplaceCard'
-import ModernHero from '@/components/ModernHero'
 import { EmptyState } from '@munlink/ui'
-import { ArrowRight, Bell, ShoppingBag, MapPin, FileText, Users, TrendingUp, Shield } from 'lucide-react'
+import { ArrowRight, Bell, ShoppingBag, MapPin, FileText, Users, Shield, Package, Heart, AlertCircle, Info } from 'lucide-react'
+import SafeImage from '@/components/SafeImage'
 import { useScrollAnimation } from '@/hooks/useScrollAnimation'
 
 export default function HomePage() {
@@ -25,7 +24,8 @@ export default function HomePage() {
   const userBarangayId = (user as any)?.barangay_id
   const verifiedResident = isAuthenticated && (user as any)?.admin_verified && (user as any)?.role === 'resident'
   const browseMunicipalityId = !verifiedResident && selectedMunicipality?.id ? selectedMunicipality.id : undefined
-  const shouldFetchHomeData = verifiedResident || !!browseMunicipalityId || !isAuthenticated
+  // Keep home feeds available for all users; backend enforces visibility rules.
+  const shouldFetchHomeData = true
   const effectiveMunicipalityId = verifiedResident ? userMunicipalityId : browseMunicipalityId
 
   // Use cached fetch hooks
@@ -33,7 +33,8 @@ export default function HomePage() {
     CACHE_KEYS.HOME_ANNOUNCEMENTS,
     () => announcementsApi.getAll({ active: true, page: 1, per_page: 4, ...(browseMunicipalityId ? { municipality_id: browseMunicipalityId, browse: true } : {}) }),
     {
-      dependencies: [browseMunicipalityId, userMunicipalityId, userBarangayId, verifiedResident],
+      // Bust stale client cache from older fetch gating behavior
+      dependencies: ['home_announcements_fetch_fix_v1', browseMunicipalityId, userMunicipalityId, userBarangayId, verifiedResident],
       staleTime: 3 * 60 * 1000,
       enabled: shouldFetchHomeData
     }
@@ -53,129 +54,183 @@ export default function HomePage() {
   const featuredItems = shouldFetchHomeData ? ((marketplaceData as any)?.data?.items || []) : []
   const loading = announcementsLoading || marketplaceLoading
 
-  const features = [
+  const services = [
     {
       icon: FileText,
       title: 'Document Services',
-      description: 'Request permits, clearances, and certificates online. Track status in real-time with QR verification.',
-      gradient: 'from-sky-500 to-ocean-600',
-      iconBg: 'from-sky-100 to-ocean-100',
-      iconColor: 'text-sky-700',
+      description: 'Request official permits, clearances, and certificates online with real-time tracking.',
+      gradient: 'from-blue-500 to-cyan-600',
+      iconBg: 'bg-blue-50',
+      iconColor: 'text-blue-600',
     },
     {
       icon: ShoppingBag,
-      title: 'Marketplace',
-      description: 'Buy, sell, donate, or lend items safely within your municipality and neighboring communities.',
+      title: 'Community Marketplace',
+      description: 'Buy, sell, donate, or lend items safely within your local community.',
       gradient: 'from-emerald-500 to-teal-600',
-      iconBg: 'from-emerald-100 to-teal-100',
-      iconColor: 'text-emerald-700',
+      iconBg: 'bg-emerald-50',
+      iconColor: 'text-emerald-600',
     },
     {
-      icon: TrendingUp,
+      icon: Package,
       title: 'Benefit Programs',
-      description: 'Discover and apply for municipal assistance programs with online eligibility checking.',
+      description: 'Access municipal assistance programs and check eligibility requirements online.',
       gradient: 'from-amber-500 to-orange-600',
-      iconBg: 'from-amber-100 to-orange-100',
-      iconColor: 'text-amber-700',
+      iconBg: 'bg-amber-50',
+      iconColor: 'text-amber-600',
     },
     {
       icon: Shield,
-      title: 'Secure & Private',
-      description: 'Enterprise-grade security with Data Privacy Act compliance, audit logs, and encrypted data.',
-      gradient: 'from-purple-500 to-indigo-600',
-      iconBg: 'from-purple-100 to-indigo-100',
-      iconColor: 'text-purple-700',
+      title: 'Secure Platform',
+      description: 'Data Privacy Act compliant with enterprise-grade security and audit logging.',
+      gradient: 'from-purple-500 to-violet-600',
+      iconBg: 'bg-purple-50',
+      iconColor: 'text-purple-600',
     },
   ]
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-sky-50/30">
-      {/* Hero Section with Background Image */}
-      <ModernHero
-        backgroundImage="/assets/hero.jpg"
-        logoOverlay="/logos/provinces/zambales.png"
-        logoOpacity={0.12}
-        minHeight="85vh"
-        enableParallax={true}
-        enableGradient={true}
-        title={
-          <>
-            {/* Province Badge */}
-            <div className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-white/90 border border-white/70 rounded-full mb-4 sm:mb-6 text-slate-800 shadow-lg backdrop-blur-sm">
-              <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
-              <span className="text-xs sm:text-sm font-semibold">Zambales Province</span>
-            </div>
-            {/* Main Heading */}
-            <h1 className="text-4xl sm:text-5xl md:text-5xl lg:text-6xl font-serif font-bold leading-tight drop-shadow-2xl text-white">
-              Lalawigan ng Zambales
-            </h1>
-          </>
-        }
-        subtitle={
-          <p className="text-base sm:text-lg md:text-xl lg:text-2xl font-serif max-w-3xl mx-auto leading-relaxed drop-shadow text-white/95">
-            MunLink: Building a modern digital governance platform for Zambales and its 13 municipalities.
-          </p>
-        }
-      >
-        {/* CTA Buttons */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-4 sm:gap-5 flex-wrap max-w-xl mx-auto px-4">
-          <Link
-            to={isAuthenticated ? "/dashboard" : "/register"}
-            className="flex items-center justify-center gap-2 px-7 sm:px-8 py-3.5 sm:py-4 bg-white text-slate-900 rounded-xl font-semibold text-sm sm:text-base shadow-xl hover:shadow-2xl hover:bg-gray-50 transition-all duration-200 border border-white/80 backdrop-blur-sm hover:-translate-y-1"
-          >
-            <span>{isAuthenticated ? "Dashboard" : "Get Started"}</span>
-            <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
-          </Link>
-
-          <Link
-            to="/about"
-            className="flex items-center justify-center gap-2 px-7 sm:px-8 py-3.5 sm:py-4 bg-white/80 border-2 border-white/60 text-slate-800 rounded-xl font-semibold text-sm sm:text-base shadow-lg hover:shadow-xl hover:bg-white transition-all duration-200 backdrop-blur-sm hover:-translate-y-1"
-          >
-            <span>Learn More</span>
-            <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
-          </Link>
+      {/* Hero Section with Snap Scroll */}
+      <section className="relative min-h-screen flex items-center justify-center overflow-hidden snap-start">
+        {/* Background Image with Parallax Effect */}
+        <div className="absolute inset-0">
+          <div
+            className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+            style={{
+              backgroundImage: 'url(/assets/hero.jpg)',
+              transform: 'scale(1.1)',
+            }}
+          />
+          {/* Gradient Overlay */}
+          <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-black/60" />
         </div>
-      </ModernHero>
 
-      {/* Guest Features Showcase (Replaces old notice) */}
-      {!isAuthenticated && (
-        <section className="w-full px-4 sm:px-6 lg:px-8 py-16 sm:py-20 md:py-24">
-          <div className="w-full max-w-7xl mx-auto">
-            <div
-              ref={featuresRef.ref}
-              className={`text-center mb-12 sm:mb-16 transition-all duration-700 ${
-                featuresRef.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-12'
-              }`}
+        {/* Content */}
+        <div className="relative z-10 container-responsive py-20 text-center">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, ease: "easeOut" }}
+          >
+            {/* Province Badge */}
+            <motion.div
+              className="inline-flex items-center gap-2 px-4 py-2 bg-white/95 backdrop-blur-md border border-white/70 rounded-full mb-6 text-slate-800 shadow-xl"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.6, delay: 0.2 }}
             >
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-serif font-bold text-gray-900 leading-tight mb-4">
-                All your municipal services in one place
-              </h2>
-              <p className="text-base sm:text-lg md:text-xl text-gray-600 leading-relaxed max-w-3xl mx-auto">
-                Browse services, submit requests, and stay updated across municipalities and barangays with a verified MunLink account.
-              </p>
-            </div>
+              <MapPin className="w-4 h-4 flex-shrink-0" />
+              <span className="text-sm font-semibold">Zambales Province</span>
+            </motion.div>
 
-            {/* Feature Cards Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8">
-              {features.map((feature, index) => (
-                <FeatureCard key={index} feature={feature} index={index} />
-              ))}
-            </div>
+            {/* Main Heading */}
+            <motion.h1
+              className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-serif font-bold leading-tight mb-6 text-white drop-shadow-2xl"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.3 }}
+            >
+              Lalawigan ng Zambales
+            </motion.h1>
 
-            {/* CTA Below Features */}
-            <div className="mt-12 sm:mt-16 text-center">
+            {/* Subtitle */}
+            <motion.p
+              className="text-lg sm:text-xl md:text-2xl font-serif max-w-3xl mx-auto leading-relaxed mb-10 text-white/95 drop-shadow-lg"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.4 }}
+            >
+              MunLink: Building a modern digital governance platform for Zambales and its 13 municipalities.
+            </motion.p>
+
+            {/* CTA Buttons */}
+            <motion.div
+              className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-4 sm:gap-5 max-w-xl mx-auto"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.5 }}
+            >
+              <Link
+                to={isAuthenticated ? "/dashboard" : "/register"}
+                className="group flex items-center justify-center gap-2 px-8 py-4 bg-white text-slate-900 rounded-xl font-semibold text-base shadow-2xl hover:shadow-3xl hover:bg-gray-50 transition-all duration-300 border border-white/80 backdrop-blur-sm hover:-translate-y-1"
+              >
+                <span>{isAuthenticated ? "Dashboard" : "Create account"}</span>
+                <ArrowRight className="w-5 h-5 flex-shrink-0 group-hover:translate-x-1 transition-transform" />
+              </Link>
+
+              <Link
+                to="/about"
+                className="group flex items-center justify-center gap-2 px-8 py-4 bg-white/90 border-2 border-white/70 text-slate-900 rounded-xl font-semibold text-base shadow-xl hover:shadow-2xl hover:bg-white transition-all duration-300 backdrop-blur-sm hover:-translate-y-1"
+              >
+                <span>Learn More</span>
+                <ArrowRight className="w-5 h-5 flex-shrink-0 group-hover:translate-x-1 transition-transform" />
+              </Link>
+            </motion.div>
+          </motion.div>
+        </div>
+
+        {/* Scroll Indicator */}
+        <motion.div
+          className="absolute bottom-8 left-1/2 -translate-x-1/2"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 1, delay: 1 }}
+        >
+          <motion.div
+            animate={{ y: [0, 10, 0] }}
+            transition={{ duration: 1.5, repeat: Infinity }}
+            className="w-6 h-10 border-2 border-white/50 rounded-full flex items-start justify-center p-2"
+          >
+            <motion.div className="w-1 h-2 bg-white/70 rounded-full" />
+          </motion.div>
+        </motion.div>
+      </section>
+
+      {/* Our Primary Services Section */}
+      <section className="w-full px-4 sm:px-6 lg:px-8 py-20 sm:py-24 md:py-32 bg-white">
+        <div className="w-full max-w-7xl mx-auto">
+          <motion.div
+            ref={featuresRef.ref}
+            className={`text-center mb-16 sm:mb-20 transition-all duration-700 ${
+              featuresRef.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-12'
+            }`}
+          >
+            <h2 className="text-4xl sm:text-5xl md:text-6xl font-serif font-bold text-gray-900 leading-tight mb-6">
+              Our Primary Services
+            </h2>
+            <p className="text-lg sm:text-xl md:text-2xl text-gray-600 leading-relaxed max-w-3xl mx-auto">
+              Everything you need for seamless interaction with your local government
+            </p>
+          </motion.div>
+
+          {/* Services Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 md:gap-10">
+            {services.map((service, index) => (
+              <ServiceCard key={index} service={service} index={index} />
+            ))}
+          </div>
+
+          {/* CTA Below Services */}
+          {!isAuthenticated && (
+            <motion.div
+              className="mt-16 sm:mt-20 text-center"
+              initial={{ opacity: 0, y: 20 }}
+              animate={featuresRef.isVisible ? { opacity: 1, y: 0 } : {}}
+              transition={{ duration: 0.6, delay: 0.6 }}
+            >
               <Link
                 to="/register"
-                className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-sky-600 to-ocean-600 text-white rounded-xl font-semibold text-base shadow-xl hover:shadow-2xl hover:from-sky-700 hover:to-ocean-700 transition-all duration-200 hover:-translate-y-1"
+                className="group inline-flex items-center gap-3 px-10 py-5 bg-gradient-to-r from-ocean-600 to-sky-600 text-white rounded-2xl font-semibold text-lg shadow-2xl hover:shadow-3xl hover:from-ocean-700 hover:to-sky-700 transition-all duration-300 hover:-translate-y-1"
               >
-                <Users className="w-5 h-5" />
+                <Users className="w-6 h-6" />
                 <span>Create Your Account</span>
-                <ArrowRight className="w-5 h-5" />
+                <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
               </Link>
-            </div>
-          </div>
-        </section>
-      )}
+            </motion.div>
+          )}
+        </div>
+      </section>
 
       {/* Content Grid (Announcements & Marketplace) */}
       <section className="w-full px-4 sm:px-6 lg:px-8 py-12 sm:py-16 md:py-20 pb-16 sm:pb-20">
@@ -187,27 +242,22 @@ export default function HomePage() {
               announcementsRef.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-12'
             }`}
           >
-            <div className="flex items-center justify-between mb-6 sm:mb-8">
-              <h2 className="text-2xl sm:text-3xl md:text-4xl font-serif font-bold text-gray-900 flex items-center gap-3 sm:gap-4">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-gradient-to-br from-sky-500 to-ocean-600 flex items-center justify-center flex-shrink-0 shadow-lg">
-                  <Bell className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                </div>
-                <span>Announcements</span>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">
+                Latest Announcements
               </h2>
               <Link
                 to="/announcements"
-                className="text-sm sm:text-base font-semibold text-sky-600 hover:text-sky-700 flex items-center gap-1 flex-shrink-0 transition-colors"
+                className="text-base font-semibold text-ocean-600 hover:text-ocean-700 transition-colors"
               >
-                <span className="hidden xs:inline">View All</span>
-                <span className="xs:hidden">All</span>
-                <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5" />
+                View All
               </Link>
             </div>
 
             {loading ? (
-              <div className="space-y-4 sm:space-y-5">
+              <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
-                  <div key={i} className="skeleton-card h-32 sm:h-36 rounded-2xl" />
+                  <div key={i} className="skeleton-card h-24 rounded-2xl" />
                 ))}
               </div>
             ) : recentAnnouncements.length === 0 ? (
@@ -218,7 +268,7 @@ export default function HomePage() {
                 compact
               />
             ) : (
-              <div className="space-y-4 sm:space-y-5">
+              <div className="space-y-3">
                 {recentAnnouncements.slice(0, 3).map((a: any, index: number) => (
                   <AnnouncementListItem key={a.id} announcement={a} index={index} />
                 ))}
@@ -233,27 +283,22 @@ export default function HomePage() {
               marketplaceRef.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-12'
             }`}
           >
-            <div className="flex items-center justify-between mb-6 sm:mb-8">
-              <h2 className="text-2xl sm:text-3xl md:text-4xl font-serif font-bold text-gray-900 flex items-center gap-3 sm:gap-4">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0 shadow-lg">
-                  <ShoppingBag className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                </div>
-                <span>Marketplace</span>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">
+                Featured Marketplace
               </h2>
               <Link
                 to="/marketplace"
-                className="text-sm sm:text-base font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 flex-shrink-0 transition-colors"
+                className="text-base font-semibold text-ocean-600 hover:text-ocean-700 transition-colors"
               >
-                <span className="hidden xs:inline">View All</span>
-                <span className="xs:hidden">All</span>
-                <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5" />
+                Explore Store
               </Link>
             </div>
 
             {loading ? (
-              <div className="grid grid-cols-1 xs:grid-cols-2 gap-4 sm:gap-5">
+              <div className="grid grid-cols-2 gap-4">
                 {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="skeleton-card h-44 sm:h-52 rounded-2xl" />
+                  <div key={i} className="skeleton-card h-72 rounded-2xl" />
                 ))}
               </div>
             ) : featuredItems.length === 0 ? (
@@ -264,7 +309,7 @@ export default function HomePage() {
                 compact
               />
             ) : (
-              <div className="grid grid-cols-1 xs:grid-cols-2 gap-4 sm:gap-5">
+              <div className="grid grid-cols-2 gap-4">
                 {featuredItems.slice(0, 4).map((it: any, index: number) => (
                   <MarketplaceListItem
                     key={it.id}
@@ -291,8 +336,8 @@ type Feature = {
   iconColor: string
 }
 
-function FeatureCard({ feature, index }: { feature: Feature; index: number }) {
-  const Icon = feature.icon
+function ServiceCard({ service, index }: { service: Feature; index: number }) {
+  const Icon = service.icon
   const featureCardRef = useScrollAnimation({ threshold: 0.3 })
   return (
     <div
@@ -302,16 +347,16 @@ function FeatureCard({ feature, index }: { feature: Feature; index: number }) {
       }`}
       style={{ transitionDelay: `${index * 100}ms` }}
     >
-      <div className={`absolute inset-0 bg-gradient-to-br ${feature.gradient} opacity-0 group-hover:opacity-5 rounded-2xl transition-opacity duration-500`} />
+      <div className={`absolute inset-0 bg-gradient-to-br ${service.gradient} opacity-0 group-hover:opacity-5 rounded-2xl transition-opacity duration-500`} />
       <div className="relative z-10">
-        <div className={`w-14 h-14 sm:w-16 sm:h-16 bg-gradient-to-br ${feature.iconBg} rounded-2xl flex items-center justify-center mb-5 sm:mb-6 shadow-md group-hover:scale-110 transition-transform duration-300`}>
-          <Icon className={`w-7 h-7 sm:w-8 sm:h-8 ${feature.iconColor}`} />
+        <div className={`w-14 h-14 sm:w-16 sm:h-16 bg-gradient-to-br ${service.iconBg} rounded-2xl flex items-center justify-center mb-5 sm:mb-6 shadow-md group-hover:scale-110 transition-transform duration-300`}>
+          <Icon className={`w-7 h-7 sm:w-8 sm:h-8 ${service.iconColor}`} />
         </div>
         <h3 className="text-lg sm:text-xl font-bold text-gray-900 mb-2 sm:mb-3 font-serif">
-          {feature.title}
+          {service.title}
         </h3>
         <p className="text-sm sm:text-base text-gray-600 leading-relaxed">
-          {feature.description}
+          {service.description}
         </p>
       </div>
     </div>
@@ -319,29 +364,74 @@ function FeatureCard({ feature, index }: { feature: Feature; index: number }) {
 }
 
 function AnnouncementListItem({ announcement, index }: { announcement: any; index: number }) {
-  const cardRef = useScrollAnimation({ threshold: 0.3 })
+  const getTimeAgo = (dateString: string) => {
+    const date = new Date(dateString)
+    const now = new Date()
+    const diffInMs = now.getTime() - date.getTime()
+    const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60))
+    const diffInDays = Math.floor(diffInHours / 24)
+
+    if (diffInHours < 1) return 'Just now'
+    if (diffInHours < 24) return `${diffInHours} hour${diffInHours > 1 ? 's' : ''} ago`
+    if (diffInDays < 7) return `${diffInDays} day${diffInDays > 1 ? 's' : ''} ago`
+    return date.toLocaleDateString()
+  }
+
+  const getPriorityConfig = (priority: string) => {
+    switch (priority?.toLowerCase()) {
+      case 'high':
+        return { label: 'URGENT', bgColor: 'bg-red-100', textColor: 'text-red-700', icon: AlertCircle }
+      case 'medium':
+        return { label: 'GENERAL', bgColor: 'bg-blue-100', textColor: 'text-blue-700', icon: Info }
+      default:
+        return { label: 'GENERAL', bgColor: 'bg-gray-100', textColor: 'text-gray-700', icon: Info }
+    }
+  }
+
+  const config = getPriorityConfig(announcement.priority)
+  const Icon = announcement.images?.[0] ? null : config.icon
+
   return (
-    <div
-      ref={cardRef.ref}
-      className={`transition-all duration-500 ${
-        cardRef.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
-      }`}
-      style={{ transitionDelay: `${index * 100}ms` }}
+    <motion.div
+      initial={{ opacity: 0, x: -20 }}
+      whileInView={{ opacity: 1, x: 0 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.4, delay: index * 0.1 }}
     >
-      <AnnouncementCard
-        id={announcement.id}
-        title={announcement.title}
-        content={announcement.content}
-        municipality={announcement.municipality_name || 'Province-wide'}
-        barangay={announcement.barangay_name}
-        scope={announcement.scope as any}
-        priority={announcement.priority}
-        createdAt={announcement.created_at}
-        images={announcement.images}
-        pinned={announcement.pinned}
-        href={'/announcements'}
-      />
-    </div>
+      <Link
+        to={`/announcements/${announcement.id}`}
+        className="group flex items-start gap-4 p-4 bg-white rounded-2xl shadow-sm border border-gray-100 hover:shadow-md hover:border-ocean-200 transition-all duration-300"
+      >
+        <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center overflow-hidden">
+          {announcement.images?.[0] ? (
+            <SafeImage
+              src={mediaUrl(announcement.images[0])}
+              alt={announcement.title}
+              className="w-full h-full object-cover"
+              fallbackIcon="image"
+            />
+          ) : Icon ? (
+            <Icon className="w-7 h-7 text-gray-400" />
+          ) : (
+            <Bell className="w-7 h-7 text-gray-400" />
+          )}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold ${config.bgColor} ${config.textColor} mb-1.5`}>
+            {config.label}
+          </span>
+
+          <h4 className="font-bold text-gray-900 line-clamp-2 mb-1 group-hover:text-ocean-600 transition-colors">
+            {announcement.title}
+          </h4>
+
+          <p className="text-xs text-gray-500">
+            {getTimeAgo(announcement.created_at)}
+          </p>
+        </div>
+      </Link>
+    </motion.div>
   )
 }
 
@@ -354,23 +444,68 @@ function MarketplaceListItem({
   index: number
   fallbackMunicipality?: string
 }) {
-  const cardRef = useScrollAnimation({ threshold: 0.3 })
   return (
-    <div
-      ref={cardRef.ref}
-      className={`transition-all duration-500 ${
-        cardRef.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
-      }`}
-      style={{ transitionDelay: `${index * 100}ms` }}
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.4, delay: index * 0.1 }}
     >
-      <MarketplaceCard
-        imageUrl={item.images?.[0] ? mediaUrl(item.images[0]) : undefined}
-        title={item.title}
-        price={item.transaction_type === 'sell' && item.price ? `₱${Number(item.price).toLocaleString()}` : undefined}
-        municipality={item.municipality_name || fallbackMunicipality || 'Zambales'}
-        transactionType={item.transaction_type}
-        href={'/marketplace'}
-      />
-    </div>
+      <div className="group relative bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md hover:border-ocean-200 transition-all duration-300">
+        <div className="relative aspect-square bg-gray-100 overflow-hidden">
+          {item.images?.[0] ? (
+            <Link to={`/marketplace/${item.id}`}>
+              <SafeImage
+                src={mediaUrl(item.images[0])}
+                alt={item.title}
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                fallbackIcon="image"
+              />
+            </Link>
+          ) : (
+            <Link to={`/marketplace/${item.id}`} className="w-full h-full flex items-center justify-center bg-gray-200">
+              <Package className="w-16 h-16 text-gray-400" />
+            </Link>
+          )}
+
+          <button
+            className="absolute top-3 right-3 w-10 h-10 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-md hover:bg-white hover:scale-110 transition-all duration-200"
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+            }}
+          >
+            <Heart className="w-5 h-5 text-ocean-600" />
+          </button>
+        </div>
+
+        <div className="p-4">
+          <Link to={`/marketplace/${item.id}`}>
+            <h4 className="font-bold text-gray-900 mb-1 line-clamp-1 group-hover:text-ocean-600 transition-colors">
+              {item.title}
+            </h4>
+          </Link>
+          <p className="text-sm text-gray-600 mb-3">
+            {item.municipality_name || fallbackMunicipality || 'Zambales'}
+          </p>
+
+          <div className="flex items-center justify-between">
+            <span className="text-lg font-bold text-ocean-600">
+              {item.transaction_type === 'sell' && item.price
+                ? `₱${Number(item.price).toLocaleString()}`
+                : item.transaction_type === 'lend'
+                  ? 'For Lending'
+                  : 'Free'}
+            </span>
+            <Link
+              to={`/marketplace/${item.id}`}
+              className="w-9 h-9 rounded-full bg-ocean-600 hover:bg-ocean-700 flex items-center justify-center shadow-md hover:scale-110 transition-all duration-200"
+            >
+              <ShoppingBag className="w-5 h-5 text-white" />
+            </Link>
+          </div>
+        </div>
+      </div>
+    </motion.div>
   )
 }

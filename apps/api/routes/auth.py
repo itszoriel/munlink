@@ -11,22 +11,25 @@ Security: Critical endpoints have rate limiting applied to prevent:
 - Email verification abuse
 """
 from flask import Blueprint, request, jsonify, current_app
+from apps.api.utils.time import utc_now
 from sqlalchemy import func
 import sqlite3
+import hashlib
+import secrets
 from sqlalchemy.exc import OperationalError as SAOperationalError, ProgrammingError as SAProgrammingError
 from flask_jwt_extended import (
-    create_access_token, 
-    create_refresh_token, 
-    jwt_required, 
-    get_jwt_identity, 
+    create_access_token,
+    create_refresh_token,
+    jwt_required,
+    get_jwt_identity,
     get_jwt,
     decode_token,
     set_refresh_cookies,
     unset_jwt_cookies,
 )
 from datetime import datetime, timedelta
-from utils.sms_provider import get_provider_status
-from __init__ import db, limiter
+from apps.api.utils.sms_provider import get_provider_status
+from apps.api import db, limiter
 import bcrypt
 from werkzeug.security import check_password_hash
 
@@ -46,16 +49,17 @@ def verify_password(password: str, password_hash: str) -> bool:
     except ValueError:
         return False
 
-from models.user import User
-from models.municipality import Municipality, Barangay
-from utils.zambales_scope import (
+from apps.api.models.user import User
+from apps.api.models.password_reset_token import PasswordResetToken
+from apps.api.models.municipality import Municipality, Barangay
+from apps.api.utils.zambales_scope import (
     ZAMBALES_MUNICIPALITY_IDS,
     ZAMBALES_MUNICIPALITY_SLUGS,
     is_valid_zambales_municipality,
 )
-from models.transfer import TransferRequest
-from models.token_blacklist import TokenBlacklist
-from utils import (
+from apps.api.models.transfer import TransferRequest
+from apps.api.models.token_blacklist import TokenBlacklist
+from apps.api.utils import (
         validate_email,
         validate_username,
         validate_password,
@@ -90,25 +94,53 @@ def _limit_with_key(limit_value, key_func):
     return decorator
 
 
+def _password_reset_email_key() -> str:
+    """Rate limit key based on normalized email for password reset requests."""
+    try:
+        data = request.get_json(silent=True) or {}
+        email = (data.get('email') or '').strip().lower()
+        if email:
+            return f"pwd-reset-email:{email}"
+    except Exception:
+        pass
+    return request.remote_addr or 'unknown'
+
+
+def _superadmin_identity_from_header() -> str | None:
+    """Extract superadmin identity from Authorization header without DB lookups."""
+    try:
+        auth_header = request.headers.get('Authorization') or ''
+        if not auth_header.lower().startswith('bearer '):
+            return None
+        token = auth_header.split(' ', 1)[1].strip()
+        if not token:
+            return None
+        decoded = decode_token(token)
+        role = (decoded.get('role') or '').lower()
+        if role != 'superadmin':
+            return None
+        uid = decoded.get('sub') or decoded.get('identity')
+        return str(uid) if uid is not None else None
+    except Exception:
+        return None
+
+
+def _hash_password_reset_token(token: str) -> str:
+    """Hash a password reset token using app secret for safe storage."""
+    secret = current_app.config.get('SECRET_KEY', '')
+    return hashlib.sha256(f"{token}{secret}".encode('utf-8')).hexdigest()
+
+
 def _superadmin_key_or_ip() -> str:
     """
     Rate limit key for superadmin actions:
     - If a valid JWT is present and role==superadmin, key by superadmin identity
     - Otherwise fall back to IP (preserves strict limits for unauth usage)
     """
-    # Key by authenticated superadmin identity when possible
-    try:
-        from flask_jwt_extended import verify_jwt_in_request, get_jwt, get_jwt_identity
-
-        verify_jwt_in_request(optional=True)
-        claims = get_jwt() or {}
-        role = (claims.get('role') or '').lower()
-        if role == 'superadmin':
-            uid = get_jwt_identity()
-            if uid:
-                return f"superadmin:{uid}"
-    except Exception:
-        pass
+    # Key by authenticated superadmin identity when possible (no DB dependency)
+    uid = _superadmin_identity_from_header()
+    if uid:
+        return f"superadmin:{uid}"
 
     # Fallback to IP-based key
     try:
@@ -126,16 +158,10 @@ def _admin_register_limit_value() -> str:
     - Superadmin-authenticated requests get a practical onboarding limit (bursts allowed)
     - Unauthenticated requests remain strict to reduce abuse if ADMIN_SECRET_KEY is leaked
     """
-    try:
-        from flask_jwt_extended import verify_jwt_in_request, get_jwt
-
-        verify_jwt_in_request(optional=True)
-        role = ((get_jwt() or {}).get('role') or '').lower()
-        if role == 'superadmin':
-            # Allow bursts for onboarding while still limiting abuse
-            return "20 per minute; 200 per hour"
-    except Exception:
-        pass
+    uid = _superadmin_identity_from_header()
+    if uid:
+        # Allow bursts for onboarding while still limiting abuse
+        return "20 per minute; 200 per hour"
 
     # Strict default for unauth usage (secret-only)
     return "3 per hour"
@@ -207,7 +233,7 @@ def register():
                 bid = None
                 current_app.logger.warning(f"Registration: Invalid barangay_id format: '{barangay_id_raw}'")
             if bid:
-                b = Barangay.query.get(bid)
+                b = db.session.get(Barangay, bid)
                 if not b:
                     # Barangay not found - try to find a matching one by looking up barangays for this municipality
                     current_app.logger.warning(f"Registration: Barangay ID {bid} not found in database (municipality_id={municipality_id})")
@@ -276,7 +302,7 @@ def register():
         email_sent = False
         email_error = None
         try:
-            from utils.email_sender import send_verification_email
+            from apps.api.utils.email_sender import send_verification_email
             web_url = current_app.config.get('WEB_URL', 'http://localhost:5173')
             verify_link = f"{web_url}/verify-email?token={verification_token}"
             send_verification_email(user.email, verify_link)
@@ -349,12 +375,12 @@ def login():
             return jsonify({'error': 'Super admin login requires 2FA. Please use the super admin login flow.', 'code': 'SUPERADMIN_LOGIN_REQUIRED'}), 403
         
         # Update last login
-        user.last_login = datetime.utcnow()
+        user.last_login = utc_now()
         
         # Create refresh token (token rotation is optional - gracefully degrade if tables don't exist)
         refresh_token = None
         try:
-            from models.refresh_token import RefreshTokenFamily, RefreshToken
+            from apps.api.models.refresh_token import RefreshTokenFamily, RefreshToken
             
             # Create token family for this session (for token rotation tracking)
             family = RefreshTokenFamily.create_family(
@@ -380,7 +406,7 @@ def login():
             RefreshToken.create_token(
                 jti=refresh_jti,
                 family=family,
-                expires_at=datetime.utcnow() + refresh_expires,
+                expires_at=utc_now() + refresh_expires,
             )
         except ImportError:
             # Token rotation models not available, fall back to simple refresh token
@@ -450,14 +476,14 @@ def logout():
         
         # Calculate expiration time
         expires_delta = timedelta(hours=1) if token_type == 'access' else timedelta(days=30)
-        expires_at = datetime.utcnow() + expires_delta
+        expires_at = utc_now() + expires_delta
         
         # Add token to blacklist
         TokenBlacklist.add_token_to_blacklist(jti, token_type, user_id, expires_at)
         
         # Invalidate the entire token family if present (prevents any refresh tokens in this session)
         try:
-            from models.refresh_token import RefreshTokenFamily
+            from apps.api.models.refresh_token import RefreshTokenFamily
 
             if family_id:
                 family = RefreshTokenFamily.query.filter_by(family_id=family_id, is_active=True).first()
@@ -499,7 +525,7 @@ def refresh():
             uid = int(user_id) if isinstance(user_id, str) else user_id
         except Exception:
             uid = user_id
-        user = User.query.get(uid)
+        user = db.session.get(User, uid)
         
         if not user:
             return jsonify({'error': 'User not found'}), 404
@@ -512,7 +538,7 @@ def refresh():
         # Token rotation with theft detection
         new_refresh_token = None
         try:
-            from models.refresh_token import RefreshTokenFamily, RefreshToken
+            from apps.api.models.refresh_token import RefreshTokenFamily, RefreshToken
             
             if old_jti:
                 # Validate the old token and check for reuse
@@ -560,7 +586,7 @@ def refresh():
                 RefreshToken.create_token(
                     jti=new_jti,
                     family=family,
-                    expires_at=datetime.utcnow() + refresh_expires,
+                    expires_at=utc_now() + refresh_expires,
                 )
                 
                 db.session.commit()
@@ -636,8 +662,15 @@ def admin_login():
         if not verify_password(password, user.password_hash):
             return jsonify({'error': 'Invalid credentials'}), 401
         
-        # ADMIN CHECK: Verify user has admin role
-        if user.role not in ('superadmin', 'provincial_admin', 'municipal_admin', 'barangay_admin'):
+        # Superadmins must always use dedicated 2FA flow.
+        if user.role == 'superadmin':
+            return jsonify({
+                'error': 'Super admin login requires 2FA. Please use the super admin login flow.',
+                'code': 'SUPERADMIN_2FA_REQUIRED'
+            }), 403
+
+        # ADMIN CHECK: Verify user has admin role (excluding superadmin by design)
+        if user.role not in ('admin', 'provincial_admin', 'municipal_admin', 'barangay_admin'):
             return jsonify({'error': 'Access denied. Admin privileges required.'}), 403
         
         # Check if account is active
@@ -645,12 +678,12 @@ def admin_login():
             return jsonify({'error': 'Account is deactivated'}), 403
         
         # Update last login
-        user.last_login = datetime.utcnow()
+        user.last_login = utc_now()
         
         # Create refresh token (token rotation is optional)
         refresh_token = None
         try:
-            from models.refresh_token import RefreshTokenFamily, RefreshToken
+            from apps.api.models.refresh_token import RefreshTokenFamily, RefreshToken
             
             family = RefreshTokenFamily.create_family(
                 user_id=user.id,
@@ -673,7 +706,7 @@ def admin_login():
             RefreshToken.create_token(
                 jti=refresh_jti,
                 family=family,
-                expires_at=datetime.utcnow() + refresh_expires,
+                expires_at=utc_now() + refresh_expires,
             )
         except ImportError:
             current_app.logger.debug("Token rotation not available")
@@ -723,26 +756,34 @@ def admin_login():
 
 
 @auth_bp.route('/admin/register', methods=['POST'])
+@jwt_required()
 @_limit_with_key(_admin_register_limit_value, _superadmin_key_or_ip)
 def admin_register():
-    """Create a municipal admin account (separate admin site).
-    Requires ADMIN_SECRET_KEY to be provided in the request body as 'admin_secret'.
-    Accepts admin_municipality_id or admin_municipality_slug to scope the admin.
+    """Create an admin account.
+    Requires authenticated superadmin.
+    Accepts admin_municipality_id or admin_municipality_slug to scope admin users.
     """
     try:
-        is_multipart = request.content_type and 'multipart/form-data' in request.content_type
-        data = request.form.to_dict() if is_multipart else request.get_json()
+        # Enforce authenticated superadmin access.
+        try:
+            actor_id = int(get_jwt_identity())
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Authentication required'}), 401
 
-        admin_secret = data.get('admin_secret')
-        if not admin_secret:
-            return jsonify({'error': 'admin_secret is required'}), 400
-        if admin_secret != current_app.config.get('ADMIN_SECRET_KEY'):
-            return jsonify({'error': 'Invalid admin secret'}), 401
+        actor = db.session.get(User, actor_id)
+        if not actor or actor.role != 'superadmin':
+            return jsonify({'error': 'Superadmin access required'}), 403
+
+        is_multipart = request.content_type and 'multipart/form-data' in request.content_type
+        data = request.form.to_dict() if is_multipart else (request.get_json(silent=True) or {})
+
+        if not data:
+            return jsonify({'error': 'Request body is required'}), 400
 
         # Validate required fields
         required_fields = ['username', 'email', 'password', 'first_name', 'last_name']
         for field in required_fields:
-            if field not in data:
+            if field not in data or data.get(field) in (None, ''):
                 return jsonify({'error': f'{field} is required'}), 400
 
         # Validate and sanitize inputs
@@ -759,10 +800,18 @@ def admin_register():
         admin_role = data.get('admin_role', 'municipal_admin')
         admin_barangay_id = data.get('admin_barangay_id')
 
-        # Validate admin role
-        valid_admin_roles = ['municipal_admin', 'barangay_admin', 'provincial_admin', 'superadmin']
+        # Validate admin role (superadmin creation is not allowed via this endpoint).
+        valid_admin_roles = ['municipal_admin', 'barangay_admin', 'provincial_admin']
         if admin_role not in valid_admin_roles:
             return jsonify({'error': f'Invalid admin role. Must be one of: {", ".join(valid_admin_roles)}'}), 400
+
+        if admin_municipality_id is not None and str(admin_municipality_id).strip() != '':
+            try:
+                admin_municipality_id = int(admin_municipality_id)
+            except (TypeError, ValueError):
+                return jsonify({'error': 'Invalid admin_municipality_id'}), 400
+        else:
+            admin_municipality_id = None
 
         if admin_municipality_slug and not admin_municipality_id:
             mun = Municipality.query.filter_by(slug=admin_municipality_slug).first()
@@ -770,16 +819,37 @@ def admin_register():
                 return jsonify({'error': 'Invalid municipality slug'}), 400
             admin_municipality_id = mun.id
 
+        # Municipality-scoped roles must have a valid Zambales municipality.
+        if admin_role in ('municipal_admin', 'barangay_admin'):
+            if not admin_municipality_id:
+                return jsonify({'error': 'admin_municipality_id is required for this admin role'}), 400
+            if not is_valid_zambales_municipality(admin_municipality_id):
+                return jsonify({'error': 'Admin municipality is outside Zambales scope'}), 400
+
+        # Provincial admins are province-wide and should not carry municipality/barangay IDs.
+        if admin_role == 'provincial_admin':
+            admin_municipality_id = None
+            admin_barangay_id = None
+
         # Validate barangay for barangay_admin
         if admin_role == 'barangay_admin':
             if not admin_barangay_id:
                 return jsonify({'error': 'Barangay ID is required for barangay_admin role'}), 400
-            barangay = Barangay.query.get(admin_barangay_id)
+            try:
+                admin_barangay_id = int(admin_barangay_id)
+            except (TypeError, ValueError):
+                return jsonify({'error': 'Invalid barangay ID'}), 400
+
+            barangay = db.session.get(Barangay, admin_barangay_id)
             if not barangay:
                 return jsonify({'error': 'Invalid barangay ID'}), 400
             # Ensure barangay belongs to the selected municipality
             if admin_municipality_id and barangay.municipality_id != int(admin_municipality_id):
                 return jsonify({'error': 'Barangay does not belong to the selected municipality'}), 400
+            if not is_valid_zambales_municipality(barangay.municipality_id):
+                return jsonify({'error': 'Barangay is outside Zambales scope'}), 400
+        else:
+            admin_barangay_id = None
 
         # Check if user already exists
         if User.query.filter_by(username=username).first():
@@ -803,13 +873,11 @@ def admin_register():
             email_verified=True,
             admin_verified=True,
             admin_municipality_id=admin_municipality_id,
-            admin_barangay_id=int(admin_barangay_id) if admin_barangay_id else None,
+            admin_barangay_id=admin_barangay_id,
         )
 
         # Assign default permissions based on role
-        if admin_role == 'superadmin':
-            user.permissions = ['*']  # Wildcard - all permissions
-        elif admin_role in ('municipal_admin', 'provincial_admin', 'barangay_admin'):
+        if admin_role in ('municipal_admin', 'provincial_admin', 'barangay_admin'):
             user.permissions = ['residents:approve', 'residents:id_view']
         else:
             user.permissions = []  # No permissions for unknown roles
@@ -823,7 +891,11 @@ def admin_register():
             return jsonify({'error': 'Admin registration requires Valid ID Front and Back uploaded as files (multipart/form-data)'}), 400
 
         if request.files:
-            municipality_slug = data.get('admin_municipality_slug') or 'general'
+            municipality_slug = data.get('admin_municipality_slug')
+            if not municipality_slug and admin_municipality_id:
+                m = db.session.get(Municipality, admin_municipality_id)
+                municipality_slug = getattr(m, 'slug', None)
+            municipality_slug = municipality_slug or 'zambales'
 
             # Validate required IDs
             id_front = request.files.get('valid_id_front')
@@ -842,15 +914,16 @@ def admin_register():
                 user.valid_id_back = save_verification_document(id_back, user.id, municipality_slug, 'valid_id_back', user_type='admins')
             except Exception as upload_error:
                 db.session.rollback()
+                current_app.logger.warning("Admin registration file upload failed: %s", upload_error)
                 # Surface validation/storage errors as 400 instead of 500
-                return jsonify({'error': 'File validation failed', 'details': str(upload_error)}), 400
+                return jsonify({'error': 'File validation failed'}), 400
 
         db.session.commit()
 
         # Send welcome email with terms and privacy policy PDF
         admin_full_name = f"{first_name} {last_name}"
         try:
-            from utils.email_sender import send_admin_welcome_email
+            from apps.api.utils.email_sender import send_admin_welcome_email
             send_admin_welcome_email(email, admin_full_name, admin_role)
             current_app.logger.info(f"Admin welcome email sent to {email}")
         except Exception as email_error:
@@ -867,11 +940,10 @@ def admin_register():
         return jsonify({'error': str(e)}), 400
     except Exception as e:
         db.session.rollback()
-        # Log the full error for debugging
         import traceback
         current_app.logger.error(f"Admin registration error: {str(e)}")
         current_app.logger.error(traceback.format_exc())
-        return jsonify({'error': 'Admin registration failed', 'details': str(e)}), 500
+        return jsonify({'error': 'Admin registration failed'}), 500
 
 
 @auth_bp.route('/verify-email/<token>', methods=['GET'])
@@ -892,7 +964,7 @@ def verify_email(token):
             uid = int(user_id) if isinstance(user_id, str) else user_id
         except Exception:
             uid = user_id
-        user = User.query.get(uid)
+        user = db.session.get(User, uid)
         
         if not user:
             return jsonify({'error': 'User not found'}), 404
@@ -902,7 +974,7 @@ def verify_email(token):
         
         # Verify email
         user.email_verified = True
-        user.email_verified_at = datetime.utcnow()
+        user.email_verified_at = utc_now()
         db.session.commit()
         
         return jsonify({'message': 'Email verified successfully'}), 200
@@ -923,7 +995,7 @@ def resend_verification_email():
         except Exception:
             uid = user_id
 
-        user = User.query.get(uid)
+        user = db.session.get(User, uid)
         if not user:
             return jsonify({'error': 'User not found'}), 404
 
@@ -934,7 +1006,7 @@ def resend_verification_email():
         email_sent = False
         email_error = None
         try:
-            from utils.email_sender import send_verification_email
+            from apps.api.utils.email_sender import send_verification_email
             web_url = current_app.config.get('WEB_URL', 'http://localhost:5173')
             verify_link = f"{web_url}/verify-email?token={verification_token}"
             send_verification_email(user.email, verify_link)
@@ -979,7 +1051,7 @@ def resend_verification_email_public():
         email_sent = False
         email_error = None
         try:
-            from utils.email_sender import send_verification_email
+            from apps.api.utils.email_sender import send_verification_email
             web_url = current_app.config.get('WEB_URL', 'http://localhost:5173')
             verify_link = f"{web_url}/verify-email?token={verification_token}"
             send_verification_email(user.email, verify_link)
@@ -1006,7 +1078,7 @@ def get_profile():
     """Get current user profile."""
     try:
         user_id = get_jwt_identity()
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         
         if not user:
             return jsonify({'error': 'User not found'}), 404
@@ -1032,7 +1104,7 @@ def update_profile():
     """Update current user profile."""
     try:
         user_id = get_jwt_identity()
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         
         if not user:
             return jsonify({'error': 'User not found'}), 404
@@ -1086,12 +1158,12 @@ def update_profile():
                 bid_int = None
             if bid_int is not None:
                 # Only allow barangay within user's municipality
-                b = Barangay.query.get(bid_int)
+                b = db.session.get(Barangay, bid_int)
                 if not b or (user.municipality_id and b.municipality_id != user.municipality_id):
                     return jsonify({'error': 'Invalid barangay for your municipality'}), 400
                 user.barangay_id = bid_int
 
-        user.updated_at = datetime.utcnow()
+        user.updated_at = utc_now()
         db.session.commit()
         
         return jsonify({
@@ -1116,7 +1188,7 @@ def upload_profile_photo():
             uid = int(user_id) if isinstance(user_id, str) else user_id
         except Exception:
             uid = user_id
-        user = User.query.get(uid)
+        user = db.session.get(User, uid)
 
         if not user:
             return jsonify({'error': 'User not found'}), 404
@@ -1135,10 +1207,10 @@ def upload_profile_photo():
         municipality_slug = None
         try:
             if getattr(user, 'admin_municipality_id', None):
-                mun = Municipality.query.get(user.admin_municipality_id)
+                mun = db.session.get(Municipality, user.admin_municipality_id)
                 municipality_slug = getattr(mun, 'slug', None)
             if not municipality_slug and getattr(user, 'municipality_id', None):
-                mun = Municipality.query.get(user.municipality_id)
+                mun = db.session.get(Municipality, user.municipality_id)
                 municipality_slug = getattr(mun, 'slug', None)
         except Exception:
             municipality_slug = None
@@ -1146,7 +1218,7 @@ def upload_profile_photo():
         category = 'admins' if str(getattr(user, 'role', '')).startswith('admin') or getattr(user, 'role', '') == 'municipal_admin' else 'residents'
         rel_path = save_profile_picture(f, user.id, municipality_slug or 'general', user_type=category)
         user.profile_picture = rel_path
-        user.updated_at = datetime.utcnow()
+        user.updated_at = utc_now()
         db.session.commit()
 
         return jsonify({'message': 'Profile photo updated', 'user': user.to_dict(include_sensitive=True, include_municipality=True)}), 200
@@ -1165,11 +1237,11 @@ def delete_profile_photo():
             uid = int(user_id) if isinstance(user_id, str) else user_id
         except Exception:
             uid = user_id
-        user = User.query.get(uid)
+        user = db.session.get(User, uid)
         if not user:
             return jsonify({'error': 'User not found'}), 404
         user.profile_picture = None
-        user.updated_at = datetime.utcnow()
+        user.updated_at = utc_now()
         db.session.commit()
         return jsonify({'message': 'Profile photo removed', 'user': user.to_dict(include_sensitive=True, include_municipality=True)}), 200
     except Exception as e:
@@ -1186,7 +1258,7 @@ def upload_verification_docs():
     """
     try:
         user_id = get_jwt_identity()
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
 
         if not user:
             return jsonify({'error': 'User not found'}), 404
@@ -1226,7 +1298,7 @@ def upload_verification_docs():
         if not saved_any:
             return jsonify({'error': 'Please upload at least one verification file'}), 400
 
-        user.updated_at = datetime.utcnow()
+        user.updated_at = utc_now()
         db.session.commit()
 
         if existing_ids:
@@ -1251,7 +1323,7 @@ def change_password():
     """Change user password."""
     try:
         user_id = get_jwt_identity()
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         
         if not user:
             return jsonify({'error': 'User not found'}), 404
@@ -1273,7 +1345,7 @@ def change_password():
         
         # Hash and update password
         user.password_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        user.updated_at = datetime.utcnow()
+        user.updated_at = utc_now()
         db.session.commit()
         
         return jsonify({'message': 'Password changed successfully'}), 200
@@ -1283,6 +1355,170 @@ def change_password():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': 'Failed to change password', 'details': str(e)}), 500
+
+
+@auth_bp.route('/password-reset/request', methods=['POST'])
+@_limit("20 per 15 minutes")  # IP-based rate limit
+@_limit_with_key("5 per 15 minutes", _password_reset_email_key)  # Per-email rate limit
+def password_reset_request():
+    """Request a password reset link (generic response to avoid enumeration)."""
+    try:
+        data = request.get_json(silent=True) or {}
+        email_raw = (data.get('email') or '').strip()
+        if not email_raw:
+            return jsonify({'error': 'Email is required'}), 400
+
+        try:
+            email = validate_email(email_raw)
+        except ValidationError as e:
+            return jsonify({'error': str(e)}), 400
+
+        user = User.query.filter(func.lower(User.email) == email.lower()).first()
+
+        if user and user.is_active and user.role != 'superadmin':
+            # Invalidate any existing active tokens for this user
+            PasswordResetToken.query.filter_by(user_id=user.id, used_at=None).update(
+                {'used_at': utc_now()}
+            )
+
+            ttl_minutes = int(current_app.config.get('PASSWORD_RESET_TOKEN_TTL_MINUTES', 30))
+            raw_token = secrets.token_urlsafe(32)
+            token_hash = _hash_password_reset_token(raw_token)
+
+            reset_token = PasswordResetToken(
+                user_id=user.id,
+                token_hash=token_hash,
+                expires_at=utc_now() + timedelta(minutes=ttl_minutes),
+                request_ip=request.remote_addr,
+                user_agent=request.headers.get('User-Agent'),
+            )
+            db.session.add(reset_token)
+            db.session.commit()
+
+            try:
+                from apps.api.utils.email_sender import send_password_reset_email
+
+                admin_roles = ('superadmin', 'provincial_admin', 'municipal_admin', 'barangay_admin', 'admin')
+                if user.role in admin_roles:
+                    base_url = current_app.config.get('ADMIN_URL', 'http://localhost:3001')
+                else:
+                    base_url = current_app.config.get('WEB_URL', 'http://localhost:5173')
+                reset_link = f"{base_url}/reset-password?token={raw_token}"
+                send_password_reset_email(user.email, reset_link, ttl_minutes)
+                current_app.logger.info(
+                    "Password reset email sent user_id=%s role=%s",
+                    user.id,
+                    user.role,
+                )
+            except Exception as email_error:
+                current_app.logger.error(
+                    "Password reset email failed for %s: %s",
+                    user.email,
+                    email_error,
+                )
+        else:
+            if user and user.role == 'superadmin':
+                current_app.logger.info(
+                    "Password reset requested for superadmin email=%s (script-only)",
+                    email,
+                )
+
+        # Always return a generic response
+        return jsonify({'message': "If an account exists for this email, we'll send a reset link."}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Password reset request error: {e}")
+        return jsonify({'message': "If an account exists for this email, we'll send a reset link."}), 200
+
+
+@auth_bp.route('/password-reset/validate', methods=['POST'])
+@_limit("30 per 15 minutes")
+def password_reset_validate():
+    """Validate a password reset token without consuming it."""
+    try:
+        data = request.get_json(silent=True) or {}
+        token = (data.get('token') or '').strip()
+        if not token:
+            return jsonify({'error': 'Token is required'}), 400
+
+        token_hash = _hash_password_reset_token(token)
+        reset = PasswordResetToken.query.filter_by(token_hash=token_hash, used_at=None).first()
+        if not reset:
+            return jsonify({'valid': False, 'error': 'Invalid or expired token'}), 400
+
+        if reset.expires_at < utc_now():
+            reset.mark_used()
+            db.session.commit()
+            return jsonify({'valid': False, 'error': 'Invalid or expired token'}), 400
+
+        user = db.session.get(User, reset.user_id)
+        if not user or not user.is_active or user.role == 'superadmin':
+            return jsonify({'valid': False, 'error': 'Invalid or expired token'}), 400
+
+        return jsonify({'valid': True}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Password reset validate error: {e}")
+        return jsonify({'valid': False, 'error': 'Invalid or expired token'}), 400
+
+
+@auth_bp.route('/password-reset/confirm', methods=['POST'])
+@_limit("10 per 15 minutes")
+def password_reset_confirm():
+    """Confirm password reset and set a new password."""
+    try:
+        data = request.get_json(silent=True) or {}
+        token = (data.get('token') or '').strip()
+        new_password = data.get('new_password')
+        confirm_password = data.get('confirm_password')
+
+        if not token or not new_password:
+            return jsonify({'error': 'Token and new password are required'}), 400
+        if confirm_password is not None and new_password != confirm_password:
+            return jsonify({'error': 'Passwords do not match'}), 400
+
+        token_hash = _hash_password_reset_token(token)
+        reset = PasswordResetToken.query.filter_by(token_hash=token_hash, used_at=None).first()
+        if not reset:
+            return jsonify({'error': 'Invalid or expired token'}), 400
+
+        if reset.expires_at < utc_now():
+            reset.mark_used()
+            db.session.commit()
+            return jsonify({'error': 'Invalid or expired token'}), 400
+
+        user = db.session.get(User, reset.user_id)
+        if not user or not user.is_active or user.role == 'superadmin':
+            reset.mark_used()
+            db.session.commit()
+            return jsonify({'error': 'Invalid or expired token'}), 400
+
+        # Validate and update password
+        new_password = validate_password(new_password)
+        user.password_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        user.updated_at = utc_now()
+
+        reset.mark_used()
+
+        # Invalidate refresh token families (logout from all devices)
+        try:
+            from apps.api.models.refresh_token import RefreshTokenFamily
+            RefreshTokenFamily.invalidate_all_for_user(user.id, reason='password_reset')
+        except Exception:
+            pass
+
+        db.session.commit()
+        current_app.logger.info("Password reset completed user_id=%s role=%s", user.id, user.role)
+        return jsonify({'message': 'Password updated successfully'}), 200
+
+    except ValidationError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Password reset confirm error: {e}")
+        return jsonify({'error': 'Failed to reset password'}), 500
 
 
 @auth_bp.route('/transfer', methods=['POST'])
@@ -1295,7 +1531,7 @@ def request_transfer():
             uid = int(user_id) if isinstance(user_id, str) else user_id
         except Exception:
             uid = user_id
-        user = User.query.get(uid)
+        user = db.session.get(User, uid)
         if not user or user.role != 'resident':
             return jsonify({'error': 'Resident access required'}), 403
         data = request.get_json() or {}
@@ -1328,15 +1564,15 @@ def request_transfer():
             return jsonify({'error': 'Your current municipality is not available in this system'}), 400
         
         # Validate both current and target municipalities exist
-        if not Municipality.query.get(user.municipality_id):
+        if not db.session.get(Municipality, user.municipality_id):
             return jsonify({'error': 'Your current municipality record no longer exists'}), 400
-        target_municipality = Municipality.query.get(to_municipality_id)
+        target_municipality = db.session.get(Municipality, to_municipality_id)
         if not target_municipality:
             return jsonify({'error': 'Target municipality not found'}), 404
         # Validate barangay belongs to target municipality if provided
         if to_barangay_id:
             # Barangay is now imported at module level
-            barangay = Barangay.query.get(to_barangay_id)
+            barangay = db.session.get(Barangay, to_barangay_id)
             if not barangay:
                 return jsonify({'error': 'Target barangay not found'}), 404
             if barangay.municipality_id != to_municipality_id:
@@ -1366,7 +1602,7 @@ def request_transfer():
             # retry once
             try:
                 user_id = get_jwt_identity()
-                user = User.query.get(user_id)
+                user = db.session.get(User, user_id)
                 data = request.get_json() or {}
                 to_municipality_id = int(data.get('to_municipality_id') or 0)
                 to_barangay_id = data.get('to_barangay_id')
@@ -1417,9 +1653,9 @@ def superadmin_login():
         - session_id: Temporary session for 2FA verification
         - message: Success message
     """
-    from models.email_verification_code import EmailVerificationCode
-    from utils.email_2fa import send_2fa_code
-    from utils.admin_audit import log_superadmin_login_attempt
+    from apps.api.models.email_verification_code import EmailVerificationCode
+    from apps.api.utils.email_2fa import send_2fa_code
+    from apps.api.utils.admin_audit import log_superadmin_login_attempt
 
     try:
         data = request.get_json()
@@ -1507,11 +1743,10 @@ def superadmin_verify_2fa():
 
     Returns:
         - access_token: JWT access token
-        - refresh_token: JWT refresh token
         - user: User data
     """
-    from models.email_verification_code import EmailVerificationCode
-    from utils.admin_audit import log_superadmin_login_attempt, log_superadmin_2fa_failed
+    from apps.api.models.email_verification_code import EmailVerificationCode
+    from apps.api.utils.admin_audit import log_superadmin_login_attempt, log_superadmin_2fa_failed
 
     try:
         data = request.get_json()
@@ -1532,13 +1767,13 @@ def superadmin_verify_2fa():
         if not success:
             # Log failed 2FA attempt
             if verification:
-                user = User.query.get(verification.user_id)
+                user = db.session.get(User, verification.user_id)
                 if user:
                     log_superadmin_2fa_failed(user.email, error_message)
             return jsonify({'error': error_message}), 401
 
         # Get the user
-        user = User.query.get(verification.user_id)
+        user = db.session.get(User, verification.user_id)
         if not user:
             return jsonify({'error': 'User not found'}), 404
 
@@ -1547,21 +1782,20 @@ def superadmin_verify_2fa():
             return jsonify({'error': 'Unauthorized'}), 403
 
         # Update last login
-        user.last_login = datetime.utcnow()
+        user.last_login = utc_now()
         db.session.commit()
 
         # Log successful login
         log_superadmin_login_attempt(user.email, success=True)
 
         # Generate tokens
-        access_token = create_access_token(identity=user.id)
-        refresh_token = create_refresh_token(identity=user.id)
+        access_token = create_access_token(identity=str(user.id))
+        refresh_token = create_refresh_token(identity=str(user.id))
 
         # Build response
         response = jsonify({
             'message': 'Login successful',
             'access_token': access_token,
-            'refresh_token': refresh_token,
             'user': user.to_dict(include_sensitive=True, include_municipality=True)
         })
 
@@ -1588,8 +1822,8 @@ def superadmin_resend_code():
         - session_id: New session ID (invalidates old one)
         - message: Success message
     """
-    from models.email_verification_code import EmailVerificationCode
-    from utils.email_2fa import send_2fa_code
+    from apps.api.models.email_verification_code import EmailVerificationCode
+    from apps.api.utils.email_2fa import send_2fa_code
 
     try:
         data = request.get_json()
@@ -1608,7 +1842,7 @@ def superadmin_resend_code():
             return jsonify({'error': 'Invalid session'}), 400
 
         # Get the user
-        user = User.query.get(old_verification.user_id)
+        user = db.session.get(User, old_verification.user_id)
         if not user or user.role != 'superadmin':
             return jsonify({'error': 'Unauthorized'}), 403
 

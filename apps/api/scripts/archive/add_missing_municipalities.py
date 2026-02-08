@@ -105,7 +105,7 @@ def add_missing_municipalities():
 
         for province_id, municipalities in MISSING_MUNICIPALITIES.items():
             # Verify province exists
-            province = Province.query.get(province_id)
+            province = db.session.get(Province, province_id)
             if not province:
                 print(f"ERROR: Province with ID {province_id} not found!")
                 continue
@@ -180,7 +180,7 @@ def add_missing_municipalities():
         # Show updated IDs for frontend
         print("Updated Municipality IDs (for locations.ts):")
         for province_id, municipalities in MISSING_MUNICIPALITIES.items():
-            province = Province.query.get(province_id)
+            province = db.session.get(Province, province_id)
             for mun_name in municipalities.keys():
                 base_slug = slugify(mun_name)
                 province_suffix = slugify(province.name)

@@ -5,7 +5,7 @@ import { Plus } from 'lucide-react'
 import GatedAction from '@/components/GatedAction'
 import { useAppStore } from '@/lib/store'
 import { useCachedFetch } from '@/lib/useCachedFetch'
-import { CACHE_KEYS } from '@/lib/dataStore'
+import { CACHE_KEYS, invalidateMultiple } from '@/lib/dataStore'
 import { issuesApi, mediaUrl, showToast } from '@/lib/api'
 import Modal from '@/components/ui/Modal'
 import FileUploader from '@/components/ui/FileUploader'
@@ -261,6 +261,8 @@ export default function ProblemsPage() {
                 const id = res?.data?.issue?.id
                 setCreatedId(id || null)
                 showToast('Problem reported successfully', 'success')
+                // Invalidate caches to reflect new issue immediately
+                invalidateMultiple([CACHE_KEYS.ISSUES, CACHE_KEYS.MY_ISSUES])
               } finally {
                 setCreating(false)
               }
@@ -279,6 +281,8 @@ export default function ProblemsPage() {
                     await issuesApi.upload(createdId, formData)
                   } catch {}
                 }
+                // Invalidate caches after uploads to refresh issue details
+                invalidateMultiple([CACHE_KEYS.ISSUES, CACHE_KEYS.MY_ISSUES])
                 setOpen(false)
               }} />
             </div>

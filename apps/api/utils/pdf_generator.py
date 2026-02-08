@@ -16,6 +16,7 @@ Entry point: generate_document_pdf(request, document_type, user) -> (abs_path_or
 """
 from __future__ import annotations
 
+from apps.api.utils.time import utc_now
 import os
 import logging
 from pathlib import Path
@@ -256,6 +257,40 @@ def _draw_header(
         c.drawRightString(width - 20 * mm, top_y - 18 * mm, "Office of the Municipal Mayor")
 
 
+def _draw_educational_watermark(c: canvas.Canvas, opacity: float = 0.4):
+    """Draw 'FOR EDUCATIONAL PURPOSES ONLY' diagonal watermark across the page.
+
+    This watermark is drawn at 40% opacity, slanted at 45 degrees, centered on the page.
+    It appears behind all content to indicate the document is for educational use only.
+    """
+    width, height = A4
+    c.saveState()
+
+    # Position at center of page
+    c.translate(width / 2, height / 2)
+    c.rotate(45)
+
+    # Set semi-transparent gray/red color
+    c.setFillColor(colors.Color(0.7, 0.1, 0.1, alpha=opacity))
+
+    # Draw main text
+    try:
+        c.setFont("Helvetica-Bold", 36)
+    except Exception:
+        c.setFont("Helvetica", 36)
+
+    c.drawCentredString(0, 0, "FOR EDUCATIONAL PURPOSES ONLY")
+
+    # Draw smaller subtitle below
+    try:
+        c.setFont("Helvetica", 14)
+    except Exception:
+        pass
+    c.drawCentredString(0, -25, "This document is not valid for official use")
+
+    c.restoreState()
+
+
 def _draw_watermark(c: canvas.Canvas, mun_logo: Path | None, opacity: float = 0.25, size_mm: float = 150.0):
     """Draw a semi-transparent watermark centered on the page.
 
@@ -484,6 +519,8 @@ def generate_document_pdf(request, document_type, user, admin_user: Optional[obj
     barangay_name = getattr(getattr(request, 'barangay', None), 'name', '')
     _draw_header(c, municipality_name, province_name, mun_logo, prov_logo, level=level, barangay_name=barangay_name)
     _draw_watermark(c, mun_logo)
+    # Add educational purpose watermark for all documents
+    _draw_educational_watermark(c)
 
     # Title
     width, height = A4
@@ -617,7 +654,7 @@ def generate_document_pdf(request, document_type, user, admin_user: Optional[obj
 
     # Optional QR code - generate in memory (no filesystem dependency)
     try:
-        from utils.qr_generator import generate_qr_code_data, get_qr_code_bytesio
+        from apps.api.utils.qr_generator import generate_qr_code_data, get_qr_code_bytesio
 
         qr_data = generate_qr_code_data(request)
         qr_bytesio = get_qr_code_bytesio(qr_data, size=350)  # Larger size for PDF embedding
@@ -640,7 +677,7 @@ def generate_document_pdf(request, document_type, user, admin_user: Optional[obj
     if is_production:
         # Upload to Supabase Storage
         try:
-            from utils.storage_handler import save_generated_document
+            from apps.api.utils.storage_handler import save_generated_document
             
             # Read the generated PDF
             with open(str(pdf_path), 'rb') as f:
@@ -740,7 +777,7 @@ def generate_admin_terms_pdf() -> bytes:
     elements.append(Spacer(1, 0.3*inch))
 
     # Date
-    date_str = datetime.utcnow().strftime("%B %d, %Y")
+    date_str = utc_now().strftime("%B %d, %Y")
     elements.append(Paragraph(f"<i>Effective Date: {date_str}</i>", body_style))
     elements.append(Spacer(1, 0.3*inch))
 

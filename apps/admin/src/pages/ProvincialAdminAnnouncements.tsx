@@ -199,7 +199,7 @@ export default function ProvincialAdminAnnouncements() {
           </div>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="hidden sm:flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-indigo-600 to-violet-700 text-white rounded-xl hover:shadow-lg transition-shadow"
+            className="hidden sm:flex items-center gap-2 px-6 py-3 bg-ocean-gradient text-white rounded-xl hover:shadow-lg transition-shadow"
           >
             <Plus className="w-5 h-5" />
             <span className="font-medium">New Announcement</span>
@@ -225,7 +225,7 @@ export default function ProvincialAdminAnnouncements() {
             action={
               <button
                 onClick={() => setShowCreateModal(true)}
-                className="hidden sm:block px-6 py-3 bg-gradient-to-r from-indigo-600 to-violet-700 text-white rounded-xl hover:shadow-lg transition-shadow"
+                className="hidden sm:block px-6 py-3 bg-ocean-gradient text-white rounded-xl hover:shadow-lg transition-shadow"
               >
                 Create Announcement
               </button>
@@ -393,7 +393,7 @@ export default function ProvincialAdminAnnouncements() {
                   <button
                     type="submit"
                     disabled={formLoading}
-                    className="flex-1 py-3 bg-gradient-to-r from-indigo-600 to-violet-700 text-white rounded-xl hover:shadow-lg transition-shadow disabled:opacity-50"
+                    className="flex-1 py-3 bg-ocean-gradient text-white rounded-xl hover:shadow-lg transition-shadow disabled:opacity-50"
                   >
                     {formLoading ? 'Saving...' : editingAnnouncement ? 'Update' : 'Create'}
                   </button>
@@ -413,14 +413,14 @@ export default function ProvincialAdminAnnouncements() {
         {/* Floating Action Button (Mobile Only) */}
         {!isFormOpen && (
           <motion.div
-            className="fixed bottom-20 right-4 z-50 sm:hidden"
+            className="fixed bottom-20 right-4 z-50 sm:hidden fab-mobile"
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
             transition={{ duration: 0.2 }}
           >
             <motion.button
-              className="relative flex items-center justify-center bg-gradient-to-r from-indigo-600 to-violet-700 text-white shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/50 transition-shadow"
+              className="relative flex items-center justify-center bg-ocean-gradient text-white shadow-lg hover:shadow-xl transition-shadow"
               onClick={() => {
                 if (fabExpanded) {
                   setShowCreateModal(true)
@@ -474,7 +474,7 @@ export default function ProvincialAdminAnnouncements() {
         <AnimatePresence>
           {fabExpanded && !isFormOpen && (
             <motion.div
-              className="fixed inset-0 z-40 sm:hidden"
+              className="fixed inset-0 z-40 sm:hidden fab-mobile-backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}

@@ -170,6 +170,35 @@ def get_engine_options():
     return options
 
 
+def derive_cookie_domain():
+    """
+    Derive a shared cookie domain automatically from configured URLs.
+    Falls back to COOKIE_DOMAIN env if provided, otherwise attempts to
+    use the parent domain of ADMIN_URL/WEB_URL so refresh cookies work
+    across api/admin subdomains (e.g., *.up.railway.app).
+    """
+    explicit = os.getenv('COOKIE_DOMAIN')
+    if explicit:
+        return explicit
+
+    for key in ('ADMIN_URL', 'WEB_URL', 'BASE_URL'):
+        url = os.getenv(key)
+        if not url:
+            continue
+        try:
+            host = urlparse(url).hostname
+            if not host:
+                continue
+            parts = host.split('.')
+            if len(parts) >= 3:
+                return '.'.join(parts[-3:])  # e.g., up.railway.app
+            if len(parts) >= 2:
+                return '.'.join(parts[-2:])  # fallback: example.com
+        except Exception:
+            continue
+    return None
+
+
 class Config:
     """Base configuration"""
     
@@ -200,9 +229,11 @@ class Config:
     # Enable JWT in headers and cookies; use cookies for refresh token
     JWT_TOKEN_LOCATION = ['headers', 'cookies']
     # Cookie settings for refresh token (and optionally access later)
+    # Default to secure cross-site cookies in production so admin web (separate subdomain)
+    # can send refresh cookies to the API domain.
     JWT_COOKIE_SECURE = (os.getenv('JWT_COOKIE_SECURE', 'False' if DEBUG else 'True') == 'True')
-    JWT_COOKIE_SAMESITE = os.getenv('JWT_COOKIE_SAMESITE', 'Lax')
-    JWT_COOKIE_DOMAIN = os.getenv('COOKIE_DOMAIN')  # e.g., .munlink.example.com
+    JWT_COOKIE_SAMESITE = os.getenv('JWT_COOKIE_SAMESITE', 'Lax' if DEBUG else 'None')
+    JWT_COOKIE_DOMAIN = derive_cookie_domain()  # e.g., .up.railway.app
     JWT_ACCESS_COOKIE_PATH = '/'
     JWT_REFRESH_COOKIE_PATH = '/'
     # CSRF protection for cookie-based auth (recommended: True in production)
@@ -214,6 +245,10 @@ class Config:
     # Rate Limiting Configuration
     RATELIMIT_ENABLED = os.getenv('RATELIMIT_ENABLED', 'True') == 'True'
     RATELIMIT_STORAGE_URI = os.getenv('RATELIMIT_STORAGE_URI', 'memory://')
+    if FLASK_ENV == 'production' and RATELIMIT_ENABLED and RATELIMIT_STORAGE_URI.strip().lower() == 'memory://':
+        raise RuntimeError(
+            "RATELIMIT_STORAGE_URI must use a shared backend (e.g., Redis) in production."
+        )
     RATELIMIT_DEFAULT = os.getenv('RATELIMIT_DEFAULT', '200 per day, 50 per hour')
     RATELIMIT_HEADERS_ENABLED = True
     
@@ -241,12 +276,28 @@ class Config:
     # Sender email address (used by both SendGrid and SMTP)
     FROM_EMAIL = os.getenv('FROM_EMAIL', '')
 
+    # Password Reset
+    PASSWORD_RESET_TOKEN_TTL_MINUTES = int(os.getenv('PASSWORD_RESET_TOKEN_TTL_MINUTES', 30))
+
     # SMS / Notifications
     SMS_PROVIDER = os.getenv('SMS_PROVIDER', 'disabled')  # philsms | console | disabled
     PHILSMS_API_KEY = os.getenv('PHILSMS_API_KEY', '')
     PHILSMS_SENDER_ID = os.getenv('PHILSMS_SENDER_ID', '')
     PHILSMS_BASE_URL = os.getenv('PHILSMS_BASE_URL', 'https://dashboard.philsms.com/api/v3')
     SMS_CAPABILITY_CACHE_SECONDS = int(os.getenv('SMS_CAPABILITY_CACHE_SECONDS', 90))
+
+    # Manual QR Payment (global)
+    MANUAL_QR_IMAGE_PATH = os.getenv(
+        'MANUAL_QR_IMAGE_PATH',
+        str(BASE_DIR / 'public' / 'payment' / 'paymentQR_fallback.jpg')
+    )
+    MANUAL_PAYMENT_INSTRUCTIONS = os.getenv(
+        'MANUAL_PAYMENT_INSTRUCTIONS',
+        'Scan the QR, pay the exact amount shown, upload proof, then enter the Payment ID sent to your email.'
+    )
+    MANUAL_PAY_TO_NAME = os.getenv('MANUAL_PAY_TO_NAME', '')
+    MANUAL_PAY_TO_NUMBER = os.getenv('MANUAL_PAY_TO_NUMBER', '09764859463')
+    SUPABASE_PRIVATE_BUCKET = os.getenv('SUPABASE_PRIVATE_BUCKET', 'munlinkprivate-files')
     
     # QR Codes
     # Default to WEB_URL + /verify, or use QR_BASE_URL if set

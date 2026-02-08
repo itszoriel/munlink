@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { adminApi, handleApiError, documentsAdminApi, mediaUrl, showToast, auditAdminApi } from '../lib/api'
+import { adminApi, handleApiError, documentsAdminApi, showToast, auditAdminApi } from '../lib/api'
 import { useCachedFetch } from '../lib/useCachedFetch'
-import { CACHE_KEYS } from '../lib/dataStore'
+import { CACHE_KEYS, invalidateMultiple } from '../lib/dataStore'
 import { ClipboardList, Hourglass, Cog, CheckCircle, PartyPopper, Smartphone, Package as PackageIcon, Search, ShieldCheck, Ban } from 'lucide-react'
 import { EmptyState } from '@munlink/ui'
 import { useAdminStore } from '../lib/store'
@@ -66,6 +66,16 @@ export default function Requests() {
         admin_edited_content: (r as any).admin_edited_content,
         additional_notes: r.additional_notes,
         has_claim_token: !!(r as any).qr_code,
+        original_fee: r.original_fee,
+        final_fee: r.final_fee,
+        applied_exemption: r.applied_exemption,
+        payment_status: r.payment_status,
+        payment_method: r.payment_method,
+        manual_payment_status: r.manual_payment_status,
+        manual_payment_id_last4: r.manual_payment_id_last4,
+        manual_review_notes: r.manual_review_notes,
+        manual_payment_proof_path: r.manual_payment_proof_path,
+        office_payment_status: r.office_payment_status,
       }
     })
   }, [requestsData])
@@ -89,15 +99,20 @@ export default function Requests() {
 
   // Actions
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const actionKey = (action: string, id?: number | string | null) => (id === undefined || id === null ? null : `${action}:${id}`)
+  const isActionLoading = (action: string, id?: number | string | null) => actionLoading === actionKey(action, id)
   const [rejectForId, setRejectForId] = useState<number | null>(null)
   const [rejectReason, setRejectReason] = useState<string>('')
   const [rejectStatus, setRejectStatus] = useState<'rejected' | 'barangay_rejected'>('rejected')
+  const [paymentRejectForId, setPaymentRejectForId] = useState<number | null>(null)
+  const [paymentRejectNotes, setPaymentRejectNotes] = useState<string>('')
   const [editFor, setEditFor] = useState<null | { id: number; purpose: string; remarks: string; civil_status: string; age?: string }>(null)
-  const [savingEdit, setSavingEdit] = useState(false)
+  const [savingEditAction, setSavingEditAction] = useState<'save' | 'save-generate' | null>(null)
   const [historyFor, setHistoryFor] = useState<number | null>(null)
   const [historyRows, setHistoryRows] = useState<any[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [moreForId, setMoreForId] = useState<number | null>(null)
+  const [paymentMenuForId, setPaymentMenuForId] = useState<number | null>(null)
   const isBarangayAdmin = role === 'barangay_admin'
   const isMunicipalLike = role === 'municipal_admin' || role === 'superadmin' || role === 'provincial_admin'
   const scopeBanner = isBarangayAdmin ? (
@@ -122,6 +137,13 @@ export default function Requests() {
     try {
       await refetchRequests()
       await refetchStats()
+      // Invalidate related caches to ensure dashboard and other views update
+      invalidateMultiple([
+        CACHE_KEYS.DASHBOARD,
+        CACHE_KEYS.DASHBOARD_ACTIVITY,
+        CACHE_KEYS.PENDING_VERIFICATIONS,
+        'request_stats' // Stats cache key
+      ])
     } catch (e: any) {
       setError(handleApiError(e))
     }
@@ -148,10 +170,87 @@ export default function Requests() {
 
   const handleViewPdf = async (row: any) => {
     try {
-      setActionLoading(String(row.id))
-      const res = await documentsAdminApi.downloadPdf(row.request_id)
-      const url = (res as any)?.url || (res as any)?.data?.url
-      if (url) window.open(mediaUrl(url), '_blank')
+      setActionLoading(actionKey('view-pdf', row.request_id))
+      const res: any = await documentsAdminApi.downloadPdfBlob(row.request_id)
+      if (res?.data) openBlobInNewTab(res.data as Blob)
+    } catch (e: any) {
+      showToast(handleApiError(e), 'error')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleViewPaymentProof = async (row: any) => {
+    try {
+      setActionLoading(actionKey('view-proof', row.request_id))
+      const res: any = await documentsAdminApi.getManualPaymentProofBlob(row.request_id)
+      if (res?.data) openBlobInNewTab(res.data as Blob)
+    } catch (e: any) {
+      showToast(handleApiError(e), 'error')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleVerifyOfficePayment = async (row: any) => {
+    const entered = window.prompt('Enter the resident office payment code (e.g., ABC123):')
+    if (entered === null) return
+    const code = entered.trim().toUpperCase()
+    if (!code) {
+      showToast('Payment code is required', 'error')
+      return
+    }
+    try {
+      setActionLoading(actionKey('verify-office-payment', row.request_id))
+      await documentsAdminApi.verifyOfficePayment(row.request_id, code)
+      await refresh()
+      showToast('Office payment verified', 'success')
+    } catch (e: any) {
+      showToast(handleApiError(e), 'error')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleResendOfficeCode = async (row: any) => {
+    try {
+      setActionLoading(actionKey('resend-office-code', row.request_id))
+      await documentsAdminApi.resendOfficePaymentCode(row.request_id)
+      await refresh()
+      showToast('Office payment code resent', 'success')
+    } catch (e: any) {
+      showToast(handleApiError(e), 'error')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleApproveManualPayment = async (row: any) => {
+    try {
+      setActionLoading(actionKey('approve-payment', row.request_id))
+      await documentsAdminApi.approveManualPayment(row.request_id)
+      await refresh()
+      showToast('Manual payment approved', 'success')
+    } catch (e: any) {
+      showToast(handleApiError(e), 'error')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const openRejectPayment = (row: any) => {
+    setPaymentRejectForId(row.request_id)
+    setPaymentRejectNotes('')
+  }
+
+  const submitRejectPayment = async () => {
+    if (!paymentRejectForId) return
+    try {
+      setActionLoading(actionKey('reject-payment', paymentRejectForId))
+      await documentsAdminApi.rejectManualPayment(paymentRejectForId, paymentRejectNotes)
+      await refresh()
+      showToast('Manual payment rejected', 'success')
+      setPaymentRejectForId(null)
     } catch (e: any) {
       showToast(handleApiError(e), 'error')
     } finally {
@@ -161,7 +260,7 @@ export default function Requests() {
 
   const handleApprove = async (row: any) => {
     try {
-      setActionLoading(String(row.id))
+      setActionLoading(actionKey('approve', row.request_id))
       await documentsAdminApi.updateStatus(row.request_id, 'approved')
       await refresh()
       showToast('Request approved', 'success')
@@ -174,7 +273,7 @@ export default function Requests() {
 
   const handleBarangayStart = async (row: any) => {
     try {
-      setActionLoading(String(row.id))
+      setActionLoading(actionKey('barangay-start', row.request_id))
       await documentsAdminApi.updateStatus(row.request_id, 'barangay_processing')
       await refresh()
       showToast('Barangay review started', 'success')
@@ -187,7 +286,7 @@ export default function Requests() {
 
   const handleBarangayApprove = async (row: any) => {
     try {
-      setActionLoading(String(row.id))
+      setActionLoading(actionKey('barangay-approve', row.request_id))
       await documentsAdminApi.updateStatus(row.request_id, 'barangay_approved')
       await refresh()
       showToast('Barangay approved', 'success')
@@ -200,7 +299,7 @@ export default function Requests() {
 
   const handleStartProcessing = async (row: any) => {
     try {
-      setActionLoading(String(row.id))
+      setActionLoading(actionKey('start-processing', row.request_id))
       await documentsAdminApi.updateStatus(row.request_id, 'processing')
       await refresh()
       showToast('Started processing', 'success')
@@ -213,7 +312,7 @@ export default function Requests() {
 
   const handleGenerateClaim = async (row: any) => {
     try {
-      setActionLoading(String(row.id))
+      setActionLoading(actionKey('generate-claim', row.request_id))
       await documentsAdminApi.claimToken(row.request_id)
       await refresh()
       showToast('Claim token generated', 'success')
@@ -228,7 +327,7 @@ export default function Requests() {
 
   const handleSetReady = async (row: any) => {
     try {
-      setActionLoading(String(row.id))
+      setActionLoading(actionKey('mark-ready', row.request_id))
       const res = await documentsAdminApi.readyForPickup(row.request_id)
       await refresh()
       const claim = (res as any)?.claim || (res as any)?.data?.claim
@@ -246,7 +345,7 @@ export default function Requests() {
 
   const handlePickedUp = async (row: any) => {
     try {
-      setActionLoading(String(row.id))
+      setActionLoading(actionKey('mark-picked', row.request_id))
       await documentsAdminApi.updateStatus(row.request_id, 'picked_up', 'Verified and released to resident')
       await refresh()
       showToast('Marked as picked up', 'success')
@@ -259,7 +358,7 @@ export default function Requests() {
 
   const handleComplete = async (row: any) => {
     try {
-      setActionLoading(String(row.id))
+      setActionLoading(actionKey('mark-complete', row.request_id))
       await documentsAdminApi.updateStatus(row.request_id, 'completed')
       await refresh()
       showToast('Request completed', 'success')
@@ -280,7 +379,7 @@ export default function Requests() {
   const submitReject = async () => {
     if (!rejectForId) return
     try {
-      setActionLoading(String(rejectForId))
+      setActionLoading(actionKey('reject', rejectForId))
       await documentsAdminApi.updateStatus(rejectForId, rejectStatus, undefined, rejectReason || 'Request rejected by admin')
       setRejectForId(null)
       setRejectReason('')
@@ -325,7 +424,7 @@ export default function Requests() {
         ))}
       </div>
 
-      <div className="bg-white/70 backdrop-blur-xl rounded-3xl shadow-xl border border-white/50 overflow-hidden">
+      <div className="bg-white/70 backdrop-blur-xl rounded-3xl shadow-xl border border-white/50 overflow-visible">
         <div className="px-6 py-4 border-b border-neutral-200 bg-neutral-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <h2 className="text-xl font-bold text-neutral-900">Recent Requests</h2>
           <div className="flex flex-col sm:flex-row gap-2">
@@ -371,260 +470,354 @@ export default function Requests() {
               />
             </div>
           )}
-          {!loading && visibleRows.map((request) => (
-            <div key={request.id} id={`req-${request.request_id}`} className="px-6 py-5 hover:bg-ocean-50/30 transition-colors group">
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center">
-                <div className={`sm:col-span-1 w-1 h-6 sm:h-16 rounded-full ${request.priority === 'urgent' ? 'bg-red-500' : request.priority === 'high' ? 'bg-yellow-500' : 'bg-neutral-300'}`} />
-                <div className="sm:col-span-11 grid grid-cols-1 sm:grid-cols-12 gap-4 items-center min-w-0">
-                  <div className="sm:col-span-3 min-w-0">
-                    <p className="font-bold text-neutral-900 mb-1">{request.id}</p>
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm text-neutral-600">{request.document}</p>
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${request.delivery_method === 'digital' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
-                        {request.delivery_method === 'digital' ? (
-                          <>
-                            <Smartphone className="w-3.5 h-3.5" aria-hidden="true" />
-                            <span>Digital</span>
-                          </>
-                        ) : (
-                          <>
-                            <PackageIcon className="w-3.5 h-3.5" aria-hidden="true" />
-                            <span>Pickup</span>
-                          </>
-                        )}
+          {!loading && visibleRows.map((request) => {
+            const feeDue = Number(request.final_fee ?? request.original_fee ?? 0)
+            const manualNeedsReview = request.payment_method === 'manual_qr'
+              && request.manual_payment_status === 'submitted'
+              && request.payment_status === 'pending'
+            const officeNeedsVerification = request.delivery_method === 'pickup'
+              && feeDue > 0
+              && request.payment_status !== 'paid'
+              && request.office_payment_status !== 'verified'
+            return (
+              <div key={request.id} id={`req-${request.request_id}`} className="px-6 py-5 hover:bg-ocean-50/30 transition-colors group">
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center">
+                  <div className={`sm:col-span-1 w-1 h-6 sm:h-16 rounded-full ${request.priority === 'urgent' ? 'bg-red-500' : request.priority === 'high' ? 'bg-yellow-500' : 'bg-neutral-300'}`} />
+                  <div className="sm:col-span-11 grid grid-cols-1 sm:grid-cols-12 gap-4 items-center min-w-0">
+                    <div className="sm:col-span-3 min-w-0">
+                      <p className="font-bold text-neutral-900 mb-1">{request.id}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm text-neutral-600">{request.document}</p>
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${request.delivery_method === 'digital' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
+                          {request.delivery_method === 'digital' ? (
+                            <>
+                              <Smartphone className="w-3.5 h-3.5" aria-hidden="true" />
+                              <span>Digital</span>
+                            </>
+                          ) : (
+                            <>
+                              <PackageIcon className="w-3.5 h-3.5" aria-hidden="true" />
+                              <span>Pickup</span>
+                            </>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="sm:col-span-2 min-w-0">
+                      <p className="text-sm text-neutral-700">{request.resident}</p>
+                      <p className="text-xs text-neutral-600">Requester</p>
+                    </div>
+                    <div className="sm:col-span-2 min-w-0">
+                      <p className="text-sm text-neutral-700 truncate">{request.purpose}</p>
+                      {(request.civil_status || request.details) && (
+                        <p className="text-xs text-neutral-600 truncate">{[request.civil_status, request.details].filter(Boolean).join(' | ')}</p>
+                      )}
+                      {(request.final_fee !== undefined || request.applied_exemption || request.payment_status) && (
+                        <p className="text-xs text-neutral-600 truncate">
+                          {request.applied_exemption
+                            ? `Exempted: ${String(request.applied_exemption).toUpperCase()}`
+                            : `Fee: PHP ${Number(request.final_fee ?? request.original_fee ?? 0).toFixed(2)}`}
+                          {request.payment_status ? ` | Payment: ${request.payment_status}` : ''}
+                          {request.payment_method === 'manual_qr' && request.manual_payment_status ? ` | Manual: ${request.manual_payment_status}` : ''}
+                          {request.delivery_method === 'pickup' && request.office_payment_status ? ` | Office: ${request.office_payment_status}` : ''}
+                        </p>
+                      )}
+                    </div>
+                    <div className="sm:col-span-1">
+                      <p className="text-sm text-neutral-700">{request.submitted}</p>
+                      <p className="text-xs text-neutral-600">Submitted</p>
+                    </div>
+                    <div className="sm:col-span-2 sm:pr-2">
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-medium ${
+                        request.status === 'pending'
+                          ? 'bg-yellow-100 text-yellow-700'
+                          : request.status === 'barangay_processing'
+                            ? 'bg-ocean-100 text-ocean-800'
+                            : request.status === 'barangay_approved'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : request.status === 'barangay_rejected'
+                                ? 'bg-rose-100 text-rose-700'
+                                : request.status === 'processing'
+                                  ? 'bg-ocean-100 text-ocean-700'
+                                  : request.status === 'ready'
+                                    ? 'bg-forest-100 text-forest-700'
+                                    : request.status === 'picked_up'
+                                      ? 'bg-emerald-100 text-emerald-700'
+                                      : 'bg-purple-100 text-purple-700'
+                      }`}>
+                        {request.status === 'pending' && <Hourglass className="w-3.5 h-3.5" aria-hidden="true" />}
+                        {request.status === 'barangay_processing' && <Hourglass className="w-3.5 h-3.5" aria-hidden="true" />}
+                        {request.status === 'barangay_approved' && <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />}
+                        {request.status === 'barangay_rejected' && <Ban className="w-3.5 h-3.5" aria-hidden="true" />}
+                        {request.status === 'processing' && <Cog className="w-3.5 h-3.5" aria-hidden="true" />}
+                        {request.status === 'ready' && <CheckCircle className="w-3.5 h-3.5" aria-hidden="true" />}
+                        <span>{request.status === 'picked_up' ? 'Picked Up' : (request.status.charAt(0).toUpperCase() + request.status.slice(1).replace('_', ' '))}</span>
                       </span>
                     </div>
-                  </div>
-                  <div className="sm:col-span-2 min-w-0">
-                    <p className="text-sm text-neutral-700">{request.resident}</p>
-                    <p className="text-xs text-neutral-600">Requester</p>
-                  </div>
-                  <div className="sm:col-span-3 min-w-0">
-                    <p className="text-sm text-neutral-700 truncate">{request.purpose}</p>
-                    {(request.civil_status || request.details) && (
-                      <p className="text-xs text-neutral-600 truncate">{[request.civil_status, request.details].filter(Boolean).join(' • ')}</p>
-                    )}
-                  </div>
-                  <div className="sm:col-span-1">
-                    <p className="text-sm text-neutral-700">{request.submitted}</p>
-                    <p className="text-xs text-neutral-600">Submitted</p>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-medium ${
-                      request.status === 'pending'
-                        ? 'bg-yellow-100 text-yellow-700'
-                        : request.status === 'barangay_processing'
-                          ? 'bg-ocean-100 text-ocean-800'
-                          : request.status === 'barangay_approved'
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : request.status === 'barangay_rejected'
-                              ? 'bg-rose-100 text-rose-700'
-                              : request.status === 'processing'
-                                ? 'bg-ocean-100 text-ocean-700'
-                                : request.status === 'ready'
-                                  ? 'bg-forest-100 text-forest-700'
-                                  : request.status === 'picked_up'
-                                    ? 'bg-emerald-100 text-emerald-700'
-                                    : 'bg-purple-100 text-purple-700'
-                    }`}>
-                      {request.status === 'pending' && <Hourglass className="w-3.5 h-3.5" aria-hidden="true" />}
-                      {request.status === 'barangay_processing' && <Hourglass className="w-3.5 h-3.5" aria-hidden="true" />}
-                      {request.status === 'barangay_approved' && <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />}
-                      {request.status === 'barangay_rejected' && <Ban className="w-3.5 h-3.5" aria-hidden="true" />}
-                      {request.status === 'processing' && <Cog className="w-3.5 h-3.5" aria-hidden="true" />}
-                      {request.status === 'ready' && <CheckCircle className="w-3.5 h-3.5" aria-hidden="true" />}
-                      <span>{request.status === 'picked_up' ? 'Picked Up' : (request.status.charAt(0).toUpperCase() + request.status.slice(1).replace('_', ' '))}</span>
-                    </span>
-                  </div>
-                  <div className="sm:col-span-1 text-left sm:text-right space-y-2 sm:space-y-0 sm:flex sm:flex-wrap sm:justify-end sm:gap-2 relative">
-                    <button
-                      className="w-full sm:w-auto px-3 py-2 bg-white border border-neutral-200 hover:bg-neutral-50 text-neutral-800 rounded-lg text-xs sm:text-sm font-medium transition-colors"
-                      onClick={() => setMoreForId(moreForId===request.request_id?null:request.request_id)}
-                    >More</button>
-                    {moreForId===request.request_id && (
-                      <div className="absolute right-0 top-10 z-10 bg-white border border-neutral-200 rounded-lg shadow-md w-40 py-1">
-                        <button className="block w-full text-left px-3 py-2 text-xs hover:bg-neutral-50" onClick={async ()=> {
-                          try {
-                            setLoadingHistory(true); setHistoryFor(request.request_id); setMoreForId(null)
-                            const res = await auditAdminApi.list({ entity_type: 'document_request', entity_id: request.request_id, per_page: 50 })
-                            const data: any = (res as any)
-                            setHistoryRows(data.logs || data.data?.logs || [])
-                          } finally { setLoadingHistory(false) }
-                        }}>History</button>
-                        {request.document_file && (
-                          <button className="block w-full text-left px-3 py-2 text-xs hover:bg-neutral-50" onClick={()=> { setMoreForId(null); handleViewPdf(request) }}>View Document</button>
-                        )}
-                        <button className="block w-full text-left px-3 py-2 text-xs text-rose-700 hover:bg-rose-50" onClick={()=> { setMoreForId(null); openReject(request) }}>Reject</button>
-                      </div>
-                    )}
-                    {(() => {
-                      const hasPdf = !!request.document_file
-                      const isPending = request.status === 'pending'
-                      const isApproved = request.status === 'approved'
-                      const isProcessing = request.status === 'processing'
-                      const isReady = request.status === 'ready'
-                      const isPickup = request.delivery_method === 'pickup'
-                      const hasToken = !!request.has_claim_token
-                      const isBarangayProcessing = request.status === 'barangay_processing'
-                      const isBarangayApproved = request.status === 'barangay_approved'
-                      const isBarangayRejected = request.status === 'barangay_rejected'
-                      const isBarangayDoc = (request.authority_level || '') === 'barangay'
-
-                      if (isBarangayRejected) {
-                        return <span className="text-xs font-medium text-rose-700">Rejected at barangay</span>
-                      }
-
-                      if (isBarangayProcessing) {
-                        if (isBarangayAdmin) {
-                          return (
-                            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                    <div className="sm:col-span-2 sm:pl-2 flex flex-col items-start sm:items-end gap-2">
+                      <div className="relative w-full sm:w-auto flex justify-start sm:justify-end">
+                        <div className="flex flex-wrap justify-start sm:justify-end gap-2 w-full sm:w-auto">
+                          {(manualNeedsReview || officeNeedsVerification) && (
+                            <div className="relative">
                               <button
-                                onClick={() => handleBarangayApprove(request)}
-                                className="w-full sm:w-auto px-3 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
-                                disabled={actionLoading === String(request.id)}
-                              >{actionLoading === String(request.id) ? 'Saving…' : 'Approve at Barangay'}</button>
-                              <button
-                                onClick={() => openReject(request)}
-                                className="w-full sm:w-auto px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-xs sm:text-sm font-medium transition-colors"
-                              >Reject</button>
+                                className="w-full sm:w-auto px-3 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-lg text-xs sm:text-sm font-medium transition-colors"
+                                onClick={() => {
+                                  setPaymentMenuForId(paymentMenuForId === request.request_id ? null : request.request_id)
+                                  setMoreForId(null)
+                                }}
+                              >{manualNeedsReview ? 'Verify Payment' : 'Verify Office Payment'}</button>
+                              {paymentMenuForId === request.request_id && (
+                                <div className="absolute right-0 top-full mt-2 z-10 bg-white border border-neutral-200 rounded-lg shadow-md w-44 py-1">
+                                  {manualNeedsReview && (
+                                    <>
+                                      <button
+                                        className="block w-full text-left px-3 py-2 text-xs hover:bg-neutral-50"
+                                        onClick={() => { setPaymentMenuForId(null); handleApproveManualPayment(request) }}
+                                        disabled={isActionLoading('approve-payment', request.request_id)}
+                                      >{isActionLoading('approve-payment', request.request_id) ? 'Approving...' : 'Approve Payment'}</button>
+                                      <button
+                                        className="block w-full text-left px-3 py-2 text-xs hover:bg-neutral-50"
+                                        onClick={() => { setPaymentMenuForId(null); openRejectPayment(request) }}
+                                      >Reject Payment</button>
+                                    </>
+                                  )}
+                                  {officeNeedsVerification && (
+                                    <>
+                                      <button
+                                        className="block w-full text-left px-3 py-2 text-xs hover:bg-neutral-50"
+                                        onClick={() => { setPaymentMenuForId(null); handleVerifyOfficePayment(request) }}
+                                        disabled={isActionLoading('verify-office-payment', request.request_id)}
+                                      >{isActionLoading('verify-office-payment', request.request_id) ? 'Verifying...' : 'Verify with Code'}</button>
+                                      <button
+                                        className="block w-full text-left px-3 py-2 text-xs hover:bg-neutral-50"
+                                        onClick={() => { setPaymentMenuForId(null); handleResendOfficeCode(request) }}
+                                        disabled={isActionLoading('resend-office-code', request.request_id)}
+                                      >{isActionLoading('resend-office-code', request.request_id) ? 'Resending...' : 'Resend Code'}</button>
+                                    </>
+                                  )}
+                                  {manualNeedsReview && request.manual_payment_proof_path && (
+                                    <button
+                                      className="block w-full text-left px-3 py-2 text-xs hover:bg-neutral-50"
+                                      onClick={() => { setPaymentMenuForId(null); handleViewPaymentProof(request) }}
+                                      disabled={isActionLoading('view-proof', request.request_id)}
+                                    >View Proof</button>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                          )
-                        }
-                        return <span className="text-xs text-neutral-600">Awaiting barangay review</span>
-                      }
+                          )}
+                          <div className="relative">
+                            <button
+                              className="w-full sm:w-auto px-3 py-2 bg-white border border-neutral-200 hover:bg-neutral-50 text-neutral-800 rounded-lg text-xs sm:text-sm font-medium transition-colors"
+                              onClick={() => {
+                                setMoreForId(moreForId===request.request_id?null:request.request_id)
+                                setPaymentMenuForId(null)
+                              }}
+                            >More</button>
+                            {moreForId===request.request_id && (
+                              <div className="absolute right-0 top-full mt-2 z-10 bg-white border border-neutral-200 rounded-lg shadow-md w-44 py-1">
+                                <button className="block w-full text-left px-3 py-2 text-xs hover:bg-neutral-50" onClick={async ()=> {
+                                  try {
+                                    setLoadingHistory(true); setHistoryFor(request.request_id); setMoreForId(null)
+                                    const res = await auditAdminApi.list({ entity_type: 'document_request', entity_id: request.request_id, per_page: 50 })
+                                    const data: any = (res as any)
+                                    setHistoryRows(data.logs || data.data?.logs || [])
+                                  } finally { setLoadingHistory(false) }
+                                }}>History</button>
+                                {request.document_file && (
+                                  <button className="block w-full text-left px-3 py-2 text-xs hover:bg-neutral-50" onClick={()=> { setMoreForId(null); handleViewPdf(request) }}>View Document</button>
+                                )}
+                                {request.manual_payment_proof_path && (
+                                  <button className="block w-full text-left px-3 py-2 text-xs hover:bg-neutral-50" onClick={()=> { setMoreForId(null); handleViewPaymentProof(request) }}>View Payment Proof</button>
+                                )}
+                                <button className="block w-full text-left px-3 py-2 text-xs text-rose-700 hover:bg-rose-50" onClick={()=> { setMoreForId(null); openReject(request) }}>Reject</button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      {!manualNeedsReview && (
+                        <div className="w-full flex flex-wrap justify-start sm:justify-end gap-2">
+                          {(() => {
+                          const hasPdf = !!request.document_file
+                          const isPending = request.status === 'pending'
+                          const isApproved = request.status === 'approved'
+                          const isProcessing = request.status === 'processing'
+                          const isReady = request.status === 'ready'
+                          const isPickup = request.delivery_method === 'pickup'
+                          const pickupPaymentPending = isPickup
+                            && Number(request.final_fee ?? request.original_fee ?? 0) > 0
+                            && request.payment_status !== 'paid'
+                          const hasToken = !!request.has_claim_token
+                          const isBarangayProcessing = request.status === 'barangay_processing'
+                          const isBarangayApproved = request.status === 'barangay_approved'
+                          const isBarangayRejected = request.status === 'barangay_rejected'
+                          const isBarangayDoc = (request.authority_level || '') === 'barangay'
 
-                      if (isBarangayApproved) {
-                        if (isBarangayAdmin) {
-                          if (!isBarangayDoc) {
-                            return <span className="text-xs text-neutral-600">Waiting for municipal processing</span>
+                          if (isBarangayRejected) {
+                            return <span className="text-xs font-medium text-rose-700">Rejected at barangay</span>
                           }
-                          return (
-                            <button
-                              onClick={() => handleStartProcessing(request)}
-                              className="w-full sm:w-auto px-3 py-2 bg-ocean-100 hover:bg-ocean-200 text-ocean-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
-                              disabled={actionLoading === String(request.id)}
-                            >{actionLoading === String(request.id) ? 'Starting…' : 'Start Processing'}</button>
-                          )
-                        }
-                        if (isMunicipalLike) {
-                          return (
-                            <button
-                              onClick={() => handleApprove(request)}
-                              className="w-full sm:w-auto px-3 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
-                              disabled={actionLoading === String(request.id)}
-                            >{actionLoading === String(request.id) ? 'Approving…' : 'Approve (Municipal)'}</button>
-                          )
-                        }
-                      }
 
-                      if (isPending) {
-                        if (isBarangayAdmin) {
-                          return (
-                            <button
-                              onClick={() => handleBarangayStart(request)}
-                              className="w-full sm:w-auto px-3 py-2 bg-ocean-100 hover:bg-ocean-200 text-ocean-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
-                              disabled={actionLoading === String(request.id)}
-                            >{actionLoading === String(request.id) ? 'Starting…' : 'Start Barangay Review'}</button>
-                          )
-                        }
-                        return (
-                          <button
-                            onClick={() => handleApprove(request)}
-                            className="w-full sm:w-auto px-3 py-2 bg-yellow-100 hover:bg-yellow-200 text-yellow-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
-                            disabled={actionLoading === String(request.id)}
-                          >{actionLoading === String(request.id) ? 'Approving…' : 'Approve'}</button>
-                        )
-                      }
+                          if (isBarangayProcessing) {
+                            if (isBarangayAdmin) {
+                              return (
+                                <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                                  <button
+                                    onClick={() => handleBarangayApprove(request)}
+                                    className="w-full sm:w-auto px-3 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
+                                    disabled={isActionLoading('barangay-approve', request.request_id)}
+                                  >{isActionLoading('barangay-approve', request.request_id) ? 'Saving...' : 'Approve at Barangay'}</button>
+                                  <button
+                                    onClick={() => openReject(request)}
+                                    className="w-full sm:w-auto px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-xs sm:text-sm font-medium transition-colors"
+                                  >Reject</button>
+                                </div>
+                              )
+                            }
+                            return <span className="text-xs text-neutral-600">Awaiting barangay review</span>
+                          }
 
-                      if (isApproved) {
-                        return (
-                          <button
-                            onClick={() => handleStartProcessing(request)}
-                            className="w-full sm:w-auto px-3 py-2 bg-ocean-100 hover:bg-ocean-200 text-ocean-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
-                            disabled={actionLoading === String(request.id)}
-                          >{actionLoading === String(request.id) ? 'Starting…' : 'Start Processing'}</button>
-                        )
-                      }
+                          if (isBarangayApproved) {
+                            if (isBarangayAdmin) {
+                              if (!isBarangayDoc) {
+                                return <span className="text-xs text-neutral-600">Waiting for municipal processing</span>
+                              }
+                              return (
+                                <button
+                                  onClick={() => handleStartProcessing(request)}
+                                  className="w-full sm:w-auto px-3 py-2 bg-ocean-100 hover:bg-ocean-200 text-ocean-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
+                                  disabled={isActionLoading('start-processing', request.request_id)}
+                                >{isActionLoading('start-processing', request.request_id) ? 'Starting...' : 'Start Processing'}</button>
+                              )
+                            }
+                            if (isMunicipalLike) {
+                              return (
+                                <button
+                                  onClick={() => handleApprove(request)}
+                                  className="w-full sm:w-auto px-3 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
+                                  disabled={isActionLoading('approve', request.request_id)}
+                                >{isActionLoading('approve', request.request_id) ? 'Approving...' : 'Approve (Municipal)'}</button>
+                              )
+                            }
+                          }
 
-                      if (isProcessing) {
-                        if (isPickup) {
-                          if (!hasToken) {
+                          if (isPending) {
+                            if (isBarangayAdmin) {
+                              return (
+                                <button
+                                  onClick={() => handleBarangayStart(request)}
+                                  className="w-full sm:w-auto px-3 py-2 bg-ocean-100 hover:bg-ocean-200 text-ocean-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
+                                  disabled={isActionLoading('barangay-start', request.request_id)}
+                                >{isActionLoading('barangay-start', request.request_id) ? 'Starting...' : 'Start Barangay Review'}</button>
+                              )
+                            }
                             return (
                               <button
-                                onClick={() => handleGenerateClaim(request)}
-                                className="w-full sm:w-auto px-3 py-2 bg-forest-100 hover:bg-forest-200 text-forest-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
-                                disabled={actionLoading === String(request.id)}
-                              >{actionLoading === String(request.id) ? 'Generating…' : 'Generate Claim Token'}</button>
+                                onClick={() => handleApprove(request)}
+                                className="w-full sm:w-auto px-3 py-2 bg-yellow-100 hover:bg-yellow-200 text-yellow-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
+                                disabled={isActionLoading('approve', request.request_id)}
+                              >{isActionLoading('approve', request.request_id) ? 'Approving...' : 'Approve'}</button>
                             )
                           }
-                          return (
-                            <button
-                              onClick={() => handleSetReady(request)}
-                              className="w-full sm:w-auto px-3 py-2 bg-forest-100 hover:bg-forest-200 text-forest-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
-                              disabled={actionLoading === String(request.id)}
-                            >{actionLoading === String(request.id) ? 'Updating…' : 'Mark Ready for Pickup'}</button>
-                          )
-                        }
-                        if (!hasPdf) {
-                          return (
-                            <button
-                              onClick={() => {
-                                const edited = (request as any).admin_edited_content || {}
-                                const resident = (request as any).resident_input || {}
-                                const legacyNotes = (request as any).additional_notes
-                                let remarks = ''
-                                if (edited && edited.remarks) remarks = edited.remarks
-                                else if (resident && resident.remarks) remarks = resident.remarks
-                                else if (typeof legacyNotes === 'string') remarks = legacyNotes
-                                const ageVal = (edited?.age ?? resident?.age)
-                                setEditFor({ id: request.request_id, purpose: (edited?.purpose || request.purpose || ''), remarks: remarks || '', civil_status: (edited?.civil_status || request.civil_status || ''), age: (ageVal !== undefined && ageVal !== null) ? String(ageVal) : '' })
-                              }}
-                              className="w-full sm:w-auto px-3 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 rounded-lg text-xs sm:text-sm font-medium transition-colors"
-                            >Edit / Generate PDF</button>
-                          )
-                        }
-                        return (
-                          <button
-                            onClick={() => handleComplete(request)}
-                            className="w-full sm:w-auto px-3 py-2 bg-forest-100 hover:bg-forest-200 text-forest-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
-                            disabled={actionLoading === String(request.id)}
-                          >{actionLoading === String(request.id) ? 'Completing…' : 'Mark Completed'}</button>
-                        )
-                      }
 
-                      if (isReady) {
-                        if (isPickup) {
-                          return (
-                            <button
-                              onClick={() => handlePickedUp(request)}
-                              className="w-full sm:w-auto px-3 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
-                              disabled={actionLoading === String(request.id)}
-                            >{actionLoading === String(request.id) ? 'Saving…' : 'Mark Picked Up'}</button>
-                          )
-                        }
-                        return (
-                          <>
-                            <button
-                              onClick={() => handleComplete(request)}
-                              className="w-full sm:w-auto px-3 py-2 bg-forest-100 hover:bg-forest-200 text-forest-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
-                              disabled={actionLoading === String(request.id)}
-                            >{actionLoading === String(request.id) ? 'Completing…' : 'Mark Completed'}</button>
-                            <button
-                              onClick={() => handleViewPdf(request)}
-                              className="w-full sm:w-auto px-3 py-2 bg-white border border-neutral-200 hover:bg-neutral-50 text-neutral-800 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
-                              disabled={actionLoading === String(request.id)}
-                            >{actionLoading === String(request.id) ? 'Opening…' : 'View Document'}</button>
-                          </>
-                        )
-                      }
+                          if (isApproved) {
+                            return (
+                              <button
+                                onClick={() => handleStartProcessing(request)}
+                                className="w-full sm:w-auto px-3 py-2 bg-ocean-100 hover:bg-ocean-200 text-ocean-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
+                                disabled={isActionLoading('start-processing', request.request_id)}
+                              >{isActionLoading('start-processing', request.request_id) ? 'Starting...' : 'Start Processing'}</button>
+                            )
+                          }
 
-                      return null
-                    })()}
+                          if (isProcessing) {
+                            if (isPickup) {
+                              if (pickupPaymentPending) {
+                                return <span className="text-xs text-amber-700">Verify payment before ready-for-pickup</span>
+                              }
+                              if (!hasToken) {
+                                return (
+                                  <button
+                                    onClick={() => handleGenerateClaim(request)}
+                                    className="w-full sm:w-auto px-3 py-2 bg-forest-100 hover:bg-forest-200 text-forest-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
+                                    disabled={isActionLoading('generate-claim', request.request_id)}
+                                  >{isActionLoading('generate-claim', request.request_id) ? 'Generating...' : 'Generate Claim Token'}</button>
+                                )
+                              }
+                              return (
+                                <button
+                                  onClick={() => handleSetReady(request)}
+                                  className="w-full sm:w-auto px-3 py-2 bg-forest-100 hover:bg-forest-200 text-forest-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
+                                  disabled={isActionLoading('mark-ready', request.request_id)}
+                                >{isActionLoading('mark-ready', request.request_id) ? 'Updating...' : 'Mark Ready for Pickup'}</button>
+                              )
+                            }
+                            if (!hasPdf) {
+                              return (
+                                <button
+                                  onClick={() => {
+                                    const edited = (request as any).admin_edited_content || {}
+                                    const resident = (request as any).resident_input || {}
+                                    const legacyNotes = (request as any).additional_notes
+                                    let remarks = ''
+                                    if (edited && edited.remarks) remarks = edited.remarks
+                                    else if (resident && resident.remarks) remarks = resident.remarks
+                                    else if (typeof legacyNotes === 'string') remarks = legacyNotes
+                                    const ageVal = (edited?.age ?? resident?.age)
+                                    setEditFor({ id: request.request_id, purpose: (edited?.purpose || request.purpose || ''), remarks: remarks || '', civil_status: (edited?.civil_status || request.civil_status || ''), age: (ageVal !== undefined && ageVal !== null) ? String(ageVal) : '' })
+                                  }}
+                                  className="w-full sm:w-auto px-3 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 rounded-lg text-xs sm:text-sm font-medium transition-colors"
+                                >Edit / Generate PDF</button>
+                              )
+                            }
+                            return (
+                              <button
+                                onClick={() => handleComplete(request)}
+                                className="w-full sm:w-auto px-3 py-2 bg-forest-100 hover:bg-forest-200 text-forest-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
+                                disabled={isActionLoading('mark-complete', request.request_id)}
+                              >{isActionLoading('mark-complete', request.request_id) ? 'Completing...' : 'Mark Completed'}</button>
+                            )
+                          }
+
+                          if (isReady) {
+                            if (isPickup) {
+                              if (pickupPaymentPending) {
+                                return <span className="text-xs text-amber-700">Verify payment before release</span>
+                              }
+                              return (
+                                <button
+                                  onClick={() => handlePickedUp(request)}
+                                  className="w-full sm:w-auto px-3 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
+                                  disabled={isActionLoading('mark-picked', request.request_id)}
+                                >{isActionLoading('mark-picked', request.request_id) ? 'Saving...' : 'Mark Picked Up'}</button>
+                              )
+                            }
+                            return (
+                              <>
+                                <button
+                                  onClick={() => handleComplete(request)}
+                                  className="w-full sm:w-auto px-3 py-2 bg-forest-100 hover:bg-forest-200 text-forest-700 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
+                                  disabled={isActionLoading('mark-complete', request.request_id)}
+                                >{isActionLoading('mark-complete', request.request_id) ? 'Completing...' : 'Mark Completed'}</button>
+                                <button
+                                  onClick={() => handleViewPdf(request)}
+                                  className="w-full sm:w-auto px-3 py-2 bg-white border border-neutral-200 hover:bg-neutral-50 text-neutral-800 rounded-lg text-xs sm:text-sm font-medium transition-colors disabled:opacity-60"
+                                  disabled={isActionLoading('view-pdf', request.request_id)}
+                                >{isActionLoading('view-pdf', request.request_id) ? 'Opening...' : 'View Document'}</button>
+                              </>
+                            )
+                          }
+
+                          return null
+                          })()}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
       {/* Reject Modal */}
@@ -638,8 +831,26 @@ export default function Requests() {
             <textarea id="reject-reason" name="reject_reason" className="w-full border border-neutral-300 rounded-md p-2 text-sm" rows={4} value={rejectReason} onChange={(e)=> setRejectReason(e.target.value)} placeholder="e.g., Missing required details" />
             <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2">
               <button className="px-4 py-2 rounded-lg bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-sm" onClick={() => setRejectForId(null)}>Cancel</button>
-              <button className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm disabled:opacity-60" disabled={!rejectReason || actionLoading===String(rejectForId)} onClick={submitReject}>
-                {actionLoading===String(rejectForId) ? 'Rejecting…' : 'Reject'}
+              <button className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm disabled:opacity-60" disabled={!rejectReason || isActionLoading('reject', rejectForId)} onClick={submitReject}>
+                {isActionLoading('reject', rejectForId) ? 'Rejecting…' : 'Reject'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Manual Payment Reject Modal */}
+      {paymentRejectForId !== null && (
+        <div className="fixed inset-0 z-[60] flex items-start md:items-center justify-center pt-20 md:pt-0 overflow-y-auto" role="dialog" aria-modal="true" onKeyDown={(e) => { if (e.key === 'Escape') setPaymentRejectForId(null) }}>
+          <div className="absolute inset-0 bg-black/40" onClick={() => setPaymentRejectForId(null)} />
+          <div className="relative bg-white w-[92%] max-w-md max-h-[90vh] overflow-y-auto rounded-xl shadow-xl border p-5 pb-24 sm:pb-5 my-auto" tabIndex={-1} autoFocus>
+            <h3 className="text-lg font-semibold mb-2">Reject Manual Payment</h3>
+            <p className="text-sm text-neutral-700 mb-3">Provide a reason to inform the resident.</p>
+            <label htmlFor="payment-reject-reason" className="block text-sm font-medium mb-1">Reason</label>
+            <textarea id="payment-reject-reason" name="payment_reject_reason" className="w-full border border-neutral-300 rounded-md p-2 text-sm" rows={4} value={paymentRejectNotes} onChange={(e)=> setPaymentRejectNotes(e.target.value)} placeholder="e.g., Proof is unclear or does not match the amount" />
+            <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2">
+              <button className="px-4 py-2 rounded-lg bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-sm" onClick={() => setPaymentRejectForId(null)}>Cancel</button>
+              <button className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm disabled:opacity-60" disabled={!paymentRejectNotes || isActionLoading('reject-payment', paymentRejectForId)} onClick={submitRejectPayment}>
+                {isActionLoading('reject-payment', paymentRejectForId) ? 'Rejecting…' : 'Reject Payment'}
               </button>
             </div>
           </div>
@@ -672,10 +883,10 @@ export default function Requests() {
               <button className="px-4 py-2 rounded-lg bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-sm" onClick={() => setEditFor(null)}>Cancel</button>
               <button
                 className="px-4 py-2 rounded-lg bg-ocean-600 hover:bg-ocean-700 text-white text-sm disabled:opacity-60"
-                disabled={savingEdit}
+                disabled={savingEditAction !== null}
                 onClick={async () => {
                   try {
-                    setSavingEdit(true)
+                    setSavingEditAction('save')
                     await documentsAdminApi.updateContent(editFor.id, { purpose: editFor.purpose || undefined, remarks: editFor.remarks || undefined, civil_status: editFor.civil_status || undefined, age: (editFor.age && !Number.isNaN(Number(editFor.age))) ? Number(editFor.age) : undefined })
                     await refresh()
                     setEditFor(null)
@@ -683,32 +894,30 @@ export default function Requests() {
                   } catch (e: any) {
                     showToast(handleApiError(e), 'error')
                   } finally {
-                    setSavingEdit(false)
+                    setSavingEditAction(null)
                   }
                 }}
-              >{savingEdit ? 'Saving…' : 'Save'}</button>
+              >{savingEditAction === 'save' ? 'Saving…' : 'Save'}</button>
               <button
                 className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm disabled:opacity-60"
-                disabled={savingEdit}
+                disabled={savingEditAction !== null}
                 onClick={async () => {
                   try {
-                    setSavingEdit(true)
+                    setSavingEditAction('save-generate')
                     await documentsAdminApi.updateContent(editFor.id, { purpose: editFor.purpose || undefined, remarks: editFor.remarks || undefined, civil_status: editFor.civil_status || undefined, age: (editFor.age && !Number.isNaN(Number(editFor.age))) ? Number(editFor.age) : undefined })
-                    const res = await documentsAdminApi.generatePdf(editFor.id)
+                    await documentsAdminApi.generatePdf(editFor.id)
                     await refresh()
-                    const url = (res as any)?.url || (res as any)?.data?.url
-                    if (url) {
-                      window.open(mediaUrl(url), '_blank')
-                    }
+                    const fileRes: any = await documentsAdminApi.downloadPdfBlob(editFor.id)
+                    if (fileRes?.data) openBlobInNewTab(fileRes.data as Blob)
                     setEditFor(null)
                     showToast('Saved and generated', 'success')
                   } catch (e: any) {
                     showToast(handleApiError(e), 'error')
                   } finally {
-                    setSavingEdit(false)
+                    setSavingEditAction(null)
                   }
                 }}
-              >{savingEdit ? 'Working…' : 'Save & Generate'}</button>
+              >{savingEditAction === 'save-generate' ? 'Working…' : 'Generate'}</button>
             </div>
           </div>
         </div>
@@ -745,3 +954,8 @@ export default function Requests() {
   )
 }
 
+  const openBlobInNewTab = (blob: Blob) => {
+    const objectUrl = URL.createObjectURL(blob)
+    window.open(objectUrl, '_blank', 'noopener,noreferrer')
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
+  }

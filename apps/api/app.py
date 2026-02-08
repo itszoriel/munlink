@@ -4,6 +4,7 @@ Main application entry point
 """
 import sys
 import os
+import json
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -23,8 +24,8 @@ from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 
 # Import config - use relative imports
-from config import Config
-from __init__ import db, migrate, jwt, limiter
+from apps.api.config import Config
+from apps.api import db, migrate, jwt, limiter
 
 # Rate limiter is now imported from __init__ to avoid circular imports
 
@@ -96,25 +97,57 @@ def create_app(config_class=Config):
             "form-action 'self'",
         ]
         response.headers['Content-Security-Policy'] = '; '.join(csp_directives)
+
+        # Never leak raw exception details in non-debug environments.
+        if not app.config.get('DEBUG') and response.status_code >= 400 and response.is_json:
+            try:
+                payload = response.get_json(silent=True)
+                if isinstance(payload, dict) and 'details' in payload:
+                    payload.pop('details', None)
+                    response.set_data(json.dumps(payload))
+                    response.headers['Content-Type'] = 'application/json'
+            except Exception:
+                pass
         
         return response
     
     # CORS configuration
     # NOTE: Cannot use wildcard ("*") with supports_credentials=True
     # Even in development, we must specify explicit origins for credentialed requests
-    cors_origins = [
-        app.config.get('WEB_URL', 'http://localhost:5173'),
-        app.config.get('ADMIN_URL', 'http://localhost:3001'),
-        # Local development
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://localhost:5173",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:3001",
-        "http://127.0.0.1:5173",
-    ]
+    cors_origins = []
+    is_production = (app.config.get('FLASK_ENV') == 'production') and not app.config.get('DEBUG')
+
+    for key in ('WEB_URL', 'ADMIN_URL'):
+        value = (app.config.get(key) or '').strip()
+        if value:
+            cors_origins.append(value)
+
+    # Optional explicit allowlist: comma-separated origins.
+    extra_origins = (os.getenv('CORS_ALLOWED_ORIGINS') or '').split(',')
+    cors_origins.extend([o.strip() for o in extra_origins if o.strip()])
+
+    if not is_production:
+        cors_origins.extend([
+            os.getenv('RAILWAY_WEB_URL', 'https://munlink.up.railway.app'),
+            os.getenv('RAILWAY_ADMIN_URL', 'https://admin-munlink.up.railway.app'),
+            "https://munlink.up.railway.app",
+            "https://admin-munlink.up.railway.app",
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://localhost:5173",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:3001",
+            "http://127.0.0.1:5173",
+        ])
+
     # Remove duplicates
     cors_origins = list(dict.fromkeys(cors_origins))
+    cors_origins = [origin for origin in cors_origins if origin]
+
+    if is_production and not cors_origins:
+        raise RuntimeError(
+            "CORS configuration error: set WEB_URL/ADMIN_URL or CORS_ALLOWED_ORIGINS in production."
+        )
     
     # Apply CORS globally with Flask-CORS
     CORS(app,
@@ -127,14 +160,25 @@ def create_app(config_class=Config):
     # JWT token blacklist check
     @jwt.token_in_blocklist_loader
     def check_if_token_revoked(jwt_header, jwt_payload):
-        from models.token_blacklist import TokenBlacklist
+        from apps.api.models.token_blacklist import TokenBlacklist
         jti = jwt_payload['jti']
         return TokenBlacklist.is_token_revoked(jti)
     
     # Register blueprints
-    from routes import auth_bp, provinces_bp, municipalities_bp, marketplace_bp, announcements_bp, documents_bp, issues_bp, benefits_bp
-    from routes.admin import admin_bp
-    from routes.superadmin import superadmin_bp
+    from apps.api.routes import (
+        auth_bp,
+        provinces_bp,
+        municipalities_bp,
+        marketplace_bp,
+        announcements_bp,
+        documents_bp,
+        issues_bp,
+        benefits_bp,
+        special_status_bp,
+        stripe_webhook_bp,
+    )
+    from apps.api.routes.admin import admin_bp
+    from apps.api.routes.superadmin import superadmin_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(provinces_bp)
@@ -144,6 +188,8 @@ def create_app(config_class=Config):
     app.register_blueprint(documents_bp)
     app.register_blueprint(issues_bp)
     app.register_blueprint(benefits_bp)
+    app.register_blueprint(special_status_bp)
+    app.register_blueprint(stripe_webhook_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(superadmin_bp)
 
@@ -204,7 +250,7 @@ def create_app(config_class=Config):
     def public_verify_direct(request_number: str):
         """Handle verify requests directly (for QR codes pointing to backend)."""
         try:
-            from models.document import DocumentRequest
+            from apps.api.models.document import DocumentRequest
             r = DocumentRequest.query.filter_by(request_number=request_number).first()
             if not r:
                 return jsonify({'valid': False, 'reason': 'not_found'}), 200
@@ -225,19 +271,46 @@ def create_app(config_class=Config):
                 'muni_name': muni_name,
                 'doc_name': doc_name,
                 'issued_at': issued_at,
-                'url': f"/uploads/{str(r.document_file).replace(chr(92), '/')}"
             }), 200
         except Exception as e:
-            return jsonify({'valid': False, 'error': str(e)}), 500
+            app.logger.error("Public verify failed for %s: %s", request_number, e)
+            return jsonify({'valid': False, 'error': 'verification_failed'}), 500
     
     # Serve uploaded files
     @app.route('/uploads/<path:filename>')
     def serve_uploaded_file(filename):
-        """Serve uploaded files from the uploads directory"""
+        """Serve only non-sensitive uploaded files."""
         try:
+            normalized = str(filename or '').replace('\\', '/').lstrip('/')
+            if not normalized or '..' in normalized.split('/'):
+                return jsonify({'error': 'Invalid file path'}), 400
+
+            # Sensitive categories must never be publicly served.
+            protected_prefixes = (
+                'verification/',
+                'document_requests/',
+                'generated_docs/',
+                'claims/',
+                'manual-payments/',
+                'benefits/',
+            )
+            if any(normalized.startswith(prefix) for prefix in protected_prefixes):
+                return jsonify({'error': 'Forbidden'}), 403
+
+            # Restrict to explicit public-safe media categories.
+            public_prefixes = (
+                'profiles/',
+                'marketplace/',
+                'announcements/',
+                'benefit_programs/',
+                'issues/',
+            )
+            if not any(normalized.startswith(prefix) for prefix in public_prefixes):
+                return jsonify({'error': 'Forbidden'}), 403
+
             upload_dir = app.config.get('UPLOAD_FOLDER', 'uploads')
             directory = str(upload_dir)
-            return send_from_directory(directory, filename)
+            return send_from_directory(directory, normalized)
         except FileNotFoundError:
             return jsonify({'error': 'File not found'}), 404
     
@@ -277,6 +350,8 @@ def create_app(config_class=Config):
             # Preserve limiter-provided headers when available
             try:
                 for k, v in error.get_headers():
+                    if str(k).lower() == 'content-type':
+                        continue
                     resp.headers[k] = v
             except Exception:
                 pass

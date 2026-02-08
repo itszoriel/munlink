@@ -1,7 +1,9 @@
 import axios from 'axios'
 
-// Local-only: rely on explicit env or default to localhost
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api-munlink.up.railway.app'
+// Default to Vite proxy in dev; use explicit env or production URL in prod
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? '/api' : 'https://api-munlink.up.railway.app')
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -15,6 +17,10 @@ export const api = axios.create({
 let accessToken: string | null = null
 let refreshPromise: Promise<string | null> | null = null
 let refreshTimer: ReturnType<typeof setTimeout> | null = null
+
+// Callback for when auth expires (wired up by App.tsx to trigger Zustand logout)
+let onAuthExpired: (() => void) | null = null
+export const setOnAuthExpired = (cb: (() => void) | null) => { onAuthExpired = cb }
 
 /**
  * Get CSRF token from cookies (for CSRF-protected endpoints)
@@ -126,7 +132,7 @@ function scheduleRefresh(token: string) {
   }, delayMs)
 }
 
-async function doRefresh(): Promise<string | null> {
+async function doRefreshInternal(): Promise<string | null> {
   try {
     // Include CSRF token if available (for CSRF-protected backends)
     const csrfToken = getCsrfToken()
@@ -141,7 +147,8 @@ async function doRefresh(): Promise<string | null> {
       {
         withCredentials: true,
         validateStatus: () => true,
-        headers
+        headers,
+        timeout: 5000
       }
     )
     if (resp.status !== 200) return null
@@ -157,15 +164,32 @@ async function doRefresh(): Promise<string | null> {
   return null
 }
 
+function doRefresh(): Promise<string | null> {
+  if (!refreshPromise) {
+    refreshPromise = doRefreshInternal().finally(() => { refreshPromise = null })
+  }
+  return refreshPromise
+}
+
 export async function bootstrapAuth(): Promise<boolean> {
   // First, hydrate from sessionStorage if present for immediate UX
   try {
     const saved = sessionStorage.getItem('access_token')
     if (saved) {
       setAccessToken(saved)
-      scheduleRefresh(saved)
-      // Attempt background refresh to extend session
-      void doRefresh()
+      // Check if token is expired or near-expiry (within 60s buffer)
+      const payload = decodeJwt(saved)
+      const expSec = payload?.exp
+      const nowSec = Math.floor(Date.now() / 1000)
+      const isExpiredOrNearExpiry = !expSec || (expSec - nowSec) < 60
+
+      if (isExpiredOrNearExpiry) {
+        // Token expired/near-expiry: await refresh to get fresh token before profile call
+        await doRefresh()
+      } else {
+        // Token still valid: schedule future refresh and proceed immediately
+        scheduleRefresh(saved)
+      }
       return true
     }
   } catch { }
@@ -203,8 +227,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true
       try {
-        refreshPromise = refreshPromise || doRefresh()
-        const newToken = await refreshPromise.finally(() => { refreshPromise = null })
+        const newToken = await doRefresh()
         if (newToken) {
           originalRequest.headers = originalRequest.headers || {}
           try {
@@ -215,9 +238,10 @@ api.interceptors.response.use(
           return api(originalRequest)
         }
       } catch { }
-      // If refresh failed, clear and redirect to login
+      // If refresh failed, clear tokens and notify React (no hard redirect)
       clearAccessToken()
-      window.location.href = '/login'
+      if (onAuthExpired) onAuthExpired()
+      return Promise.reject(error)
     }
 
     // Handle role mismatch: clear tokens and redirect to login
@@ -269,6 +293,10 @@ export const authApi = {
   },
   resendVerification: () => api.post('/api/auth/resend-verification'),
   resendVerificationPublic: (email: string) => api.post('/api/auth/resend-verification-public', { email }),
+  requestPasswordReset: (email: string) => api.post('/api/auth/password-reset/request', { email }),
+  validatePasswordReset: (token: string) => api.post('/api/auth/password-reset/validate', { token }),
+  confirmPasswordReset: (token: string, new_password: string, confirm_password?: string) =>
+    api.post('/api/auth/password-reset/confirm', { token, new_password, confirm_password }),
   uploadVerificationDocs: (files: { valid_id_front?: File, valid_id_back?: File, selfie_with_id?: File, municipality_slug?: string }) => {
     const form = new FormData()
     if (files.municipality_slug) form.append('municipality_slug', files.municipality_slug)
@@ -330,13 +358,62 @@ export const announcementsApi = {
 }
 
 export const documentsApi = {
-  getTypes: () => api.get('/api/documents/types'),
+  getTypes: (params?: { municipality_id?: number; barangay_id?: number }) =>
+    api.get('/api/documents/types', { params }),
+  getType: (id: number) => api.get(`/api/documents/types/${id}`),
   createRequest: (data: any) => api.post('/api/documents/requests', data),
   getMyRequests: () => api.get('/api/documents/my-requests'),
   getRequest: (id: number) => api.get(`/api/documents/requests/${id}`),
+  downloadDocument: (id: number) => api.get(`/api/documents/requests/${id}/download`, { responseType: 'blob' }),
   uploadSupportingDocs: (id: number, form: FormData) => api.post(`/api/documents/requests/${id}/upload`, form, { headers: { 'Content-Type': 'multipart/form-data' } }),
   getClaimTicket: (id: number, params?: any) => api.get(`/api/documents/requests/${id}/claim-ticket`, { params }),
   publicVerify: (requestNumber: string) => api.get(`/api/documents/verify/${encodeURIComponent(requestNumber)}`),
+  // Fee calculation
+  calculateFee: (params: { document_type_id: number, purpose_type?: string, business_type?: string, requirements_submitted?: boolean }) =>
+    api.get('/api/documents/calculate-fee', { params }),
+  // Payment
+  getPaymentConfig: () => api.get('/api/documents/payment-config'),
+  setPaymentMethod: (requestId: number, payment_method: 'stripe' | 'manual_qr') =>
+    api.post(`/api/documents/requests/${requestId}/payment-method`, { payment_method }),
+  createPaymentIntent: (requestId: number) => api.post(`/api/documents/requests/${requestId}/payment-intent`),
+  confirmPayment: (requestId: number, paymentIntentId: string) =>
+    api.post(`/api/documents/requests/${requestId}/confirm-payment`, { payment_intent_id: paymentIntentId }),
+  uploadManualPaymentProof: (requestId: number, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post(`/api/documents/requests/${requestId}/manual-payment/proof`, form, { headers: { 'Content-Type': 'multipart/form-data' } })
+  },
+  resendManualPaymentId: (requestId: number) =>
+    api.post(`/api/documents/requests/${requestId}/manual-payment/resend-id`),
+  submitManualPaymentId: (requestId: number, payment_id: string) =>
+    api.post(`/api/documents/requests/${requestId}/manual-payment/submit`, { payment_id }),
+  getManualPaymentProof: (requestId: number) =>
+    api.get(`/api/documents/requests/${requestId}/manual-payment/proof`, { responseType: 'blob' }),
+  getManualQrImage: (url?: string) =>
+    api.get(url || '/api/documents/manual-qr-image', { responseType: 'blob' }),
+}
+
+export const specialStatusApi = {
+  // Get my statuses
+  getMyStatuses: () => api.get('/api/user/special-statuses'),
+  // Apply for student status
+  applyStudent: (data: FormData) => api.post('/api/user/special-statuses/student', data, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+  // Apply for PWD status
+  applyPwd: (data: FormData) => api.post('/api/user/special-statuses/pwd', data, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+  // Apply for senior status
+  applySenior: (data: FormData) => api.post('/api/user/special-statuses/senior', data, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+  // Renew student status
+  renewStudent: (statusId: number, data: FormData) => api.put(`/api/user/special-statuses/${statusId}/renew`, data, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+  // Get status types info (public)
+  getStatusTypes: () => api.get('/api/special-status-types'),
 }
 
 export const issuesApi = {
@@ -372,6 +449,7 @@ export const mediaUrl = (p?: string): string => {
   if (!p) return ''
   let s = p.replace(/\\/g, '/').replace(/^\/+/, '')
   if (/^https?:\/\//i.test(s)) return s
+  if (s.startsWith('api/')) return `${API_BASE_URL}/${s}`
   const idx = s.indexOf('/uploads/')
   if (idx !== -1) s = s.slice(idx + 9)
   s = s.replace(/^uploads\//, '')

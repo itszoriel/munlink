@@ -3,6 +3,7 @@ Script to create a municipal admin user.
 Run this script to create admin accounts for each municipality.
 """
 import sys
+from apps.api.utils.time import utc_now
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
@@ -110,8 +111,8 @@ def create_admin():
         municipality_id=selected_municipality.id,
         email_verified=True,
         admin_verified=True,
-        email_verified_at=datetime.utcnow(),
-        admin_verified_at=datetime.utcnow(),
+        email_verified_at=utc_now(),
+        admin_verified_at=utc_now(),
         is_active=True
     )
     
@@ -180,7 +181,7 @@ def create_admin_batch():
         
         # Check if username exists
         if User.query.filter_by(username=username).first():
-            username = f"{username}_{datetime.utcnow().strftime('%Y%m%d')}"
+            username = f"{username}_{utc_now().strftime('%Y%m%d')}"
         
         # Prompt for municipality
         print(f"\nSetting up admin for: {email}")
@@ -213,8 +214,8 @@ def create_admin_batch():
             municipality_id=selected_municipality.id,
             email_verified=True,
             admin_verified=True,
-            email_verified_at=datetime.utcnow(),
-            admin_verified_at=datetime.utcnow(),
+            email_verified_at=utc_now(),
+            admin_verified_at=utc_now(),
             is_active=True
         )
         

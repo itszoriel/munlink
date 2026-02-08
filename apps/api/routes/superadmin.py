@@ -5,12 +5,13 @@ Super admin operations for managing admin accounts
 SCOPE: Zambales province only, excluding Olongapo City.
 """
 from flask import Blueprint, request, jsonify, current_app
+from apps.api.utils.time import utc_now
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import or_, desc
-from __init__ import db
-from models.user import User
-from models.municipality import Municipality, Barangay
-from models.admin_audit_log import AdminAuditLog
+from apps.api import db
+from apps.api.models.user import User
+from apps.api.models.municipality import Municipality, Barangay
+from apps.api.models.admin_audit_log import AdminAuditLog
 
 superadmin_bp = Blueprint('superadmin', __name__, url_prefix='/api/superadmin')
 
@@ -28,6 +29,9 @@ def handle_preflight():
 def debug_all_users():
     """Debug endpoint to see all users and their roles."""
     try:
+        if not current_app.config.get('DEBUG'):
+            return jsonify({'error': 'Not found'}), 404
+
         admin = require_superadmin()
         if not admin:
             return jsonify({'error': 'Unauthorized - super admin access required'}), 403
@@ -54,7 +58,7 @@ def debug_all_users():
         current_app.logger.error(f"Debug endpoint error: {str(e)}")
         import traceback
         current_app.logger.error(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Failed to load debug data'}), 500
 
 
 @superadmin_bp.route('/admins', methods=['GET'])
@@ -77,31 +81,27 @@ def list_admins():
         # Query all admin users (include legacy 'admin' role)
         admin_roles = ['admin', 'municipal_admin', 'barangay_admin', 'provincial_admin', 'superadmin']
 
-        # First, log total user count for debugging
+        # First, log total user count for diagnostics
         total_users = User.query.count()
-        print(f"[SUPERADMIN DEBUG] Total users in database: {total_users}")
-        current_app.logger.info(f"Total users in database: {total_users}")
+        current_app.logger.info("Total users in database: %s", total_users)
 
-        # Log the query we're about to run
-        print(f"[SUPERADMIN DEBUG] Querying for roles: {admin_roles}")
-        current_app.logger.info(f"Querying for roles: {admin_roles}")
+        current_app.logger.info("Querying admin roles: %s", admin_roles)
 
         # Try with order_by first, fallback to no ordering if created_at doesn't exist
         try:
-            print(f"[SUPERADMIN DEBUG] Attempting query with order_by")
             query = User.query.filter(User.role.in_(admin_roles)).order_by(User.created_at.desc())
-            print(f"[SUPERADMIN DEBUG] Query with order_by succeeded")
         except Exception as order_error:
-            print(f"[SUPERADMIN DEBUG] Order by failed: {str(order_error)}")
             current_app.logger.warning(f"Order by created_at failed, fetching without ordering: {str(order_error)}")
             query = User.query.filter(User.role.in_(admin_roles))
-            print(f"[SUPERADMIN DEBUG] Query without order_by succeeded")
 
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
         admins = pagination.items
 
-        print(f"[SUPERADMIN DEBUG] Found {pagination.total} admin users out of {total_users} total users")
-        current_app.logger.info(f"Found {pagination.total} admin users out of {total_users} total users")
+        current_app.logger.info(
+            "Found %s admin users out of %s total users",
+            pagination.total,
+            total_users,
+        )
 
         # Build response with municipality and barangay names
         admin_list = []
@@ -123,7 +123,7 @@ def list_admins():
                 # Add municipality name
                 if admin.admin_municipality_id:
                     try:
-                        municipality = Municipality.query.get(admin.admin_municipality_id)
+                        municipality = db.session.get(Municipality, admin.admin_municipality_id)
                         if municipality:
                             admin_data['municipality_name'] = municipality.name
                     except Exception as muni_error:
@@ -132,7 +132,7 @@ def list_admins():
                 # Add barangay name
                 if admin.admin_barangay_id:
                     try:
-                        barangay = Barangay.query.get(admin.admin_barangay_id)
+                        barangay = db.session.get(Barangay, admin.admin_barangay_id)
                         if barangay:
                             admin_data['barangay_name'] = barangay.name
                     except Exception as brgy_error:
@@ -162,7 +162,7 @@ def list_admins():
         current_app.logger.error(f"List admins error: {str(e)}")
         import traceback
         current_app.logger.error(traceback.format_exc())
-        return jsonify({'error': f'Failed to fetch admins: {str(e)}'}), 500
+        return jsonify({'error': 'Failed to fetch admins'}), 500
 
 
 # =============================================================================
@@ -172,7 +172,7 @@ def list_admins():
 def require_superadmin():
     """Decorator helper to verify user is a super admin."""
     user_id = get_jwt_identity()
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if not user or user.role != 'superadmin':
         return None
     return user
@@ -385,7 +385,7 @@ def export_audit_log():
 
         # Build response
         output.seek(0)
-        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        timestamp = utc_now().strftime('%Y%m%d_%H%M%S')
         filename = f'audit_log_{timestamp}.csv'
 
         return Response(

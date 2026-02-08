@@ -1,9 +1,10 @@
 """Benefits program models."""
 from datetime import datetime
+from apps.api.utils.time import utc_now
 try:
-    from __init__ import db
+    from apps.api import db
 except ImportError:
-    from __init__ import db
+    from apps.api import db
 from sqlalchemy import Index
 
 class BenefitProgram(db.Model):
@@ -53,8 +54,8 @@ class BenefitProgram(db.Model):
     completed_at = db.Column(db.DateTime, nullable=True)
     
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationships
     municipality = db.relationship('Municipality', backref='benefit_programs')
@@ -125,8 +126,8 @@ class BenefitApplication(db.Model):
     disbursement_amount = db.Column(db.Numeric(10, 2), nullable=True)
     
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
     reviewed_at = db.Column(db.DateTime, nullable=True)
     approved_at = db.Column(db.DateTime, nullable=True)
     

@@ -157,7 +157,7 @@ def generate_and_upload_qr_code(
     
     # Upload to storage
     try:
-        from utils.storage_handler import save_qr_code
+        from apps.api.utils.storage_handler import save_qr_code
         
         public_url = save_qr_code(
             qr_image_bytes=qr_bytes,

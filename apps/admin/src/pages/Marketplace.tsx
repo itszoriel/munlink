@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { adminApi, handleApiError, marketplaceApi, mediaUrl, showToast, transactionsAdminApi, userApi } from '../lib/api'
 import { useAdminStore } from '../lib/store'
 import { useCachedFetch } from '../lib/useCachedFetch'
-import { CACHE_KEYS } from '../lib/dataStore'
-import { ShoppingBag, Hourglass, CheckCircle, XCircle, Store, BadgeDollarSign, Handshake, Gift, Check, X } from 'lucide-react'
+import { CACHE_KEYS, invalidateMultiple } from '../lib/dataStore'
+import { ShoppingBag, Hourglass, CheckCircle, XCircle, Store, BadgeDollarSign, Handshake, Gift, Check, X, ChevronLeft, ChevronRight } from 'lucide-react'
 import { EmptyState } from '@munlink/ui'
 import SafeImage from '../components/SafeImage'
 
@@ -15,6 +15,7 @@ export default function Marketplace() {
   const adminMunicipalityId = useAdminStore((s)=> s.user?.admin_municipality_id)
   const [reviewItem, setReviewItem] = useState<any | null>(null)
   const [decisionLoading, setDecisionLoading] = useState<'approve' | 'reject' | null>(null)
+  const [reviewIndex, setReviewIndex] = useState(0)
   const [statusFilter, setStatusFilter] = useState<'all' | 'available' | 'pending' | 'rejected'>('pending')
 
   // Use cached fetch for stats
@@ -47,30 +48,57 @@ export default function Marketplace() {
   const rows = useMemo(() => {
     const payload: any = (itemsData as any)?.data || itemsData
     const items = payload?.items || payload || []
-    return items.map((it: any) => {
-      const u = it.user || it.seller || {}
-      const displayName = (
-        [u.first_name, u.last_name].filter(Boolean).join(' ').trim() || u.username || it.owner_name || 'User'
-      )
-      const initial = (displayName || 'U').trim().charAt(0).toUpperCase()
-      return {
-        id: it.id || it.item_id || it.code || 'ITEM',
-        title: it.title || it.name || 'Untitled',
-        user: displayName,
-        userInitial: initial,
-        userPhoto: u.profile_picture || null,
-        type: (it.type || it.transaction_type || 'sell').toLowerCase(),
-        category: it.category || 'General',
-        image: (Array.isArray(it.images) && it.images[0]) || it.image_url || null,
-        views: it.view_count || it.views || 0,
-        inquiries: it.inquiries || 0,
-        posted: (it.created_at || '').slice(0, 10),
-        status: it.status || 'active',
-      }
-    })
+      return items.map((it: any) => {
+        const u = it.user || it.seller || {}
+        const displayName = (
+          [u.first_name, u.last_name].filter(Boolean).join(' ').trim() || u.username || it.owner_name || 'User'
+        )
+        const initial = (displayName || 'U').trim().charAt(0).toUpperCase()
+        const images = Array.isArray(it.images) ? it.images : (it.image_url ? [it.image_url] : [])
+        return {
+          id: it.id || it.item_id || it.code || 'ITEM',
+          title: it.title || it.name || 'Untitled',
+          user: displayName,
+          userInitial: initial,
+          userPhoto: u.profile_picture || null,
+          type: (it.type || it.transaction_type || 'sell').toLowerCase(),
+          category: it.category || 'General',
+          image: images[0] || null,
+          images,
+          views: it.view_count || it.views || 0,
+          inquiries: it.inquiries || 0,
+          posted: (it.created_at || '').slice(0, 10),
+          status: (it.status || 'active').toLowerCase(),
+        }
+      })
   }, [itemsData])
 
   const filtered = useMemo(() => rows.filter((i: any) => filter === 'all' || i.type === filter), [rows, filter])
+
+  const reviewImages = useMemo(() => {
+    if (!reviewItem) return [] as string[]
+    const list = Array.isArray(reviewItem.images) ? reviewItem.images : []
+    if (reviewItem.image && !list.includes(reviewItem.image)) {
+      return [reviewItem.image, ...list]
+    }
+    return list
+  }, [reviewItem])
+  const reviewCount = reviewImages.length
+  const reviewSafeIndex = Math.min(Math.max(0, reviewIndex), Math.max(0, reviewCount - 1))
+
+  useEffect(() => {
+    setReviewIndex(0)
+  }, [reviewItem])
+
+  const getStatusChip = (status?: string) => {
+    const key = (status || '').toLowerCase()
+    if (key === 'pending') return { label: 'Pending', className: 'bg-yellow-100 text-yellow-700' }
+    if (key === 'rejected') return { label: 'Rejected', className: 'bg-red-100 text-red-700' }
+    if (key === 'available' || key === 'approved' || key === 'active') return { label: 'Approved', className: 'bg-forest-100 text-forest-700' }
+    if (key === 'reserved') return { label: 'Reserved', className: 'bg-blue-100 text-blue-700' }
+    if (key === 'completed') return { label: 'Completed', className: 'bg-neutral-100 text-neutral-700' }
+    return { label: key ? key.replace(/_/g, ' ') : 'Unknown', className: 'bg-neutral-100 text-neutral-700' }
+  }
 
   // Transactions tab
   const [txStatus, setTxStatus] = useState<string>('')
@@ -208,7 +236,24 @@ export default function Marketplace() {
                   {item.type === 'donate' && <><Gift className="w-4 h-4" aria-hidden="true" /><span>Free</span></>}
                 </span>
               </div>
-              <div className="absolute bottom-3 left-3"><span className="inline-flex items-center gap-1 px-3 py-1 bg-forest-100 text-forest-700 rounded-full text-xs font-semibold"><Check className="w-4 h-4" aria-hidden="true" /> Active</span></div>
+              <div className="absolute bottom-3 left-3">
+                {(() => {
+                  const chip = getStatusChip(item.status)
+                  const icon = item.status === 'pending'
+                    ? <Hourglass className="w-4 h-4" aria-hidden="true" />
+                    : item.status === 'rejected'
+                      ? <XCircle className="w-4 h-4" aria-hidden="true" />
+                      : item.status === 'completed'
+                        ? <CheckCircle className="w-4 h-4" aria-hidden="true" />
+                        : <Check className="w-4 h-4" aria-hidden="true" />
+                  return (
+                    <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold ${chip.className}`}>
+                      {icon}
+                      {chip.label}
+                    </span>
+                  )
+                })()}
+              </div>
             </div>
             <div className="p-4">
               <div className="flex items-start justify-between mb-2">
@@ -269,7 +314,7 @@ export default function Marketplace() {
             </select>
           </div>
           {txLoading && txRows.length === 0 ? (
-            <div>Loading…</div>
+            <div>Loading...</div>
           ) : (
             <div className="overflow-auto">
               <table className="w-full text-sm border">
@@ -350,17 +395,54 @@ export default function Marketplace() {
             <div className="p-4 sm:p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <div className="aspect-[4/3] bg-neutral-100 rounded-xl overflow-hidden">
-                  {Array.isArray(reviewItem.image ? [reviewItem.image] : reviewItem.images) && (reviewItem.image || reviewItem.images?.[0]) ? (
-                    <SafeImage src={mediaUrl(reviewItem.image || reviewItem.images?.[0])} alt={reviewItem.title} className="w-full h-full object-cover" fallbackIcon="image" />
+                <div className="relative aspect-[4/3] bg-neutral-100 rounded-xl overflow-hidden">
+                  {reviewImages[reviewSafeIndex] ? (
+                    <SafeImage
+                      src={mediaUrl(reviewImages[reviewSafeIndex])}
+                      alt={reviewItem.title}
+                      className="w-full h-full object-cover"
+                      fallbackIcon="image"
+                    />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-neutral-400">No image</div>
                   )}
+                  {reviewCount > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        aria-label="Previous image"
+                        className="absolute left-2 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white rounded-full p-2 shadow"
+                        onClick={() => setReviewIndex((i) => (i - 1 + reviewCount) % reviewCount)}
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Next image"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white rounded-full p-2 shadow"
+                        onClick={() => setReviewIndex((i) => (i + 1) % reviewCount)}
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
+                  {reviewCount > 0 && (
+                    <div className="absolute bottom-2 right-2 px-2 py-1 rounded-full bg-black/60 text-white text-xs">
+                      {reviewSafeIndex + 1} / {reviewCount}
+                    </div>
+                  )}
                 </div>
-                {Array.isArray(reviewItem.images) && reviewItem.images.length > 1 && (
+                {reviewCount > 1 && (
                   <div className="flex gap-2 overflow-x-auto pt-1">
-                    {reviewItem.images.slice(1).map((img: string, idx: number) => (
-                      <SafeImage key={idx} src={mediaUrl(img)} alt="thumb" className="w-16 h-16 rounded-lg object-cover border" fallbackIcon="image" />
+                    {reviewImages.map((img: string, idx: number) => (
+                      <button
+                        key={`${img}-${idx}`}
+                        type="button"
+                        className={`rounded-lg border overflow-hidden ${idx === reviewSafeIndex ? 'ring-2 ring-ocean-500' : 'ring-1 ring-neutral-200'}`}
+                        onClick={() => setReviewIndex(idx)}
+                      >
+                        <SafeImage src={mediaUrl(img)} alt={`thumb ${idx + 1}`} className="w-16 h-16 object-cover" fallbackIcon="image" />
+                      </button>
                     ))}
                   </div>
                 )}
@@ -388,6 +470,8 @@ export default function Marketplace() {
                       removeItemFromCache(reviewItem.id)
                       showToast('Item rejected', 'success')
                       await refetchStats()
+                      // Invalidate dashboard cache to reflect changes
+                      invalidateMultiple([CACHE_KEYS.DASHBOARD, CACHE_KEYS.PENDING_ITEMS])
                       setReviewItem(null)
                     } catch (e: any) {
                       showToast(handleApiError(e as any), 'error')
@@ -402,6 +486,8 @@ export default function Marketplace() {
                       removeItemFromCache(reviewItem.id)
                       showToast('Item approved and published', 'success')
                       await refetchStats()
+                      // Invalidate dashboard cache to reflect changes
+                      invalidateMultiple([CACHE_KEYS.DASHBOARD, CACHE_KEYS.PENDING_ITEMS])
                       setReviewItem(null)
                     } catch (e: any) {
                       showToast(handleApiError(e as any), 'error')
@@ -487,9 +573,9 @@ export default function Marketplace() {
                       <div className="text-xs text-neutral-500">{(a.created_at || '').replace('T',' ').slice(0,19)}</div>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${chipCls}`}>{String(a.action || '').replace(/_/g,' ')}</span>
-                        <span className="text-sm text-neutral-700">{a.from_status} → {a.to_status}</span>
-                        {a.notes && <span className="text-sm text-neutral-800 break-words">• {a.notes}</span>}
-                        {isDispute && <span className="text-sm text-rose-700 break-words">• Reported by {reporterRole} {reporterName} against {reportedRole} {reportedName}</span>}
+                        <span className="text-sm text-neutral-700">{a.from_status} {'->'} {a.to_status}</span>
+                        {a.notes && <span className="text-sm text-neutral-800 break-words">- {a.notes}</span>}
+                        {isDispute && <span className="text-sm text-rose-700 break-words">- Reported by {reporterRole} {reporterName} against {reportedRole} {reportedName}</span>}
                       </div>
                     </div>
                   )

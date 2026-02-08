@@ -3,20 +3,21 @@
 SCOPE: Zambales province only, excluding Olongapo City.
 """
 from flask import Blueprint, jsonify, request
+from apps.api.utils.time import utc_now
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import or_
 
-from __init__ import db
-from models.issue import Issue, IssueCategory
-from models.user import User
-from models.municipality import Municipality
-from utils import (
+from apps.api import db
+from apps.api.models.issue import Issue, IssueCategory
+from apps.api.models.user import User
+from apps.api.models.municipality import Municipality
+from apps.api.utils import (
     validate_required_fields,
     ValidationError,
     fully_verified_required,
     save_issue_attachment,
 )
-from utils.zambales_scope import (
+from apps.api.utils.zambales_scope import (
     ZAMBALES_MUNICIPALITY_IDS,
     is_valid_zambales_municipality,
 )
@@ -67,7 +68,7 @@ def list_issues():
             user_id = get_jwt_identity()
             if user_id:
                 is_authenticated = True
-                user = User.query.get(user_id)
+                user = db.session.get(User, user_id)
                 if user:
                     user_municipality_id = user.municipality_id
         except Exception:
@@ -150,7 +151,7 @@ def list_issues():
 def get_issue(issue_id: int):
     """Public issue detail if issue is public; otherwise 404."""
     try:
-        issue = Issue.query.get(issue_id)
+        issue = db.session.get(Issue, issue_id)
         if not issue or not issue.is_public:
             return jsonify({'error': 'Issue not found'}), 404
         return jsonify(issue.to_dict()), 200
@@ -165,7 +166,7 @@ def create_issue():
     """Create a new resident issue (scoped to resident's municipality)."""
     try:
         user_id = get_jwt_identity()
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({'error': 'User not found'}), 404
 
@@ -183,7 +184,7 @@ def create_issue():
             return jsonify({'error': 'Your municipality is not available in this system'}), 403
 
         # Validate category
-        category = IssueCategory.query.get(int(data['category_id']))
+        category = db.session.get(IssueCategory, int(data['category_id']))
         if not category:
             return jsonify({'error': 'Invalid category'}), 400
 
@@ -248,11 +249,11 @@ def update_issue(issue_id: int):
     """
     try:
         user_id = get_jwt_identity()
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({'error': 'User not found'}), 404
         
-        issue = Issue.query.get(issue_id)
+        issue = db.session.get(Issue, issue_id)
         if not issue:
             return jsonify({'error': 'Issue not found'}), 404
         
@@ -282,13 +283,13 @@ def update_issue(issue_id: int):
         if 'longitude' in data:
             issue.longitude = data['longitude']
         if 'category_id' in data:
-            category = IssueCategory.query.get(int(data['category_id']))
+            category = db.session.get(IssueCategory, int(data['category_id']))
             if category:
                 issue.category_id = category.id
         
         # Update timestamp
         from datetime import datetime
-        issue.updated_at = datetime.utcnow()
+        issue.updated_at = utc_now()
         
         db.session.commit()
         
@@ -311,8 +312,8 @@ def upload_issue_file(issue_id: int):
     """Upload attachment to an owned issue."""
     try:
         user_id = get_jwt_identity()
-        user = User.query.get(user_id)
-        issue = Issue.query.get(issue_id)
+        user = db.session.get(User, user_id)
+        issue = db.session.get(Issue, issue_id)
         if not issue:
             return jsonify({'error': 'Issue not found'}), 404
         if issue.user_id != user_id:
@@ -323,7 +324,7 @@ def upload_issue_file(issue_id: int):
         file = request.files['file']
 
         # Determine municipality slug
-        municipality = Municipality.query.get(user.municipality_id)
+        municipality = db.session.get(Municipality, user.municipality_id)
         municipality_slug = municipality.slug if municipality else 'unknown'
 
         # Enforce max 5 attachments per issue

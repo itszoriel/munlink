@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { User, Globe } from 'lucide-react'
 import { useAdminStore } from '../../lib/store'
 
@@ -64,6 +64,16 @@ export default function TopHeader({ sidebarCollapsed, onOpenMobile }: TopHeaderP
     if (path.startsWith('/uploads/')) return `${API_BASE_URL}${path}`
     return `${API_BASE_URL}/uploads/${path}`
   }
+  const avatarStyle: CSSProperties = {
+    backgroundImage: 'linear-gradient(135deg, var(--admin-accent-from), var(--admin-accent-to))',
+  }
+  const accentBadgeStyle: CSSProperties = {
+    backgroundColor: 'var(--admin-accent-100)',
+    color: 'var(--admin-accent-700)',
+  }
+  const accentDotStyle: CSSProperties = {
+    backgroundColor: 'var(--admin-accent-600)',
+  }
 
   const handleLogout = () => {
     try { sessionStorage.clear() } catch {}
@@ -86,7 +96,7 @@ export default function TopHeader({ sidebarCollapsed, onOpenMobile }: TopHeaderP
           </button>
           <span className="hidden md:inline text-neutral-500">Admin</span>
           <span className="hidden md:inline text-neutral-400">/</span>
-          <span className="hidden md:inline text-ocean-600 font-medium">{getCurrentPageName()}</span>
+          <span className="hidden md:inline font-medium text-[color:var(--admin-accent-600)]">{getCurrentPageName()}</span>
         </div>
         {/* Center title on mobile to avoid empty space */}
         <div className="flex-1 md:hidden text-center px-2">
@@ -103,7 +113,7 @@ export default function TopHeader({ sidebarCollapsed, onOpenMobile }: TopHeaderP
             {user?.profile_picture ? (
               <img src={resolveImageUrl(user.profile_picture)} alt="Profile" className="w-8 h-8 rounded-full object-cover" />
             ) : (
-              <div className="w-8 h-8 bg-ocean-gradient rounded-full flex items-center justify-center text-white font-bold text-xs">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs" style={avatarStyle}>
                 {user?.first_name?.[0]}{user?.last_name?.[0]}
               </div>
             )}
@@ -115,11 +125,11 @@ export default function TopHeader({ sidebarCollapsed, onOpenMobile }: TopHeaderP
               {user?.profile_picture ? (
                 <img src={resolveImageUrl(user.profile_picture)} alt="Profile" className="w-8 h-8 rounded-full object-cover" />
               ) : (
-                <div className="w-8 h-8 bg-ocean-gradient rounded-full flex items-center justify-center text-white font-bold text-xs">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs" style={avatarStyle}>
                   {user?.first_name?.[0]}{user?.last_name?.[0]}
                 </div>
               )}
-                <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-forest-500 rounded-full border-2 border-white" />
+                <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white" style={accentDotStyle} />
               </div>
               <span className="text-sm font-medium text-neutral-700">{user?.first_name} {user?.last_name}</span>
               <svg className="w-4 h-4 text-neutral-500 group-hover:text-neutral-700 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/></svg>
@@ -128,7 +138,9 @@ export default function TopHeader({ sidebarCollapsed, onOpenMobile }: TopHeaderP
               <div className="px-4 py-3 border-b border-neutral-200">
                 <p className="font-semibold text-sm text-neutral-900">{user?.first_name} {user?.last_name}</p>
                 <p className="text-xs text-neutral-600">{user?.email}</p>
-                <span className="inline-block mt-2 px-2 py-1 bg-ocean-100 text-ocean-700 text-xs font-medium rounded-full">{user?.admin_municipality_name || 'Admin'}</span>
+                <span className="inline-block mt-2 px-2 py-1 text-xs font-medium rounded-full" style={accentBadgeStyle}>
+                  {user?.admin_municipality_name || 'Admin'}
+                </span>
               </div>
               <div className="py-2">
                 <button onClick={goToProfile} className="w-full text-left flex items-center gap-3 px-4 py-2 hover:bg-neutral-50 transition-colors"><User className="w-4 h-4" aria-hidden="true" /><span className="text-sm font-medium text-neutral-700">My Profile</span></button>
@@ -152,7 +164,7 @@ export default function TopHeader({ sidebarCollapsed, onOpenMobile }: TopHeaderP
             {user?.profile_picture ? (
               <img src={resolveImageUrl(user.profile_picture)} alt="Profile" className="w-10 h-10 rounded-full object-cover" />
             ) : (
-              <div className="w-10 h-10 bg-ocean-gradient rounded-full flex items-center justify-center text-white font-bold text-sm">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm" style={avatarStyle}>
                 {user?.first_name?.[0]}{user?.last_name?.[0]}
               </div>
             )}

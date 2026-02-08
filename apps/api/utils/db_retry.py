@@ -56,7 +56,7 @@ def with_db_retry(max_retries=3, initial_delay=1.0, backoff_factor=2.0):
                         
                         # Try to reset the connection
                         try:
-                            from __init__ import db
+                            from apps.api import db
                             db.session.rollback()
                             db.session.remove()
                         except Exception:

@@ -27,8 +27,8 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
   secondary: 'bg-[var(--color-card)] text-[var(--color-card-foreground)] border border-[var(--color-border)] hover:bg-[var(--color-surface)]',
   ghost: 'bg-transparent text-[var(--color-surface-foreground)] hover:bg-[var(--color-card)]',
   danger: 'bg-red-600 text-white hover:bg-red-700',
-  gradient: 'bg-gradient-to-r from-ocean-500 to-ocean-700 text-white hover:scale-105 transition-transform shadow-lg',
-  outline: 'bg-transparent border-2 border-sky-500 text-sky-600 hover:bg-sky-50 hover:border-sky-600',
+  gradient: 'bg-ocean-gradient text-white hover:scale-105 transition-transform shadow-lg',
+  outline: 'bg-transparent border-2 border-[color:var(--color-primary)] text-[color:var(--color-primary)] hover:bg-[color:var(--color-primary-light)] hover:border-[color:var(--color-primary-hover)]',
   success: 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-md hover:shadow-lg hover:shadow-emerald-500/20',
 }
 

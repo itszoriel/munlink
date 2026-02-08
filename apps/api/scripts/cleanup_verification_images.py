@@ -12,6 +12,7 @@ Schedule:
     Run daily via cron or platform scheduler (Render/Railway)
 """
 
+from apps.api.utils.time import utc_now
 import os
 import sys
 from datetime import datetime, timedelta
@@ -37,7 +38,7 @@ def cleanup_verification_images(dry_run):
     with app.app_context():
         # Get retention period from env
         retention_days = int(os.getenv('ID_RETENTION_DAYS', '30'))
-        cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+        cutoff_date = utc_now() - timedelta(days=retention_days)
 
         print(f"{'[DRY RUN] ' if dry_run else ''}Cleanup verification images")
         print(f"Retention period: {retention_days} days")

@@ -9,6 +9,7 @@ To enable Smart/TNT delivery:
 - Or implement dual-provider setup (PhilSMS for Globe, Semaphore for Smart)
 """
 from __future__ import annotations
+from apps.api.utils.time import utc_now
 import time
 from typing import List, Dict, Any
 from datetime import datetime
@@ -111,7 +112,7 @@ def get_philsms_capability(force: bool = False, ttl_seconds: int | None = None) 
         'reason': None,
         'credit_balance': None,  # PhilSMS doesn't expose balance via API
         'status': 'active',
-        'checked_at': datetime.utcnow(),
+        'checked_at': utc_now(),
     }
     _capability_cache['data'] = data
     _capability_cache['expires_at'] = now + ttl

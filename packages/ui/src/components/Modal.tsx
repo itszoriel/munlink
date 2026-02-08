@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 
 export type ModalProps = {
   open: boolean
@@ -90,13 +91,14 @@ export const Modal: React.FC<ModalProps> = ({ open, onOpenChange, title, childre
   if (!open) return null
   
   const isFullSize = size === 'full'
-  
-  return (
+
+  const modalContent = (
     <div
       className={`fixed inset-0 z-50 flex ${isFullSize ? 'items-stretch' : 'items-end sm:items-center'} justify-center ${isFullSize ? '' : 'pb-20 md:pb-0'}`}
       onClick={() => onOpenChange(false)}
       role="dialog"
       aria-modal="true"
+      style={{ zIndex: 1000 }}
     >
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
       <div
@@ -129,6 +131,8 @@ export const Modal: React.FC<ModalProps> = ({ open, onOpenChange, title, childre
       </div>
     </div>
   )
-}
 
+  if (typeof document === 'undefined') return modalContent
+  return createPortal(modalContent, document.body)
+}
 

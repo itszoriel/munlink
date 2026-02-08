@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { handleApiError, userApi, mediaUrl, transferAdminApi, showToast, municipalitiesApi } from '../lib/api'
+import { handleApiError, userApi, mediaUrl, transferAdminApi, showToast, municipalitiesApi, specialStatusAdminApi } from '../lib/api'
 import { useLocation } from 'react-router-dom'
 import { useAdminStore } from '../lib/store'
 import { useCachedFetch } from '../lib/useCachedFetch'
-import { CACHE_KEYS } from '../lib/dataStore'
+import { CACHE_KEYS, invalidateMultiple } from '../lib/dataStore'
 import { DataTable, Modal, Button, EmptyState } from '@munlink/ui'
 import { X, Check, RotateCcw, Pause, ExternalLink, Hourglass } from 'lucide-react'
 import TransferRequestCard from '../components/transfers/TransferRequestCard'
@@ -16,13 +16,18 @@ export default function Residents() {
   const adminMunicipalityName = useAdminStore((s) => s.user?.admin_municipality_name || s.user?.municipality_name)
   const adminMunicipalitySlug = useAdminStore((s) => s.user?.admin_municipality_slug || s.user?.municipality_slug)
   const adminMunicipalityId = useAdminStore((s) => (s.user as any)?.admin_municipality_id || (s.user as any)?.municipality_id)
-  const [activeTab, setActiveTab] = useState<'residents'|'transfers'>('residents')
+  const [activeTab, setActiveTab] = useState<'residents'|'transfers'|'special_status'>('residents')
   const [filter, setFilter] = useState<'all' | 'verified' | 'pending' | 'suspended'>('all')
+  const [specialStatusFilter, setSpecialStatusFilter] = useState<'all' | 'student' | 'pwd' | 'senior' | 'none'>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<any | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [pendingStatusType, setPendingStatusType] = useState<'all' | 'student' | 'pwd' | 'senior'>('all')
+  const [statusDetail, setStatusDetail] = useState<any | null>(null)
+  const [statusDetailOpen, setStatusDetailOpen] = useState(false)
+  const [statusActionLoading, setStatusActionLoading] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const perPage = 10
   const [munMap, setMunMap] = useState<Record<number, string>>({})
@@ -39,6 +44,35 @@ export default function Residents() {
     },
     { staleTime: 2 * 60 * 1000 }
   )
+
+  // Approved special statuses for resident badges
+  const { data: approvedStatusesData, refetch: refetchApprovedStatuses } = useCachedFetch(
+    'special_statuses_approved',
+    () => specialStatusAdminApi.listAll({ status: 'approved', per_page: 100 }),
+    { staleTime: 2 * 60 * 1000 }
+  )
+
+  // Pending special status requests (admin review)
+  const { data: pendingStatusesData, loading: loadingPendingStatuses, refetch: refetchPendingStatuses } = useCachedFetch(
+    'special_statuses_pending',
+    () => specialStatusAdminApi.listPending(pendingStatusType !== 'all' ? { type: pendingStatusType } : {}),
+    { staleTime: 2 * 60 * 1000, enabled: activeTab === 'special_status', dependencies: [pendingStatusType, activeTab] }
+  )
+
+  const activeStatusMap = useMemo(() => {
+    const statuses = (approvedStatusesData as any)?.data?.statuses || (approvedStatusesData as any)?.statuses || []
+    const map: Record<number, string[]> = {}
+    statuses.forEach((s: any) => {
+      if (s?.status !== 'approved' || s?.is_active === false) return
+      const userId = Number(s.user_id)
+      if (!userId) return
+      if (!map[userId]) map[userId] = []
+      if (s.status_type && !map[userId].includes(s.status_type)) {
+        map[userId].push(s.status_type)
+      }
+    })
+    return map
+  }, [approvedStatusesData])
 
   // Process residents data
   const rows = useMemo(() => {
@@ -74,8 +108,9 @@ export default function Residents() {
       joined: (u.created_at || '').slice(0, 10),
       avatar: (u.first_name?.[0] || 'U') + (u.last_name?.[0] || ''),
       profile_picture: u.profile_picture,
+      special_statuses: activeStatusMap[Number(u.id)] || activeStatusMap[Number(u.user_id)] || [],
     }))
-  }, [residentsData, adminMunicipalityId, adminMunicipalityName, adminMunicipalitySlug])
+  }, [residentsData, adminMunicipalityId, adminMunicipalityName, adminMunicipalitySlug, activeStatusMap])
 
   // Transfers filters & pagination
   const [transferStatus, setTransferStatus] = useState<'all'|'pending'|'approved'|'rejected'|'accepted'>('all')
@@ -97,6 +132,7 @@ export default function Residents() {
     { dependencies: [transferStatus, transferQuery, transferSort, transferOrder, transferPage], staleTime: 2 * 60 * 1000 }
   )
   const transfers = ((transfersData as any)?.data?.transfers || (transfersData as any)?.transfers || []) as any[]
+  const pendingStatuses = ((pendingStatusesData as any)?.data?.statuses || (pendingStatusesData as any)?.statuses || []) as any[]
 
   // Load municipalities map for ID -> name
   useEffect(() => {
@@ -144,17 +180,26 @@ export default function Residents() {
   }, [location.search, rows])
 
   const filtered = useMemo(() => {
-    const result = rows.filter((r) =>
-      (filter === 'all' || r.status === filter) &&
-      (r.name.toLowerCase().includes(searchQuery.toLowerCase()) || r.email.toLowerCase().includes(searchQuery.toLowerCase()) || String(r.id).toLowerCase().includes(searchQuery.toLowerCase()))
-    )
+    const result = rows.filter((r) => {
+      const matchesStatus = filter === 'all' || r.status === filter
+      const matchesSearch = r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        r.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        String(r.id).toLowerCase().includes(searchQuery.toLowerCase())
+      let matchesSpecial = true
+      if (specialStatusFilter === 'none') {
+        matchesSpecial = (r.special_statuses || []).length === 0
+      } else if (specialStatusFilter !== 'all') {
+        matchesSpecial = (r.special_statuses || []).includes(specialStatusFilter)
+      }
+      return matchesStatus && matchesSearch && matchesSpecial
+    })
     // Default: Sort alphabetically by name (Last Name, First Name)
     result.sort((a, b) => a.name.localeCompare(b.name))
     return result
-  }, [rows, filter, searchQuery])
+  }, [rows, filter, searchQuery, specialStatusFilter])
 
   // Reset to first page on filter/search changes
-  useEffect(() => { setPage(1) }, [filter, searchQuery])
+  useEffect(() => { setPage(1) }, [filter, searchQuery, specialStatusFilter])
 
   // Pagination calculations
   // DataTable handles pagination UI; we keep only page indices
@@ -204,6 +249,8 @@ export default function Residents() {
       setActionLoading(id)
       await userApi.verifyUser(Number(id))
       updateRowStatus(id, 'verified')
+      // Invalidate caches to reflect verification immediately
+      invalidateMultiple([CACHE_KEYS.RESIDENTS, CACHE_KEYS.PENDING_VERIFICATIONS, CACHE_KEYS.DASHBOARD])
     } catch (err: any) {
       setError(handleApiError(err))
     } finally {
@@ -220,6 +267,8 @@ export default function Residents() {
       setActionLoading(id)
       await userApi.rejectUser(Number(id), reason)
       updateRowStatus(id, 'suspended')
+      // Invalidate caches to reflect rejection immediately
+      invalidateMultiple([CACHE_KEYS.RESIDENTS, CACHE_KEYS.PENDING_VERIFICATIONS, CACHE_KEYS.DASHBOARD])
     } catch (err: any) {
       setError(handleApiError(err))
     } finally {
@@ -242,6 +291,7 @@ export default function Residents() {
               {[
                 { key: 'residents', label: 'Residents' },
                 { key: 'transfers', label: 'Transfer Requests' },
+                { key: 'special_status', label: 'Special Status Requests' },
               ].map((t: any) => (
                 <button key={t.key}
                   onClick={() => setActiveTab(t.key)}
@@ -280,6 +330,19 @@ export default function Residents() {
                     </button>
                   ))}
                 </div>
+              </div>
+              <div className="w-full lg:w-auto">
+                <select
+                  className="w-full lg:w-auto border rounded-lg px-3 py-2 text-sm"
+                  value={specialStatusFilter}
+                  onChange={(e) => setSpecialStatusFilter(e.target.value as any)}
+                >
+                  <option value="all">All Special Status</option>
+                  <option value="student">Students</option>
+                  <option value="pwd">PWD</option>
+                  <option value="senior">Senior</option>
+                  <option value="none">No Status</option>
+                </select>
               </div>
               {/* Municipality is scoped by admin permissions; show a locked chip instead of a selector */}
               {adminMunicipalityName && (
@@ -361,6 +424,63 @@ export default function Residents() {
           </div>
           )}
 
+          {/* Special Status Requests Tab */}
+          {activeTab==='special_status' && (
+          <div className="bg-white/70 backdrop-blur-xl rounded-2xl p-6 shadow-lg border border-white/50 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-xl font-semibold">Pending Special Status Requests</h2>
+                <p className="text-neutral-600 text-sm">Review student, PWD, and senior citizen applications.</p>
+              </div>
+            </div>
+            <div className="mb-4 flex flex-col md:flex-row gap-3 md:items-center">
+              <div className="flex-1 min-w-0">
+                <select
+                  className="w-full md:w-64 border rounded px-3 py-2 text-sm"
+                  value={pendingStatusType}
+                  onChange={(e) => setPendingStatusType(e.target.value as any)}
+                >
+                  <option value="all">All Types</option>
+                  <option value="student">Student</option>
+                  <option value="pwd">PWD</option>
+                  <option value="senior">Senior</option>
+                </select>
+              </div>
+              <div className="text-sm text-neutral-500">{pendingStatuses.length} pending</div>
+            </div>
+            {loadingPendingStatuses ? (
+              <div className="text-sm text-neutral-600">Loading requests…</div>
+            ) : pendingStatuses.length === 0 ? (
+              <EmptyState
+                icon="document"
+                title="No pending special status requests"
+                description="You're all caught up."
+              />
+            ) : (
+              <div className="space-y-3">
+                {pendingStatuses.map((s: any) => (
+                  <div key={s.id} className="rounded-xl border bg-white px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <div className="font-semibold">
+                        {(s.user?.first_name || '') + ' ' + (s.user?.last_name || '') || s.user?.username || 'Resident'}
+                      </div>
+                      <div className="text-sm text-neutral-600">
+                        {String(s.status_type || '').toUpperCase()} • Submitted {String(s.created_at || '').slice(0, 10)}
+                      </div>
+                    </div>
+                    <button
+                      className="btn btn-secondary w-full sm:w-auto"
+                      onClick={() => { setStatusDetail(s); setStatusDetailOpen(true) }}
+                    >
+                      Review
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          )}
+
           {/* Residents Table */}
           {activeTab==='residents' && (
           <DataTable
@@ -375,6 +495,24 @@ export default function Residents() {
                   )}
                   <div className="min-w-0">
                     <div className="font-medium truncate">{r.name}</div>
+                    {Array.isArray(r.special_statuses) && r.special_statuses.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {r.special_statuses.map((s: string) => (
+                          <span
+                            key={`${r.id}-${s}`}
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                              s === 'student'
+                                ? 'bg-blue-100 text-blue-700'
+                                : s === 'pwd'
+                                  ? 'bg-purple-100 text-purple-700'
+                                  : 'bg-green-100 text-green-700'
+                            }`}
+                          >
+                            {s.toUpperCase()}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               ) },
@@ -463,6 +601,18 @@ export default function Residents() {
       {detailOpen && activeTab==='transfers' && (
         <TransferRequestModal open={true} onClose={() => setDetailOpen(false)} transfer={selected} />
       )}
+      {statusDetailOpen && (
+        <SpecialStatusDetailModal
+          status={statusDetail}
+          onClose={() => { setStatusDetail(null); setStatusDetailOpen(false) }}
+          onActionComplete={async () => {
+            await refetchPendingStatuses()
+            await refetchApprovedStatuses()
+          }}
+          setLoading={(v) => setStatusActionLoading(v)}
+          loadingId={statusActionLoading}
+        />
+      )}
     </div>
   )
 }
@@ -525,6 +675,8 @@ function ResidentDetailModal({ userId, basic, onClose, onStatusChange }: { userI
       onStatusChange(userId, 'verified')
       // Reflect locally in modal
       setData((prev: any) => ({ ...(prev || {}), admin_verified: true, is_active: true }))
+      // Invalidate caches to reflect verification immediately
+      invalidateMultiple([CACHE_KEYS.RESIDENTS, CACHE_KEYS.PENDING_VERIFICATIONS, CACHE_KEYS.DASHBOARD])
     } catch (e: any) {
       setError(handleApiError(e))
     } finally {
@@ -541,6 +693,8 @@ function ResidentDetailModal({ userId, basic, onClose, onStatusChange }: { userI
       onStatusChange(userId, 'suspended')
       // Reflect locally in modal
       setData((prev: any) => ({ ...(prev || {}), is_active: false, admin_verified: false }))
+      // Invalidate caches to reflect rejection immediately
+      invalidateMultiple([CACHE_KEYS.RESIDENTS, CACHE_KEYS.PENDING_VERIFICATIONS, CACHE_KEYS.DASHBOARD])
     } catch (e: any) {
       setError(handleApiError(e))
     } finally {
@@ -720,6 +874,141 @@ function ResidentDetailModal({ userId, basic, onClose, onStatusChange }: { userI
         onClose={() => setShowReasonModal(null)}
         onConfirm={handleConfirmView}
       />
+    </Modal>
+  )
+}
+
+function SpecialStatusDetailModal({
+  status,
+  onClose,
+  onActionComplete,
+  setLoading,
+  loadingId,
+}: {
+  status: any
+  onClose: () => void
+  onActionComplete: () => void
+  setLoading: (id: string | null) => void
+  loadingId: string | null
+}) {
+  const [detail, setDetail] = useState<any>(status)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+    const loadDetail = async () => {
+      if (!status?.id) return
+      try {
+        const res = await specialStatusAdminApi.getDetail(status.id)
+        const data = (res as any)?.data || res
+        if (mounted) setDetail(data)
+      } catch (e: any) {
+        if (mounted) setError(handleApiError(e))
+      }
+    }
+    loadDetail()
+    return () => { mounted = false }
+  }, [status?.id])
+
+  const approve = async () => {
+    if (!detail?.id) return
+    try {
+      setLoading(String(detail.id))
+      await specialStatusAdminApi.approve(detail.id)
+      await onActionComplete()
+      onClose()
+      showToast('Status approved', 'success')
+    } catch (e: any) {
+      setError(handleApiError(e))
+    } finally {
+      setLoading(null)
+    }
+  }
+
+  const reject = async () => {
+    if (!detail?.id) return
+    const reason = window.prompt('Rejection reason:', 'Documents not sufficient') || ''
+    if (!reason) return
+    try {
+      setLoading(String(detail.id))
+      await specialStatusAdminApi.reject(detail.id, reason)
+      await onActionComplete()
+      onClose()
+      showToast('Status rejected', 'success')
+    } catch (e: any) {
+      setError(handleApiError(e))
+    } finally {
+      setLoading(null)
+    }
+  }
+
+  const renderDoc = (label: string, path?: string | null) => {
+    if (!path) {
+      return <div className="text-sm text-neutral-500">No {label} uploaded</div>
+    }
+    const url = mediaUrl(path)
+    const isPdf = String(path).toLowerCase().endsWith('.pdf')
+    return (
+      <div className="space-y-2">
+        <div className="text-sm font-medium">{label}</div>
+        {isPdf ? (
+          <a href={url} target="_blank" rel="noreferrer" className="text-sm text-ocean-600 hover:underline">
+            View PDF
+          </a>
+        ) : (
+          <img src={url} alt={label} className="w-full max-h-64 object-contain border rounded" />
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <Modal
+      open={true}
+      onOpenChange={(o) => { if (!o) onClose() }}
+      title="Special Status Request"
+      footer={(
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2">
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={loadingId !== null}>Close</Button>
+          <Button variant="danger" size="sm" onClick={reject} disabled={loadingId !== null || detail?.status !== 'pending'}>Reject</Button>
+          <Button size="sm" onClick={approve} disabled={loadingId !== null || detail?.status !== 'pending'}>Approve</Button>
+        </div>
+      )}
+    >
+      <div className="space-y-4">
+        {error && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-3">{error}</div>}
+        <div>
+          <div className="text-sm text-neutral-500">Resident</div>
+          <div className="font-medium">{[detail?.user?.first_name, detail?.user?.last_name].filter(Boolean).join(' ') || detail?.user?.username || 'Resident'}</div>
+          <div className="text-sm text-neutral-600 capitalize">{detail?.status_type} • {detail?.status}</div>
+        </div>
+        {detail?.status_type === 'student' && (
+          <div className="space-y-3">
+            <div className="text-sm"><span className="font-medium">School:</span> {detail?.school_name || 'N/A'}</div>
+            {(detail?.semester_start || detail?.semester_end) && (
+              <div className="text-sm">
+                <span className="font-medium">Semester:</span>{' '}
+                {(detail?.semester_start || 'N/A')} to {(detail?.semester_end || 'N/A')}
+              </div>
+            )}
+            {renderDoc('Student ID', detail?.student_id_path)}
+            {renderDoc('Certificate of Registration', detail?.cor_path)}
+          </div>
+        )}
+        {detail?.status_type === 'pwd' && (
+          <div className="space-y-3">
+            {detail?.disability_type && (
+              <div className="text-sm"><span className="font-medium">Disability Type:</span> {detail?.disability_type}</div>
+            )}
+            {renderDoc('PWD ID', detail?.pwd_id_path)}
+          </div>
+        )}
+        {detail?.status_type === 'senior' && (
+          <div className="space-y-3">
+            {renderDoc('Senior Citizen ID', detail?.senior_id_path)}
+          </div>
+        )}
+      </div>
     </Modal>
   )
 }

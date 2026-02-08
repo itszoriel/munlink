@@ -18,7 +18,7 @@ def test_connection():
     
     if not db_url:
         print("[ERROR] DATABASE_URL not set in .env")
-        return False
+        raise RuntimeError("DATABASE_URL not set in .env")
     
     # Mask password for display
     if '@' in db_url:
@@ -44,21 +44,24 @@ def test_connection():
         
         cursor.close()
         conn.close()
-        return True
-        
     except ImportError:
         print("[ERROR] psycopg2 not installed. Run: pip install psycopg2-binary")
-        return False
+        raise RuntimeError("psycopg2 not installed")
     except Exception as e:
         print(f"[ERROR] Connection failed: {e}")
-        return False
+        raise
 
 if __name__ == "__main__":
     print("=" * 50)
     print("Supabase Connection Test")
     print("=" * 50)
     
-    success = test_connection()
+    success = False
+    try:
+        test_connection()
+        success = True
+    except Exception:
+        success = False
     
     print("-" * 50)
     if not success:
@@ -69,4 +72,3 @@ if __name__ == "__main__":
         print("4. Check your Supabase project's IP restrictions")
     
     sys.exit(0 if success else 1)
-

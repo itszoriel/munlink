@@ -85,7 +85,7 @@ with app.app_context():
     print("\n[EXAMPLE] Sample admin users (just created):")
     admins = User.query.filter(User.role == 'municipal_admin').limit(5).all()
     for admin in admins:
-        mun = Municipality.query.get(admin.admin_municipality_id) if admin.admin_municipality_id else None
+        mun = db.session.get(Municipality, admin.admin_municipality_id) if admin.admin_municipality_id else None
         print(f"  - {admin.username}: admin_municipality_id = {admin.admin_municipality_id} ({mun.name if mun else 'N/A'})")
     
     print("\n" + "="*70)

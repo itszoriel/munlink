@@ -67,8 +67,8 @@ def main():
         from apps.api.models.user import User
     except ImportError:
         from app import create_app
-        from __init__ import db
-        from models.user import User
+        from apps.api import db
+        from apps.api.models.user import User
 
     import bcrypt
 

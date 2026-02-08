@@ -1,9 +1,10 @@
 """Issue reporting and tracking models."""
 from datetime import datetime
+from apps.api.utils.time import utc_now
 try:
-    from __init__ import db
+    from apps.api import db
 except ImportError:
-    from __init__ import db
+    from apps.api import db
 from sqlalchemy import Index
 
 class IssueCategory(db.Model):
@@ -22,7 +23,7 @@ class IssueCategory(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
     
     # Relationships
     issues = db.relationship('Issue', backref='category', lazy='dynamic')
@@ -92,8 +93,8 @@ class Issue(db.Model):
     upvote_count = db.Column(db.Integer, default=0)
     
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
     reviewed_at = db.Column(db.DateTime, nullable=True)
     resolved_at = db.Column(db.DateTime, nullable=True)
     

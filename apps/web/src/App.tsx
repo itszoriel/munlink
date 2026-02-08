@@ -1,12 +1,14 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useEffect } from 'react'
-import { bootstrapAuth, getAccessToken, authApi, startKeepAlive } from '@/lib/api'
+import { bootstrapAuth, getAccessToken, authApi, startKeepAlive, setOnAuthExpired } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 
 let hasBootstrappedAuth = false
 let hasStartedKeepAlive = false
 import HomePage from './pages/HomePage'
 import LoginPage from './pages/LoginPage'
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
+import ResetPasswordPage from './pages/ResetPasswordPage'
 import RegisterPage from './pages/RegisterPage'
 import DashboardPage from './pages/DashboardPage'
 import MarketplacePage from './pages/MarketplacePage'
@@ -15,6 +17,7 @@ import AnnouncementsPage from './pages/AnnouncementsPage'
 import About from '@/pages/About'
 import DocumentsPage from './pages/DocumentsPage'
 import DocumentRequestPage from './pages/DocumentRequestPage'
+import MyDocumentRequestsPage from './pages/MyDocumentRequestsPage'
 import ProblemsPage from './pages/ProblemsPage'
 import ProgramsPage from './pages/ProgramsPage'
 import VerifyDocumentPage from './pages/VerifyDocumentPage'
@@ -35,13 +38,14 @@ function App() {
   const logout = useAppStore((s) => s.logout)
   useEffect(() => {
     let cancelled = false
+    setOnAuthExpired(() => { if (!cancelled) logout() })
     const init = async () => {
       // Start keep-alive ping to prevent cold starts
       if (!hasStartedKeepAlive) {
         startKeepAlive()
         hasStartedKeepAlive = true
       }
-      
+
       if (hasBootstrappedAuth) { setAuthBootstrapped(true); return }
       try {
         await bootstrapAuth()
@@ -69,8 +73,11 @@ function App() {
       if (!cancelled) setAuthBootstrapped(true)
     }
     void init()
-    return () => { cancelled = true }
-  }, [setAuth])
+    return () => {
+      cancelled = true
+      setOnAuthExpired(null)
+    }
+  }, [setAuth, setAuthBootstrapped, logout])
   return (
     <BrowserRouter>
       <Routes>
@@ -82,6 +89,8 @@ function App() {
           <Route path="announcements" element={<AnnouncementsPage />} />
           <Route path="announcements/:id" element={<AnnouncementDetailPage />} />
           <Route path="login" element={<LoginPage />} />
+          <Route path="forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="reset-password" element={<ResetPasswordPage />} />
           <Route path="register" element={<ErrorBoundary><RegisterPage /></ErrorBoundary>} />
           <Route path="verify-email" element={<VerifyEmailPage />} />
           <Route path="upload-id" element={<ProtectedRoute allow={["resident"]}><UploadIdPage /></ProtectedRoute>} />
@@ -93,8 +102,9 @@ function App() {
           <Route path="about" element={<About />} />
           <Route path="terms-of-service" element={<TermsOfService />} />
           <Route path="privacy-policy" element={<PrivacyPolicy />} />
-          <Route path="documents" element={<ProtectedRoute allow={["resident","admin","public"]}><DocumentsPage /></ProtectedRoute>} />
+          <Route path="documents" element={<ProtectedRoute allow={["resident","admin"]}><DocumentsPage /></ProtectedRoute>} />
           <Route path="documents/requests/:id" element={<LegacyDocRedirect />} />
+          <Route path="dashboard/requests" element={<ProtectedRoute allow={["resident"]}><MyDocumentRequestsPage /></ProtectedRoute>} />
           <Route path="dashboard/requests/:id" element={<ProtectedRoute allow={["resident"]}><DocumentRequestPage /></ProtectedRoute>} />
           <Route path="problems" element={<ProtectedRoute allow={["resident","admin","public"]}><ProblemsPage /></ProtectedRoute>} />
           <Route path="programs" element={<ProtectedRoute allow={["resident","admin","public"]}><ProgramsPage /></ProtectedRoute>} />

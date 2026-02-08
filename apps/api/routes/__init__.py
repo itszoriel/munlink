@@ -8,6 +8,8 @@ from .announcements import announcements_bp
 from .documents import documents_bp
 from .issues import issues_bp
 from .benefits import benefits_bp
+from .special_status import special_status_bp
+from .stripe_webhook import stripe_webhook_bp
 
 __all__ = [
     'auth_bp',
@@ -18,4 +20,6 @@ __all__ = [
     'documents_bp',
     'issues_bp',
     'benefits_bp',
+    'special_status_bp',
+    'stripe_webhook_bp',
 ]

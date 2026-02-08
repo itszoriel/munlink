@@ -81,6 +81,7 @@ def test_shared_barangay_announcement_detail_matches_feed_for_shared_muni_reside
         )
         db.session.add(ann)
         db.session.commit()
+        ann_id = ann.id
 
         token = create_access_token(identity=str(resident_b.id), additional_claims={'role': 'resident'})
 
@@ -89,13 +90,13 @@ def test_shared_barangay_announcement_detail_matches_feed_for_shared_muni_reside
     assert resp.status_code == 200
     data = resp.get_json() or {}
     ids = [a.get('id') for a in data.get('announcements', [])]
-    assert ann.id in ids
+    assert ann_id in ids
 
     # Detail must be accessible (matches feed rules)
-    resp = client.get(f'/api/announcements/{ann.id}', headers={'Authorization': f'Bearer {token}'})
+    resp = client.get(f'/api/announcements/{ann_id}', headers={'Authorization': f'Bearer {token}'})
     assert resp.status_code == 200
     detail = resp.get_json() or {}
-    assert detail.get('id') == ann.id
+    assert detail.get('id') == ann_id
 
 
 def test_unshared_resident_cannot_open_shared_barangay_announcement_detail():
@@ -153,8 +154,9 @@ def test_unshared_resident_cannot_open_shared_barangay_announcement_detail():
         )
         db.session.add(ann)
         db.session.commit()
+        ann_id = ann.id
 
         token = create_access_token(identity=str(resident_c.id), additional_claims={'role': 'resident'})
 
-    resp = client.get(f'/api/announcements/{ann.id}', headers={'Authorization': f'Bearer {token}'})
+    resp = client.get(f'/api/announcements/{ann_id}', headers={'Authorization': f'Bearer {token}'})
     assert resp.status_code == 404

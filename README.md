@@ -74,6 +74,7 @@ npm run dev
   - Prevents logout redirects during the bootstrap phase
   - Falls back to cached user data if profile fetch fails (network issues, temporary backend unavailability)
   - Only clears authentication if truly no valid session exists
+- **Cache Invalidation**: Frontend uses Zustand-based data cache (`apps/web/src/lib/dataStore.ts`) with 5-minute stale time. After mutations (create/update/delete operations), always call `invalidateMultiple([CACHE_KEY1, CACHE_KEY2, ...])` to ensure UI reflects changes immediately without requiring page refresh. Pattern: `await api.create(data) → invalidateMultiple([...relevant cache keys]) → showToast(message)`. See examples in MarketplacePage, DocumentsPage, ProgramsPage, ProblemsPage.
 - **Frontend UI Guide**: See `docs/frontend-ui-guide/` for responsive design patterns, mobile FAB implementation, table-to-card conversion, and reusable component snippets.
 
 ## Super Admin Setup
@@ -102,10 +103,12 @@ npm run dev
 - **Resident preferences**: Email ON by default, **SMS OFF by default** - users must enable SMS in Profile page. Both email and SMS require valid contact information.
 - **Cross-municipality sharing**: When announcements are shared with other municipalities (via `shared_with_municipalities`), residents from ALL shared municipalities receive notifications.
 
-### Notification Worker
-- **Queue system**: Notification outbox queues announcement publishes (province/municipality/barangay), benefit program creation, document request submissions, and document status changes
-- **Worker process**: Run as long-running process (`python scripts/notification_worker.py`) or single batch (`--once`)
-- **Deployment**: Deploy as Render/Railway worker using the same command with retry/backoff logic
+### Notification Delivery
+- **Queue system**: Notification outbox queues announcement publishes (province/municipality/barangay), benefit program creation/activation, document request submissions, and document status changes
+- **Inline delivery**: Notifications are delivered immediately after actions that queue them (announcements, document requests/status changes, benefit programs) via an inline flush, covering both admin and resident routes
+- **Concurrency safety**: Delivery uses a claim+lease pattern with `FOR UPDATE SKIP LOCKED` (Postgres) so the inline flush and background worker never double-deliver the same notification
+- **Worker process (optional)**: Run as long-running retry process (`python scripts/notification_worker.py`) or single batch (`--once`) to pick up any rows that failed inline delivery
+- **Deployment**: Deploy worker as Render/Railway background service for automatic retries with exponential backoff
 - **Setup guide**: See `SMS_NOTIFICATION_GUIDE.md` for comprehensive setup, testing, and troubleshooting steps
 
 ## ID/Selfie Security & Privacy
@@ -226,6 +229,7 @@ The project is configured for Railway deployment with three services:
 ### Admins (Municipal/Barangay)
 - **Resident verification**: Review and approve/reject resident registrations with privacy-hardened ID viewing (watermarked display, audit logging, permission-based access). ID images are fetched server-side and returned as blob data to prevent CORS issues and avoid exposing storage URLs
 - **Document processing**: Generate PDFs with QR codes, create claim tickets, validate QR codes at claim time
+- **Payment verification**: Review manual QR proofs for digital requests and verify office payment codes for pickup requests before release
 - **Marketplace moderation**: Monitor and moderate live marketplace listings (resident posts publish immediately)
 - **Problem triage**: Review and categorize problem reports, update status and resolution
 - **Benefit program management**: Create and manage municipal benefit programs with image uploads

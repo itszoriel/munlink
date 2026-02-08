@@ -232,3 +232,32 @@ export const MODAL_IDS = {
   CREATE_ISSUE: 'create_issue',
 } as const
 
+/**
+ * Invalidate multiple cache keys at once
+ * Use this after mutations to ensure UI reflects changes immediately
+ *
+ * @example
+ * await api.approveRequest(id)
+ * invalidateMultiple(['document_requests', 'dashboard'])
+ */
+export function invalidateMultiple(keys: string[]) {
+  const store = useDataStore.getState()
+  keys.forEach(key => store.invalidate(key))
+}
+
+/**
+ * Get a function to invalidate cache keys
+ * Useful when you need to pass invalidation as a callback
+ *
+ * @example
+ * const invalidate = useInvalidator()
+ * await api.approveRequest(id)
+ * invalidate(['document_requests', 'dashboard'])
+ */
+export function useInvalidator() {
+  const store = useDataStore()
+  return (keys: string[]) => {
+    keys.forEach(key => store.invalidate(key))
+  }
+}
+

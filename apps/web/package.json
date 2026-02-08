@@ -19,6 +19,8 @@
   },
   "dependencies": {
     "@munlink/ui": "file:../../packages/ui",
+    "@stripe/react-stripe-js": "^3.1.1",
+    "@stripe/stripe-js": "^4.7.0",
     "@headlessui/react": "^2.2.9",
     "@types/leaflet": "^1.9.21",
     "@types/react": "^19.2.2",

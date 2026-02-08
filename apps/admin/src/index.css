@@ -54,10 +54,18 @@
 @layer utilities {
   /* Gradients */
   .bg-ocean-gradient { 
-    background: linear-gradient(135deg, #0ea5e9 0%, #0369a1 100%);
+    background: linear-gradient(
+      135deg,
+      var(--admin-accent-from, #0ea5e9) 0%,
+      var(--admin-accent-to, #0369a1) 100%
+    );
   }
   .bg-ocean-gradient-soft { 
-    background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
+    background: linear-gradient(
+      135deg,
+      var(--admin-accent-100, #e0f2fe) 0%,
+      var(--admin-accent-200, #bae6fd) 100%
+    );
   }
   .bg-forest-gradient { 
     background: linear-gradient(135deg, #10b981 0%, #047857 100%);
@@ -71,6 +79,50 @@
   .bg-rose-gradient {
     background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%);
   }
+
+  /* Admin accent mappings (role-aware via CSS variables) */
+  .text-ocean-300 { color: var(--admin-accent-200, #bae6fd); }
+  .text-ocean-600 { color: var(--admin-accent-600, #0ea5e9); }
+  .text-ocean-700 { color: var(--admin-accent-700, #0369a1); }
+  .text-ocean-800 { color: var(--admin-accent-700, #075985); }
+
+  .bg-ocean-50 { background-color: var(--admin-accent-50, #f0f9ff); }
+  .bg-ocean-100 { background-color: var(--admin-accent-100, #e0f2fe); }
+  .bg-ocean-200 { background-color: var(--admin-accent-200, #bae6fd); }
+  .bg-ocean-500 { background-color: var(--admin-accent-600, #0ea5e9); }
+  .bg-ocean-600 { background-color: var(--admin-accent-600, #0ea5e9); }
+  .bg-ocean-700 { background-color: var(--admin-accent-700, #0369a1); }
+
+  .border-ocean-200 { border-color: var(--admin-accent-200, #bae6fd); }
+  .border-ocean-500 { border-color: var(--admin-accent-600, #0ea5e9); }
+  .border-ocean-600 { border-color: var(--admin-accent-600, #0ea5e9); }
+
+  .ring-ocean-100 { --tw-ring-color: var(--admin-accent-100, #e0f2fe); }
+  .focus\:ring-ocean-500:focus { --tw-ring-color: var(--admin-accent-600, #0ea5e9); }
+  .focus\:border-ocean-500:focus { border-color: var(--admin-accent-600, #0ea5e9); }
+
+  .hover\:bg-ocean-50:hover { background-color: var(--admin-accent-50, #f0f9ff); }
+  .hover\:bg-ocean-200:hover { background-color: var(--admin-accent-200, #bae6fd); }
+  .hover\:bg-ocean-700:hover { background-color: var(--admin-accent-700, #0369a1); }
+  .hover\:text-ocean-600:hover { color: var(--admin-accent-600, #0ea5e9); }
+  .hover\:border-ocean-500:hover { border-color: var(--admin-accent-600, #0ea5e9); }
+
+  .text-blue-600 { color: var(--admin-accent-600, #2563eb); }
+  .text-blue-700 { color: var(--admin-accent-700, #1d4ed8); }
+  .bg-blue-50 { background-color: var(--admin-accent-50, #eff6ff); }
+  .bg-blue-100 { background-color: var(--admin-accent-100, #dbeafe); }
+  .bg-blue-600 { background-color: var(--admin-accent-600, #2563eb); }
+  .bg-blue-700 { background-color: var(--admin-accent-700, #1d4ed8); }
+  .border-blue-500 { border-color: var(--admin-accent-600, #2563eb); }
+  .hover\:bg-blue-50:hover { background-color: var(--admin-accent-50, #eff6ff); }
+  .hover\:text-blue-700:hover { color: var(--admin-accent-700, #1d4ed8); }
+  .focus\:ring-blue-500:focus { --tw-ring-color: var(--admin-accent-600, #2563eb); }
+  .focus\:border-blue-500:focus { border-color: var(--admin-accent-600, #2563eb); }
+
+  .bg-zambales-green { background-color: var(--admin-accent-600, #0ea5e9); }
+  .text-zambales-green { color: var(--admin-accent-600, #0ea5e9); }
+  .border-zambales-green { border-color: var(--admin-accent-600, #0ea5e9); }
+  .focus\:ring-zambales-green:focus { --tw-ring-color: var(--admin-accent-600, #0ea5e9); }
   
   /* Glass effect */
   .bg-glass {
@@ -370,6 +422,12 @@
 
 .status-active { animation: pulse-glow 2s infinite; }
 .notification-badge { animation: badge-pulse 2s infinite; }
+
+/* Hide mobile FABs when the mobile sidebar is active */
+body.mobile-menu-open .fab-mobile,
+body.mobile-menu-open .fab-mobile-backdrop {
+  display: none !important;
+}
 
 /* Priority Indicator */
 .priority-urgent { 

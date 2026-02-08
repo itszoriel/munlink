@@ -3,21 +3,22 @@
 SCOPE: Zambales province only, excluding Olongapo City.
 """
 from flask import Blueprint, jsonify, request
+from apps.api.utils.time import utc_now, utc_today
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime, timedelta
 
-from __init__ import db
+from apps.api import db
 from sqlalchemy import or_, and_
-from models.benefit import BenefitProgram, BenefitApplication
-from models.user import User
-from models.municipality import Municipality
-from utils import (
+from apps.api.models.benefit import BenefitProgram, BenefitApplication
+from apps.api.models.user import User
+from apps.api.models.municipality import Municipality
+from apps.api.utils import (
     validate_required_fields,
     ValidationError,
     fully_verified_required,
     save_benefit_document,
 )
-from utils.zambales_scope import (
+from apps.api.utils.zambales_scope import (
     ZAMBALES_MUNICIPALITY_IDS,
     is_valid_zambales_municipality,
 )
@@ -46,7 +47,7 @@ def list_programs():
             verify_jwt_in_request(optional=True)
             user_id = get_jwt_identity()
             if user_id:
-                user = User.query.get(user_id)
+                user = db.session.get(User, user_id)
                 if user and user.municipality_id:
                     is_authenticated = True
                     user_municipality_id = user.municipality_id
@@ -99,7 +100,7 @@ def list_programs():
         programs = query.order_by(BenefitProgram.created_at.desc()).all()
 
         # Auto-complete expired programs before returning
-        now = datetime.utcnow()
+        now = utc_now()
         changed = False
         for p in programs:
             try:
@@ -157,7 +158,7 @@ def get_program(program_id: int):
     try:
         from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
         
-        program = BenefitProgram.query.get(program_id)
+        program = db.session.get(BenefitProgram, program_id)
         if not program or not program.is_active:
             return jsonify({'error': 'Program not found'}), 404
         
@@ -166,7 +167,7 @@ def get_program(program_id: int):
             verify_jwt_in_request(optional=True)
             user_id = get_jwt_identity()
             if user_id:
-                user = User.query.get(user_id)
+                user = db.session.get(User, user_id)
                 if user and user.municipality_id:
                     # LOGGED-IN USER: Check municipality match
                     # Allow if program is province-wide (None) or matches user's municipality
@@ -187,7 +188,7 @@ def create_application():
     """Create a benefit application for the current user."""
     try:
         user_id = get_jwt_identity()
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({'error': 'User not found'}), 404
 
@@ -195,7 +196,7 @@ def create_application():
         required = ['program_id']
         validate_required_fields(data, required)
 
-        program = BenefitProgram.query.get(int(data['program_id']))
+        program = db.session.get(BenefitProgram, int(data['program_id']))
         if not program or not program.is_active:
             return jsonify({'error': 'Invalid program'}), 400
 
@@ -220,7 +221,7 @@ def create_application():
                     if not user.date_of_birth:
                         return jsonify({'error': 'Date of birth is required to verify age eligibility'}), 400
                     
-                    today = datetime.utcnow().date()
+                    today = utc_today()
                     age = today.year - user.date_of_birth.year
                     if (today.month, today.day) < (user.date_of_birth.month, user.date_of_birth.day):
                         age -= 1
@@ -289,8 +290,8 @@ def my_applications():
 def upload_application_doc(application_id: int):
     try:
         user_id = get_jwt_identity()
-        user = User.query.get(user_id)
-        app = BenefitApplication.query.get(application_id)
+        user = db.session.get(User, user_id)
+        app = db.session.get(BenefitApplication, application_id)
         if not app:
             return jsonify({'error': 'Application not found'}), 404
         if app.user_id != user_id:
@@ -301,7 +302,7 @@ def upload_application_doc(application_id: int):
         if not files or len(files) == 0:
             return jsonify({'error': 'No files uploaded'}), 400
 
-        municipality = Municipality.query.get(user.municipality_id)
+        municipality = db.session.get(Municipality, user.municipality_id)
         municipality_slug = municipality.slug if municipality else 'unknown'
 
         existing = app.supporting_documents or []

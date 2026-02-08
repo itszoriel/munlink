@@ -7,6 +7,7 @@ import MobileNav from './MobileNav'
 import { useAdminStore } from '../../lib/store'
 import { getBestRegion3Seal } from '@munlink/ui'
 import type { NavSection } from './Sidebar'
+import { adminThemes } from './adminTheme'
 
 interface AdminLayoutProps {
   children: ReactNode
@@ -17,6 +18,14 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
   const user = useAdminStore((s) => s.user)
+  const role = (user as any)?.role as string | undefined
+  const adminTheme = role === 'superadmin'
+    ? adminThemes.super
+    : role === 'provincial_admin'
+      ? adminThemes.provincial
+      : role === 'barangay_admin'
+        ? adminThemes.barangay
+        : adminThemes.municipal
 
   // Get municipality seal for transparent background watermark
   const municipalitySeal = getBestRegion3Seal({
@@ -34,6 +43,14 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
       const prev = document.body.style.overflow
       document.body.style.overflow = 'hidden'
       return () => { document.body.style.overflow = prev }
+    }
+  }, [isMobileSidebarOpen])
+  // Hide mobile FABs when sidebar is open (match web behavior)
+  useEffect(() => {
+    const body = document.body
+    body.classList.toggle('mobile-menu-open', isMobileSidebarOpen)
+    return () => {
+      body.classList.remove('mobile-menu-open')
     }
   }, [isMobileSidebarOpen])
 
@@ -103,7 +120,10 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   })()
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-neutral-50 via-ocean-50/30 to-forest-50/20">
+    <div
+      className="min-h-screen bg-gradient-to-br from-neutral-50 via-ocean-50/30 to-forest-50/20"
+      style={adminTheme}
+    >
       {/* Transparent municipality seal watermark */}
       <div className="fixed inset-0 pointer-events-none flex items-center justify-center z-0 overflow-hidden">
         <img

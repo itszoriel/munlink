@@ -19,6 +19,7 @@ Environment Variables:
     DATABASE_URL          - Database connection string (defaults to local SQLite)
 """
 import sys
+from apps.api.utils.time import utc_now
 import os
 import argparse
 from datetime import datetime, date
@@ -218,8 +219,8 @@ def seed_all_admins(dry_run: bool = False):
                         municipality_id=municipality.id,
                         email_verified=True,
                         admin_verified=True,
-                        email_verified_at=datetime.utcnow(),
-                        admin_verified_at=datetime.utcnow(),
+                        email_verified_at=utc_now(),
+                        admin_verified_at=utc_now(),
                         is_active=True
                     )
                     
@@ -283,7 +284,7 @@ def seed_all_admins(dry_run: bool = False):
             try:
                 with open(export_path, 'w') as f:
                     f.write("MUNLINK REGION 3 - ADMIN CREDENTIALS\n")
-                    f.write(f"Generated: {datetime.utcnow().isoformat()}\n")
+                    f.write(f"Generated: {utc_now().isoformat()}\n")
                     f.write("=" * 60 + "\n\n")
                     f.write("WARNING: Delete this file after distributing credentials!\n\n")
                     

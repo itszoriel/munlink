@@ -1,7 +1,8 @@
-import { Routes, Route, Link, useNavigate, Navigate } from 'react-router-dom'
+import { Routes, Route, useNavigate, Navigate } from 'react-router-dom'
 import { useEffect } from 'react'
-import AdminRegisterPage from './pages/AdminRegisterPage'
 import AdminLoginPage from './pages/AdminLoginPage'
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
+import ResetPasswordPage from './pages/ResetPasswordPage'
 import SuperAdminPanel from './pages/SuperAdminPanel'
 import SuperAdminLoginPage from './pages/SuperAdminLoginPage'
 import SuperAdminAuditLog from './pages/SuperAdminAuditLog'
@@ -37,7 +38,6 @@ import BarangayAdminReports from './pages/BarangayAdminReports'
 import RoleSelector from './pages/RoleSelector'
 
 export default function App() {
-  const isAuthenticated = useAdminStore((s) => s.isAuthenticated)
   const isAuthBootstrapped = useAdminStore((s) => s.isAuthBootstrapped)
   const bootstrapAuth = useAdminStore((s) => s.bootstrapAuth)
   const navigate = useNavigate()
@@ -204,6 +204,8 @@ export default function App() {
 
         {/* Auth pages */}
         <Route path="/login" element={<AdminLoginPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route
           path="/superadmin"
           element={
@@ -281,28 +283,6 @@ export default function App() {
             <ProtectedRoute>
               <BarangayAdminReports />
             </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/register"
-          element={
-            <>
-              {!isAuthenticated && (
-                <nav className="sticky top-0 z-10 border-b bg-white/70 backdrop-blur-xl">
-                  <div className="container mx-auto px-4 py-3 flex items-center justify-between">
-                    <Link to="/" className="font-serif font-semibold text-gray-900">MunLink Admin</Link>
-                    <div className="flex items-center gap-6">
-                      <Link to="/login" className="hover:text-ocean-700">Login</Link>
-                      <Link to="/register" className="hover:text-ocean-700">Create Admin</Link>
-                    </div>
-                  </div>
-                </nav>
-              )}
-              <main className="container mx-auto px-4 py-10">
-                <AdminRegisterPage />
-              </main>
-            </>
           }
         />
 

@@ -290,7 +290,7 @@ export default function SuperAdminPanel() {
           </div>
           <button
             onClick={() => setShowCreateForm(true)}
-            className="hidden sm:flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-medium rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all duration-300"
+            className="hidden sm:flex items-center justify-center gap-2 px-6 py-3 bg-ocean-gradient text-white font-medium rounded-xl shadow-lg hover:shadow-xl transition-all duration-300"
           >
             <Plus className="w-5 h-5" />
             Create Admin
@@ -946,7 +946,7 @@ export default function SuperAdminPanel() {
                 <button
                   type="submit"
                   disabled={createLoading}
-                  className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 px-6 py-3 bg-ocean-gradient text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {createLoading ? 'Creating...' : 'Create Admin'}
                 </button>
@@ -959,14 +959,14 @@ export default function SuperAdminPanel() {
       {/* Floating Action Button (Mobile Only) */}
       {!showCreateForm && (
         <motion.div
-          className="fixed bottom-20 right-4 z-50 sm:hidden"
+          className="fixed bottom-20 right-4 z-50 sm:hidden fab-mobile"
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.8 }}
           transition={{ duration: 0.2 }}
         >
           <motion.button
-            className="relative flex items-center justify-center bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 transition-shadow"
+            className="relative flex items-center justify-center bg-ocean-gradient text-white shadow-lg hover:shadow-xl transition-shadow"
             onClick={() => {
               if (fabExpanded) {
                 setShowCreateForm(true)
@@ -1020,7 +1020,7 @@ export default function SuperAdminPanel() {
       <AnimatePresence>
         {fabExpanded && !showCreateForm && (
           <motion.div
-            className="fixed inset-0 z-40 sm:hidden"
+            className="fixed inset-0 z-40 sm:hidden fab-mobile-backdrop"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
