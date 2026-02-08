@@ -66,6 +66,7 @@ export default function SuperAdminLayout({ children }: SuperAdminLayoutProps) {
         onMobileClose={() => setIsMobileSidebarOpen(false)}
         navSections={superAdminNavSections}
         title="Super Admin"
+        
       />
 
       {/* Top header with profile/logout + mobile trigger */}

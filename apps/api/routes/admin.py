@@ -4,35 +4,46 @@ Admin-specific operations with municipality scoping
 
 SCOPE: Zambales province only, excluding Olongapo City.
 """
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, send_file
+from apps.api.utils.time import utc_now
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt, verify_jwt_in_request
 from sqlalchemy import func, and_, or_, case
 from datetime import datetime, timedelta
+import json
 import os
+import mimetypes
 import jwt
-from __init__ import db
-from models.user import User
-from models.municipality import Municipality, Barangay
-from models.issue import Issue, IssueCategory
-from models.marketplace import Item as MarketplaceItem
-from models.marketplace import Transaction as MarketplaceTransaction
-from models.marketplace import TransactionAuditLog as MarketplaceTransactionAuditLog
-from models.benefit import BenefitProgram
-from models.benefit import BenefitApplication
-from models.document import DocumentRequest, DocumentType
-from models.announcement import Announcement
-from models.transfer import TransferRequest
-from utils.storage_handler import save_announcement_image, save_verification_document
-from utils.validators import ValidationError
-from utils.email_sender import send_user_status_email
-from models.audit import AuditLog
-from utils.audit import log_action as log_generic_action
-from utils.admin_audit import (
+import requests
+from io import BytesIO
+from urllib.parse import urlparse
+from apps.api import db
+from apps.api.models.user import User
+from apps.api.models.municipality import Municipality, Barangay
+from apps.api.models.issue import Issue, IssueCategory
+from apps.api.models.marketplace import Item as MarketplaceItem
+from apps.api.models.marketplace import Transaction as MarketplaceTransaction
+from apps.api.models.marketplace import TransactionAuditLog as MarketplaceTransactionAuditLog
+from apps.api.models.benefit import BenefitProgram
+from apps.api.models.benefit import BenefitApplication
+from apps.api.models.document import DocumentRequest, DocumentType
+from apps.api.models.announcement import Announcement
+from apps.api.models.transfer import TransferRequest
+from apps.api.utils.storage_handler import (
+    save_announcement_image,
+    save_verification_document,
+    get_file_url,
+)
+from apps.api.utils import save_document_request_file
+from apps.api.utils.validators import ValidationError
+from apps.api.utils.email_sender import send_user_status_email
+from apps.api.models.audit import AuditLog
+from apps.api.utils.audit import log_action as log_generic_action
+from apps.api.utils.admin_audit import (
     log_resident_verified,
     log_resident_rejected,
 )
-from utils.notifications import queue_document_status_change, queue_announcement_notifications, queue_benefit_program_notifications
-from utils.qr_utils import (
+from apps.api.utils.notifications import queue_document_status_change, queue_announcement_notifications, queue_benefit_program_notifications
+from apps.api.utils.qr_utils import (
     generate_pickup_code,
     hash_code,
     verify_code,
@@ -42,17 +53,104 @@ from utils.qr_utils import (
     encrypt_code,
     get_municipality_slug,
 )
-from utils.zambales_scope import (
+from apps.api.utils.office_payment import (
+    generate_office_payment_code,
+    hash_office_payment_code,
+    send_office_payment_code_email,
+)
+from apps.api.utils.zambales_scope import (
     ZAMBALES_MUNICIPALITY_IDS,
     is_valid_zambales_municipality,
     validate_municipality_in_zambales,
     validate_shared_municipalities,
 )
+from apps.api.utils.fee_calculator import calculate_document_fee, are_requirements_submitted
+from apps.api.utils.supabase_storage import get_signed_url
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 ADMIN_ROLES = ('superadmin', 'provincial_admin', 'municipal_admin', 'barangay_admin')
 ANNOUNCEMENT_SCOPES = {'PROVINCE', 'MUNICIPALITY', 'BARANGAY'}
 ANNOUNCEMENT_STATUSES = {'DRAFT', 'PUBLISHED', 'ARCHIVED'}
+
+
+def _manual_bucket() -> str:
+    return (
+        current_app.config.get('SUPABASE_PRIVATE_BUCKET')
+        or os.getenv('SUPABASE_PRIVATE_BUCKET')
+        or 'munlinkprivate-files'
+    )
+
+
+def _manual_proof_url(storage_path: str) -> str | None:
+    if not storage_path:
+        return None
+    try:
+        return get_signed_url(storage_path, expires_in=3600, bucket=_manual_bucket())
+    except Exception:
+        try:
+            return get_file_url(storage_path)
+        except Exception:
+            return None
+
+
+def _remote_content_allowed(url: str) -> bool:
+    allowed = current_app.config.get('ALLOWED_FILE_DOMAINS') or []
+    if not allowed:
+        return True
+    parsed = urlparse(url)
+    return parsed.netloc in allowed
+
+
+def _stream_storage_file(file_ref: str, download_name: str = 'document') -> object:
+    """Stream a stored file by URL or local path."""
+    if not file_ref:
+        raise FileNotFoundError("Missing file reference")
+
+    normalized = str(file_ref).replace('\\', '/')
+    if normalized.startswith(('http://', 'https://')):
+        if not _remote_content_allowed(normalized):
+            raise PermissionError("Untrusted file domain")
+        resp = requests.get(normalized, timeout=15)
+        resp.raise_for_status()
+        content_type = resp.headers.get('Content-Type') or mimetypes.guess_type(download_name)[0] or 'application/octet-stream'
+        return send_file(
+            BytesIO(resp.content),
+            mimetype=content_type,
+            as_attachment=False,
+            download_name=download_name,
+        )
+
+    upload_root = os.path.abspath(current_app.config.get('UPLOAD_FOLDER') or 'uploads')
+    full_path = os.path.abspath(os.path.join(upload_root, normalized))
+    if not full_path.startswith(upload_root + os.sep):
+        raise PermissionError("Invalid file path")
+    if os.path.exists(full_path):
+        content_type = mimetypes.guess_type(full_path)[0] or 'application/octet-stream'
+        return send_file(
+            full_path,
+            mimetype=content_type,
+            as_attachment=False,
+            download_name=download_name,
+        )
+
+    # Support DB values that store storage paths instead of absolute URLs.
+    try:
+        signed = get_signed_url(normalized, expires_in=300)
+        if signed and _remote_content_allowed(signed):
+            resp = requests.get(signed, timeout=15)
+            resp.raise_for_status()
+            content_type = resp.headers.get('Content-Type') or mimetypes.guess_type(download_name)[0] or 'application/octet-stream'
+            return send_file(
+                BytesIO(resp.content),
+                mimetype=content_type,
+                as_attachment=False,
+                download_name=download_name,
+            )
+    except Exception:
+        pass
+
+    raise FileNotFoundError("File not found")
+
 
 @admin_bp.before_request
 def enforce_admin_role():
@@ -109,39 +207,60 @@ def get_admin_municipality_id():
     try:
         user_id = int(identity)
     except (TypeError, ValueError):
-        print(f"DEBUG: Invalid JWT identity: {identity}")
+        current_app.logger.debug("Invalid JWT identity: %s", identity)
         return None
-    print(f"DEBUG: JWT identity: {user_id}")  # Debug line
-    user = User.query.get(user_id)
-    print(f"DEBUG: User found: {user.username if user else 'None'}, Role: {user.role if user else 'None'}")  # Debug line
+    user = db.session.get(User, user_id)
 
     if not user or user.role not in ADMIN_ROLES:
-        print(f"DEBUG: User validation failed - user: {user}, role: {user.role if user else 'None'}")  # Debug line
+        current_app.logger.debug(
+            "Admin user validation failed for identity %s (user=%s role=%s)",
+            user_id,
+            bool(user),
+            user.role if user else None,
+        )
         return None
 
     admin_muni_id = user.admin_municipality_id
 
     # For barangay_admin, get municipality from their barangay if not set directly
     if not admin_muni_id and user.role == 'barangay_admin' and user.admin_barangay_id:
-        brgy = Barangay.query.get(user.admin_barangay_id)
+        brgy = db.session.get(Barangay, user.admin_barangay_id)
         if brgy:
             admin_muni_id = brgy.municipality_id
-            print(f"DEBUG: Got municipality ID {admin_muni_id} from barangay {brgy.name}")
-
-    print(f"DEBUG: Admin municipality ID: {admin_muni_id}")  # Debug line
 
     # ZAMBALES SCOPE: Validate admin's municipality is in Zambales (excluding Olongapo)
     if admin_muni_id and not is_valid_zambales_municipality(admin_muni_id):
-        print(f"DEBUG: Admin municipality {admin_muni_id} is outside Zambales scope")
+        current_app.logger.warning("Admin municipality %s is outside Zambales scope", admin_muni_id)
         return None
     return admin_muni_id
 
 def require_admin_municipality():
-    """Decorator to ensure admin has municipality scope."""
-    municipality_id = get_admin_municipality_id()
-    if not municipality_id:
+    """Ensure admin has a valid municipality scope.
+
+    Returns:
+        int | str | tuple: municipality_id for scoped admins, 'ALL' for provincial/super admins,
+        or a (response, status) tuple on error.
+    """
+    ctx = _get_staff_context()
+    if not ctx:
         return jsonify({'error': 'Admin access required'}), 403
+
+    # Super/provincial admins can see province-wide data (all Zambales municipalities)
+    if ctx.get('is_super') or ctx.get('is_provincial'):
+        return 'ALL'
+
+    # Municipality-scoped admins must have an assigned municipality
+    municipality_id = ctx.get('municipality_id')
+    if not municipality_id:
+        return jsonify({'error': 'Admin municipality scope is required'}), 403
     return municipality_id
+
+
+def _scope_filter(field, municipality_scope):
+    """Return a SQLAlchemy condition for the given municipality scope."""
+    if municipality_scope == 'ALL':
+        return field.in_(ZAMBALES_MUNICIPALITY_IDS)
+    return field == municipality_scope
 
 
 def _get_staff_context():
@@ -150,7 +269,7 @@ def _get_staff_context():
         user_id = int(get_jwt_identity())
     except Exception:
         return None
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if not user:
         return None
     role_lower = (user.role or '').lower()
@@ -164,7 +283,7 @@ def _get_staff_context():
         'barangay_id': user.admin_barangay_id,
     }
     if ctx['barangay_id']:
-        brgy = Barangay.query.get(ctx['barangay_id'])
+        brgy = db.session.get(Barangay, ctx['barangay_id'])
         if not brgy or not is_valid_zambales_municipality(brgy.municipality_id):
             ctx['barangay_id'] = None
         elif ctx['municipality_id'] and brgy.municipality_id != ctx['municipality_id']:
@@ -181,6 +300,39 @@ def _parse_datetime(value, field_name):
         return datetime.fromisoformat(value)
     except Exception:
         raise ValidationError(f'Invalid {field_name} datetime format')
+
+
+def _normalize_shared_municipality_ids(raw_values):
+    """Normalize shared municipality payload from JSON or multipart form inputs."""
+    if raw_values in (None, '', False):
+        return []
+
+    values = raw_values
+    if isinstance(values, str):
+        text = values.strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+            values = parsed
+        except Exception:
+            values = [part.strip() for part in text.split(',')] if ',' in text else [text]
+
+    if not isinstance(values, (list, tuple, set)):
+        values = [values]
+
+    cleaned = []
+    seen = set()
+    for raw in values:
+        try:
+            muni_id = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if muni_id <= 0 or muni_id in seen:
+            continue
+        seen.add(muni_id)
+        cleaned.append(muni_id)
+    return cleaned
 
 
 def _normalize_scope(scope_value: str) -> str:
@@ -214,7 +366,7 @@ def _validate_target_location(scope: str, municipality_id: int = None, barangay_
     if scope == 'BARANGAY':
         if not barangay_id:
             raise ValidationError('barangay_id is required for barangay-scoped announcements')
-        brgy = Barangay.query.get(barangay_id)
+        brgy = db.session.get(Barangay, barangay_id)
         if not brgy or not is_valid_zambales_municipality(brgy.municipality_id):
             raise ValidationError('Barangay must be within Zambales')
         if municipality_id and municipality_id != brgy.municipality_id:
@@ -302,24 +454,24 @@ def get_user_detail(user_id):
     """Get a single user's details for admin review, including verification files."""
     try:
         municipality_id = get_admin_municipality_id()
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({'error': 'User not found'}), 404
         # If admin has municipality scope, enforce it, but allow access
         # when there is an active transfer (pending/approved) that involves
         # the admin's municipality as source or destination.
-        if municipality_id and user.municipality_id != municipality_id and user.role != 'municipal_admin':
+        if municipality_id not in (None, 'ALL') and user.municipality_id != municipality_id and user.role != 'municipal_admin':
             try:
-                from models.transfer import TransferRequest
+                from apps.api.models.transfer import TransferRequest
             except ImportError:
-                from models.transfer import TransferRequest
+                from apps.api.models.transfer import TransferRequest
             active_transfer = TransferRequest.query.filter(
                 and_(
                     TransferRequest.user_id == user.id,
                     TransferRequest.status.in_(['pending', 'approved']),
                     or_(
-                        TransferRequest.from_municipality_id == municipality_id,
-                        TransferRequest.to_municipality_id == municipality_id,
+                        _scope_filter(TransferRequest.from_municipality_id, municipality_id),
+                        _scope_filter(TransferRequest.to_municipality_id, municipality_id),
                     ),
                 )
             ).first()
@@ -376,11 +528,11 @@ def verify_user(user_id):
         if isinstance(municipality_id, tuple):  # Error response
             return municipality_id
 
-        current_admin = User.query.get(get_jwt_identity())
+        current_admin = db.session.get(User, get_jwt_identity())
         if not current_admin or not current_admin.has_permission('residents:approve'):
             return jsonify({'error': 'Permission denied: residents:approve required', 'code': 'PERMISSION_DENIED'}), 403
         
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({'error': 'User not found'}), 404
         
@@ -392,8 +544,8 @@ def verify_user(user_id):
         
         # Approve the user
         user.admin_verified = True
-        user.admin_verified_at = datetime.utcnow()
-        user.updated_at = datetime.utcnow()
+        user.admin_verified_at = utc_now()
+        user.updated_at = utc_now()
         
         db.session.commit()
 
@@ -440,7 +592,7 @@ def reject_user(user_id):
         if isinstance(municipality_id, tuple):  # Error response
             return municipality_id
 
-        current_admin = User.query.get(get_jwt_identity())
+        current_admin = db.session.get(User, get_jwt_identity())
         if not current_admin or not current_admin.has_permission('residents:approve'):
             return jsonify({'error': 'Permission denied: residents:approve required', 'code': 'PERMISSION_DENIED'}), 403
         
@@ -449,7 +601,7 @@ def reject_user(user_id):
         if not reason:
             return jsonify({'error': 'Reason is required to reject a user'}), 400
         
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({'error': 'User not found'}), 404
         
@@ -461,7 +613,7 @@ def reject_user(user_id):
         
         # Reject the user (deactivate)
         user.is_active = False
-        user.updated_at = datetime.utcnow()
+        user.updated_at = utc_now()
         
         db.session.commit()
 
@@ -501,7 +653,7 @@ def suspend_user(user_id: int):
         if isinstance(municipality_id, tuple):
             return municipality_id
 
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({'error': 'User not found'}), 404
         if user.role != 'resident':
@@ -510,7 +662,7 @@ def suspend_user(user_id: int):
             return jsonify({'error': 'User not in your municipality'}), 403
 
         user.is_active = not bool(user.is_active)
-        user.updated_at = datetime.utcnow()
+        user.updated_at = utc_now()
         db.session.commit()
 
         return jsonify({'message': 'User status updated', 'user': user.to_dict(include_sensitive=True)}), 200
@@ -527,7 +679,7 @@ def admin_upload_user_verification_docs(user_id: int):
         if isinstance(municipality_id, tuple):
             return municipality_id
 
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({'error': 'User not found'}), 404
 
@@ -537,7 +689,7 @@ def admin_upload_user_verification_docs(user_id: int):
         if not (request.content_type and 'multipart/form-data' in request.content_type):
             return jsonify({'error': 'Files must be uploaded as multipart/form-data'}), 400
 
-        municipality = Municipality.query.get(municipality_id)
+        municipality = db.session.get(Municipality, municipality_id)
         municipality_slug = municipality.slug if municipality else 'general'
 
         saved_any = False
@@ -560,7 +712,7 @@ def admin_upload_user_verification_docs(user_id: int):
         if not saved_any:
             return jsonify({'error': 'Please upload at least one verification file'}), 400
 
-        user.updated_at = datetime.utcnow()
+        user.updated_at = utc_now()
         db.session.commit()
 
         return jsonify({
@@ -589,16 +741,16 @@ def get_resident_document(user_id, doc_type):
     - reason (required): Why the admin is viewing this document
     """
     from flask import send_file
-    from utils.auth import permission_required
-    from utils.admin_audit import log_resident_id_viewed
-    from models.municipality import Municipality
+    from apps.api.utils.auth import permission_required
+    from apps.api.utils.admin_audit import log_resident_id_viewed
+    from apps.api.models.municipality import Municipality
     import os
     import traceback
 
     try:
         # Check permission first
         user_id_jwt = get_jwt_identity()
-        current_user = User.query.get(user_id_jwt)
+        current_user = db.session.get(User, user_id_jwt)
 
         if not current_user:
             return jsonify({'error': 'User not found'}), 404
@@ -623,7 +775,7 @@ def get_resident_document(user_id, doc_type):
         admin_municipality_id = get_admin_municipality_id()
 
         # Get resident
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({'error': 'User not found'}), 404
 
@@ -649,7 +801,7 @@ def get_resident_document(user_id, doc_type):
             return jsonify({'error': f'No {doc_type} document found for this user'}), 404
 
         # Log access to audit trail
-        municipality = Municipality.query.get(user.municipality_id)
+        municipality = db.session.get(Municipality, user.municipality_id)
         log_resident_id_viewed(
             admin_id=current_user.id,
             admin_email=current_user.email,
@@ -758,7 +910,7 @@ def get_verified_users():
         
         verified_users = User.query.filter(
             and_(
-                User.municipality_id == municipality_id,
+                _scope_filter(User.municipality_id, municipality_id),
                 User.role == 'resident',
                 User.admin_verified == True,
                 User.is_active == True
@@ -798,14 +950,14 @@ def get_user_stats():
         # Count users by status
         total_users = User.query.filter(
             and_(
-                User.municipality_id == municipality_id,
+                _scope_filter(User.municipality_id, municipality_id),
                 User.role == 'resident'
             )
         ).count()
         
         pending_users = User.query.filter(
             and_(
-                User.municipality_id == municipality_id,
+                _scope_filter(User.municipality_id, municipality_id),
                 User.role == 'resident',
                 User.admin_verified == False,
                 User.is_active == True
@@ -814,7 +966,7 @@ def get_user_stats():
         
         verified_users = User.query.filter(
             and_(
-                User.municipality_id == municipality_id,
+                _scope_filter(User.municipality_id, municipality_id),
                 User.role == 'resident',
                 User.admin_verified == True,
                 User.is_active == True
@@ -822,10 +974,10 @@ def get_user_stats():
         ).count()
         
         # Recent registrations (last 7 days)
-        week_ago = datetime.utcnow() - timedelta(days=7)
+        week_ago = utc_now() - timedelta(days=7)
         recent_registrations = User.query.filter(
             and_(
-                User.municipality_id == municipality_id,
+                _scope_filter(User.municipality_id, municipality_id),
                 User.role == 'resident',
                 User.created_at >= week_ago
             )
@@ -870,7 +1022,7 @@ def get_user_growth():
                 func.count(User.id)
             )
             .filter(and_(
-                User.municipality_id == municipality_id,
+                _scope_filter(User.municipality_id, municipality_id),
                 User.role == 'resident',
                 User.created_at >= start,
                 User.created_at <= end,
@@ -910,7 +1062,7 @@ def get_issues():
             per_page = request.args.get('per_page', 20, type=int)
             
             # Build query
-            query = Issue.query.filter(Issue.municipality_id == municipality_id)
+            query = Issue.query.filter(_scope_filter(Issue.municipality_id, municipality_id))
             
             if status:
                 # Map UI aliases to model statuses
@@ -978,7 +1130,7 @@ def get_issue(issue_id):
         if isinstance(municipality_id, tuple):  # Error response
             return municipality_id
         
-        issue = Issue.query.get(issue_id)
+        issue = db.session.get(Issue, issue_id)
         if not issue:
             return jsonify({'error': 'Issue not found'}), 404
         
@@ -1013,7 +1165,7 @@ def update_issue_status(issue_id):
         if new_status not in ['submitted', 'under_review', 'in_progress', 'resolved', 'closed', 'rejected']:
             return jsonify({'error': 'Invalid status'}), 400
         
-        issue = Issue.query.get(issue_id)
+        issue = db.session.get(Issue, issue_id)
         if not issue:
             return jsonify({'error': 'Issue not found'}), 404
         
@@ -1034,7 +1186,7 @@ def update_issue_status(issue_id):
 
         issue.status = new_status
         issue.status_updated_by = get_jwt_identity()
-        now = datetime.utcnow()
+        now = utc_now()
         issue.status_updated_at = now
         issue.updated_at = now
         if new_status == 'under_review' and not issue.reviewed_at:
@@ -1068,7 +1220,7 @@ def add_issue_response(issue_id):
         if not response_text:
             return jsonify({'error': 'Response text is required'}), 400
         
-        issue = Issue.query.get(issue_id)
+        issue = db.session.get(Issue, issue_id)
         if not issue:
             return jsonify({'error': 'Issue not found'}), 404
         
@@ -1078,8 +1230,8 @@ def add_issue_response(issue_id):
         # Add admin response
         issue.admin_response = response_text
         issue.admin_response_by = get_jwt_identity()
-        issue.admin_response_at = datetime.utcnow()
-        issue.updated_at = datetime.utcnow()
+        issue.admin_response_at = utc_now()
+        issue.updated_at = utc_now()
         
         db.session.commit()
         
@@ -1102,25 +1254,25 @@ def get_issue_stats():
             return municipality_id
         
         # Count issues by status
-        total_issues = Issue.query.filter(Issue.municipality_id == municipality_id).count()
+        total_issues = Issue.query.filter(_scope_filter(Issue.municipality_id, municipality_id)).count()
         
         pending_issues = Issue.query.filter(
             and_(
-                Issue.municipality_id == municipality_id,
+                _scope_filter(Issue.municipality_id, municipality_id),
                 Issue.status == 'pending'
             )
         ).count()
         
         active_issues = Issue.query.filter(
             and_(
-                Issue.municipality_id == municipality_id,
+                _scope_filter(Issue.municipality_id, municipality_id),
                 Issue.status == 'in_progress'
             )
         ).count()
         
         resolved_issues = Issue.query.filter(
             and_(
-                Issue.municipality_id == municipality_id,
+                _scope_filter(Issue.municipality_id, municipality_id),
                 Issue.status == 'resolved'
             )
         ).count()
@@ -1149,7 +1301,7 @@ def get_pending_marketplace_items():
             # Get pending marketplace items for this municipality
             pending_items = MarketplaceItem.query.filter(
                 and_(
-                    MarketplaceItem.municipality_id == municipality_id,
+                    _scope_filter(MarketplaceItem.municipality_id, municipality_id),
                     MarketplaceItem.status == 'pending',
                     MarketplaceItem.is_active == True
                 )
@@ -1184,18 +1336,18 @@ def approve_marketplace_item(item_id):
         if isinstance(municipality_id, tuple):  # Error response
             return municipality_id
         
-        item = MarketplaceItem.query.get(item_id)
+        item = db.session.get(MarketplaceItem, item_id)
         if not item:
             return jsonify({'error': 'Marketplace item not found'}), 404
         
-        if item.municipality_id != municipality_id:
+        if municipality_id not in ('ALL', None) and item.municipality_id != municipality_id:
             return jsonify({'error': 'Item not in your municipality'}), 403
         
         # Approve the item (make it available to residents)
         item.status = 'available'
         item.approved_by = get_jwt_identity()
-        item.approved_at = datetime.utcnow()
-        item.updated_at = datetime.utcnow()
+        item.approved_at = utc_now()
+        item.updated_at = utc_now()
         
         db.session.commit()
         
@@ -1222,19 +1374,19 @@ def reject_marketplace_item(item_id):
         if not reason:
             return jsonify({'error': 'Reason is required to reject a marketplace item'}), 400
         
-        item = MarketplaceItem.query.get(item_id)
+        item = db.session.get(MarketplaceItem, item_id)
         if not item:
             return jsonify({'error': 'Marketplace item not found'}), 404
         
-        if item.municipality_id != municipality_id:
+        if municipality_id not in ('ALL', None) and item.municipality_id != municipality_id:
             return jsonify({'error': 'Item not in your municipality'}), 403
         
         # Reject the item
         item.status = 'rejected'
         item.rejection_reason = reason
         item.rejected_by = get_jwt_identity()
-        item.rejected_at = datetime.utcnow()
-        item.updated_at = datetime.utcnow()
+        item.rejected_at = utc_now()
+        item.updated_at = utc_now()
         
         db.session.commit()
         
@@ -1259,14 +1411,14 @@ def get_marketplace_stats():
         # Count marketplace items by status
         total_items = MarketplaceItem.query.filter(
             and_(
-                MarketplaceItem.municipality_id == municipality_id,
+                _scope_filter(MarketplaceItem.municipality_id, municipality_id),
                 MarketplaceItem.is_active == True
             )
         ).count()
         
         pending_items = MarketplaceItem.query.filter(
             and_(
-                MarketplaceItem.municipality_id == municipality_id,
+                _scope_filter(MarketplaceItem.municipality_id, municipality_id),
                 MarketplaceItem.status == 'pending',
                 MarketplaceItem.is_active == True
             )
@@ -1274,7 +1426,7 @@ def get_marketplace_stats():
         
         approved_items = MarketplaceItem.query.filter(
             and_(
-                MarketplaceItem.municipality_id == municipality_id,
+                _scope_filter(MarketplaceItem.municipality_id, municipality_id),
                 MarketplaceItem.status == 'available',
                 MarketplaceItem.is_active == True
             )
@@ -1282,7 +1434,7 @@ def get_marketplace_stats():
         
         rejected_items = MarketplaceItem.query.filter(
             and_(
-                MarketplaceItem.municipality_id == municipality_id,
+                _scope_filter(MarketplaceItem.municipality_id, municipality_id),
                 MarketplaceItem.status == 'rejected',
                 MarketplaceItem.is_active == True
             )
@@ -1308,7 +1460,7 @@ def get_announcements():
         if not ctx:
             return jsonify({'error': 'Admin access required'}), 403
 
-        now = datetime.utcnow()
+        now = utc_now()
         status_param = request.args.get('status')
         scope_param = request.args.get('scope')
 
@@ -1355,6 +1507,10 @@ def create_announcement():
         is_multipart = request.content_type and 'multipart/form-data' in request.content_type
         if is_multipart:
             data = request.form.to_dict()
+            if 'shared_with_municipalities' in request.form:
+                shared_values = request.form.getlist('shared_with_municipalities')
+                if len(shared_values) > 1:
+                    data['shared_with_municipalities'] = shared_values
             # Convert string booleans to actual booleans for FormData
             if 'pinned' in data:
                 data['pinned'] = data['pinned'].lower() in ('true', '1', 'yes')
@@ -1375,7 +1531,7 @@ def create_announcement():
         expire_at = _parse_datetime(data.get('expire_at'), 'expire_at')
         pinned = bool(data.get('pinned', False))
         pinned_until = _parse_datetime(data.get('pinned_until'), 'pinned_until')
-        shared_with_municipalities = data.get('shared_with_municipalities', [])
+        shared_with_municipalities = _normalize_shared_municipality_ids(data.get('shared_with_municipalities', []))
         public_viewable = str(data.get('public_viewable')).lower() in ('true', '1', 'yes', 'on') if data.get('public_viewable') is not None else False
 
         if not title or not content:
@@ -1404,7 +1560,7 @@ def create_announcement():
         if not allowed:
             return denial
 
-        now = datetime.utcnow()
+        now = utc_now()
         # Default publish_at for published announcements
         if status == 'PUBLISHED' and not publish_at:
             publish_at = now
@@ -1488,6 +1644,10 @@ def update_announcement(announcement_id):
         is_multipart = request.content_type and 'multipart/form-data' in request.content_type
         if is_multipart:
             data = request.form.to_dict()
+            if 'shared_with_municipalities' in request.form:
+                shared_values = request.form.getlist('shared_with_municipalities')
+                if len(shared_values) > 1:
+                    data['shared_with_municipalities'] = shared_values
             # Convert string booleans to actual booleans for FormData
             if 'pinned' in data:
                 data['pinned'] = data['pinned'].lower() in ('true', '1', 'yes')
@@ -1496,7 +1656,7 @@ def update_announcement(announcement_id):
         else:
             data = request.get_json(silent=True) or {}
 
-        announcement = Announcement.query.get(announcement_id)
+        announcement = db.session.get(Announcement, announcement_id)
         if not announcement:
             return jsonify({'error': 'Announcement not found'}), 404
 
@@ -1511,7 +1671,7 @@ def update_announcement(announcement_id):
         if not allowed:
             return denial
 
-        now = datetime.utcnow()
+        now = utc_now()
 
         if 'title' in data:
             announcement.title = data['title']
@@ -1533,7 +1693,7 @@ def update_announcement(announcement_id):
         if 'pinned_until' in data:
             announcement.pinned_until = _parse_datetime(data.get('pinned_until'), 'pinned_until')
         if 'shared_with_municipalities' in data:
-            shared_with_municipalities = data.get('shared_with_municipalities', [])
+            shared_with_municipalities = _normalize_shared_municipality_ids(data.get('shared_with_municipalities', []))
             # Validate shared municipalities (Zambales-only enforcement)
             try:
                 validate_shared_municipalities(shared_with_municipalities, raise_error=True)
@@ -1565,7 +1725,7 @@ def update_announcement(announcement_id):
         announcement.expire_at = expire_at
         announcement.is_active = is_active_flag
         announcement.created_by_staff_id = announcement.created_by_staff_id or ctx['user'].id
-        announcement.updated_at = datetime.utcnow()
+        announcement.updated_at = utc_now()
 
         # Handle image uploads if present (FormData only)
         if is_multipart and 'images' in request.files:
@@ -1585,7 +1745,7 @@ def update_announcement(announcement_id):
 
         try:
             if announcement.status == 'PUBLISHED':
-                now_ts = datetime.utcnow()
+                now_ts = utc_now()
                 publish_target = announcement.publish_at or now_ts
                 became_live = prev_status != 'PUBLISHED' or (prev_publish_at and prev_publish_at > now and publish_target <= now_ts)
                 if became_live:
@@ -1616,7 +1776,7 @@ def upload_announcement_image(announcement_id):
         if not ctx:
             return jsonify({'error': 'Admin access required'}), 403
 
-        announcement = Announcement.query.get(announcement_id)
+        announcement = db.session.get(Announcement, announcement_id)
         if not announcement:
             return jsonify({'error': 'Announcement not found'}), 404
         allowed, denial = _enforce_scope_permission(
@@ -1640,7 +1800,7 @@ def upload_announcement_image(announcement_id):
         # Municipality slug
         municipality_slug = 'zambales'
         if announcement.municipality_id:
-            municipality = Municipality.query.get(announcement.municipality_id)
+            municipality = db.session.get(Municipality, announcement.municipality_id)
             municipality_slug = municipality.slug if municipality else 'zambales'
 
         rel_path = save_announcement_image(file, announcement_id, municipality_slug)
@@ -1663,7 +1823,7 @@ def upload_announcement_images(announcement_id):
         if not ctx:
             return jsonify({'error': 'Admin access required'}), 403
 
-        announcement = Announcement.query.get(announcement_id)
+        announcement = db.session.get(Announcement, announcement_id)
         if not announcement:
             return jsonify({'error': 'Announcement not found'}), 404
         allowed, denial = _enforce_scope_permission(
@@ -1681,7 +1841,7 @@ def upload_announcement_images(announcement_id):
         # Municipality slug
         municipality_slug = 'zambales'
         if announcement.municipality_id:
-            municipality = Municipality.query.get(announcement.municipality_id)
+            municipality = db.session.get(Municipality, announcement.municipality_id)
             municipality_slug = municipality.slug if municipality else 'zambales'
 
         images = announcement.images or []
@@ -1716,7 +1876,7 @@ def delete_announcement(announcement_id):
         if not ctx:
             return jsonify({'error': 'Admin access required'}), 403
 
-        announcement = Announcement.query.get(announcement_id)
+        announcement = db.session.get(Announcement, announcement_id)
         if not announcement:
             return jsonify({'error': 'Announcement not found'}), 404
 
@@ -1749,7 +1909,7 @@ def get_announcement_stats():
         if not ctx:
             return jsonify({'error': 'Admin access required'}), 403
 
-        now = datetime.utcnow()
+        now = utc_now()
         q = _announcement_query_for_staff(ctx)
         total_announcements = q.count()
         published = q.filter(Announcement.status == 'PUBLISHED').count()
@@ -1786,7 +1946,7 @@ def get_dashboard_stats():
         municipality_id = require_admin_municipality()
         if isinstance(municipality_id, tuple):  # Error response
             return municipality_id
-        now = datetime.utcnow()
+        now = utc_now()
         
         # Initialize stats with default values
         stats = {
@@ -1800,7 +1960,7 @@ def get_dashboard_stats():
             # User statistics
             pending_verifications = User.query.filter(
                 and_(
-                    User.municipality_id == municipality_id,
+                    _scope_filter(User.municipality_id, municipality_id),
                     User.role == 'resident',
                     User.admin_verified == False,
                     User.is_active == True
@@ -1814,7 +1974,7 @@ def get_dashboard_stats():
             # Issue statistics
             active_issues = Issue.query.filter(
                 and_(
-                    Issue.municipality_id == municipality_id,
+                    _scope_filter(Issue.municipality_id, municipality_id),
                     Issue.status.in_(['pending', 'in_progress'])
                 )
             ).count()
@@ -1826,7 +1986,7 @@ def get_dashboard_stats():
             # Marketplace statistics
             marketplace_items = MarketplaceItem.query.filter(
                 and_(
-                    MarketplaceItem.municipality_id == municipality_id,
+                    _scope_filter(MarketplaceItem.municipality_id, municipality_id),
                     MarketplaceItem.status == 'pending',
                     MarketplaceItem.is_active == True
                 )
@@ -1839,8 +1999,8 @@ def get_dashboard_stats():
             # Announcements statistics
             announcements = Announcement.query.filter(
                 or_(
-                    and_(Announcement.scope == 'MUNICIPALITY', Announcement.municipality_id == municipality_id),
-                    and_(Announcement.scope == 'BARANGAY', Announcement.municipality_id == municipality_id),
+                    and_(Announcement.scope == 'MUNICIPALITY', _scope_filter(Announcement.municipality_id, municipality_id)),
+                    and_(Announcement.scope == 'BARANGAY', _scope_filter(Announcement.municipality_id, municipality_id)),
                 ),
                 Announcement.status == 'PUBLISHED',
                 or_(Announcement.publish_at == None, Announcement.publish_at <= now),
@@ -1872,14 +2032,14 @@ def admin_list_benefit_programs():
         # Show province-wide (NULL) and this municipality
         programs = (
             q.filter(
-                (BenefitProgram.municipality_id == municipality_id) |
+                (_scope_filter(BenefitProgram.municipality_id, municipality_id)) |
                 (BenefitProgram.municipality_id.is_(None))
             )
             .order_by(BenefitProgram.created_at.desc())
             .all()
         )
         # Auto-complete expired programs
-        now = datetime.utcnow()
+        now = utc_now()
         changed = False
         for p in programs:
             try:
@@ -1944,7 +2104,7 @@ def admin_list_benefit_applications():
         active_only = request.args.get('active_only', 'true').lower() != 'false'
 
         q = BenefitApplication.query.join(BenefitProgram, BenefitApplication.program_id == BenefitProgram.id)
-        q = q.filter((BenefitProgram.municipality_id == municipality_id) | (BenefitProgram.municipality_id.is_(None)))
+        q = q.filter((_scope_filter(BenefitProgram.municipality_id, municipality_id)) | (BenefitProgram.municipality_id.is_(None)))
         if status:
             q = q.filter(BenefitApplication.status == status)
         if active_only:
@@ -1977,10 +2137,10 @@ def admin_list_program_applicants(program_id: int):
         if isinstance(municipality_id, tuple):
             return municipality_id
 
-        program = BenefitProgram.query.get(program_id)
+        program = db.session.get(BenefitProgram, program_id)
         if not program:
             return jsonify({'error': 'Program not found'}), 404
-        if program.municipality_id and program.municipality_id != municipality_id:
+        if municipality_id not in ('ALL', None) and program.municipality_id and program.municipality_id != municipality_id:
             return jsonify({'error': 'Program not in your municipality'}), 403
 
         apps = BenefitApplication.query.filter(BenefitApplication.program_id == program_id).order_by(BenefitApplication.created_at.desc()).all()
@@ -2009,7 +2169,10 @@ def admin_list_transfers():
         order = (request.args.get('order') or 'desc').strip()
 
         base = TransferRequest.query.filter(
-            or_(TransferRequest.from_municipality_id == municipality_id, TransferRequest.to_municipality_id == municipality_id)
+            or_(
+                _scope_filter(TransferRequest.from_municipality_id, municipality_id),
+                _scope_filter(TransferRequest.to_municipality_id, municipality_id)
+            )
         )
         if status:
             base = base.filter(TransferRequest.status == status)
@@ -2035,7 +2198,7 @@ def admin_list_transfers():
         for t in p.items:
             d = t.to_dict()
             try:
-                u = User.query.get(t.user_id)
+                u = db.session.get(User, t.user_id)
                 if u:
                     d['resident_name'] = (f"{getattr(u,'first_name','') or ''} {getattr(u,'last_name','') or ''}").strip() or getattr(u,'username', None) or getattr(u,'email', None)
                     d['email'] = getattr(u, 'email', None)
@@ -2058,11 +2221,11 @@ def admin_update_transfer(transfer_id: int):
         data = request.get_json() or {}
         new_status = (data.get('status') or '').lower()  # approved, rejected, accepted
 
-        t = TransferRequest.query.get(transfer_id)
+        t = db.session.get(TransferRequest, transfer_id)
         if not t:
             return jsonify({'error': 'Transfer request not found'}), 404
 
-        now = datetime.utcnow()
+        now = utc_now()
         prev_status = (t.status or 'pending').lower()
         if new_status == 'approved':
             if t.from_municipality_id != municipality_id:
@@ -2079,7 +2242,7 @@ def admin_update_transfer(transfer_id: int):
             if t.status != 'approved':
                 return jsonify({'error': 'Only approved transfers can be accepted'}), 400
             # Move user to new municipality and barangay, reset admin verification (pending acceptance)
-            user = User.query.get(t.user_id)
+            user = db.session.get(User, t.user_id)
             if not user:
                 return jsonify({'error': 'User not found'}), 404
             user.municipality_id = t.to_municipality_id
@@ -2134,11 +2297,11 @@ def admin_update_benefit_application_status(application_id: int):
         if new_status not in ['pending', 'under_review', 'approved', 'rejected', 'cancelled']:
             return jsonify({'error': 'Invalid status'}), 400
 
-        app = BenefitApplication.query.get(application_id)
+        app = db.session.get(BenefitApplication, application_id)
         if not app:
             return jsonify({'error': 'Application not found'}), 404
 
-        program = BenefitProgram.query.get(app.program_id)
+        program = db.session.get(BenefitProgram, app.program_id)
         if not program:
             return jsonify({'error': 'Program not found'}), 404
 
@@ -2165,7 +2328,7 @@ def admin_update_benefit_application_status(application_id: int):
             app.admin_notes = notes
         if new_status == 'rejected' and rejection_reason:
             app.rejection_reason = rejection_reason
-        now = datetime.utcnow()
+        now = utc_now()
         app.updated_at = now
         if new_status == 'under_review':
             app.reviewed_at = now
@@ -2201,7 +2364,7 @@ def admin_update_benefit_application_status(application_id: int):
 
         # Email notifications (best-effort)
         try:
-            user = User.query.get(app.user_id)
+            user = db.session.get(User, app.user_id)
             if user and user.email:
                 if new_status == 'approved':
                     send_generic = send_user_status_email  # reuse helper for simple message
@@ -2248,8 +2411,8 @@ def admin_create_benefit_program():
             program_municipality_id = municipality_id
 
         import json as _json
-        from models.municipality import Municipality
-        from utils.file_handler import save_benefit_program_image
+        from apps.api.models.municipality import Municipality
+        from apps.api.utils.file_handler import save_benefit_program_image
 
         def _maybe_json(v):
             if v is None:
@@ -2312,7 +2475,7 @@ def admin_create_benefit_program():
         db.session.commit()
 
         # Save program image (uploads/benefit_programs/admins/{municipality_slug}/program_{id}/...)
-        municipality = Municipality.query.get(program_municipality_id)
+        municipality = db.session.get(Municipality, program_municipality_id)
         municipality_slug = (municipality.slug if municipality else 'unknown')
         rel_path = save_benefit_program_image(file, program.id, municipality_slug, user_type='admins')
         program.image_path = rel_path
@@ -2340,7 +2503,7 @@ def admin_update_benefit_program(program_id: int):
         if isinstance(municipality_id, tuple):
             return municipality_id
 
-        program = BenefitProgram.query.get(program_id)
+        program = db.session.get(BenefitProgram, program_id)
         if not program:
             return jsonify({'error': 'Program not found'}), 404
 
@@ -2348,8 +2511,8 @@ def admin_update_benefit_program(program_id: int):
             return jsonify({'error': 'Program not in your municipality'}), 403
 
         import json as _json
-        from models.municipality import Municipality
-        from utils.file_handler import save_benefit_program_image
+        from apps.api.models.municipality import Municipality
+        from apps.api.utils.file_handler import save_benefit_program_image
 
         def _maybe_json(v):
             if v is None:
@@ -2396,7 +2559,7 @@ def admin_update_benefit_program(program_id: int):
 
         # Optional image replacement
         if file:
-            municipality = Municipality.query.get(program.municipality_id or municipality_id)
+            municipality = db.session.get(Municipality, program.municipality_id or municipality_id)
             municipality_slug = (municipality.slug if municipality else 'unknown')
             rel_path = save_benefit_program_image(file, program.id, municipality_slug, user_type='admins')
             program.image_path = rel_path
@@ -2416,7 +2579,7 @@ def admin_delete_benefit_program(program_id: int):
         if isinstance(municipality_id, tuple):
             return municipality_id
 
-        program = BenefitProgram.query.get(program_id)
+        program = db.session.get(BenefitProgram, program_id)
         if not program:
             return jsonify({'error': 'Program not found'}), 404
 
@@ -2440,13 +2603,13 @@ def admin_complete_benefit_program(program_id: int):
         if isinstance(municipality_id, tuple):
             return municipality_id
 
-        program = BenefitProgram.query.get(program_id)
+        program = db.session.get(BenefitProgram, program_id)
         if not program:
             return jsonify({'error': 'Program not found'}), 404
         if program.municipality_id and program.municipality_id != municipality_id:
             return jsonify({'error': 'Program not in your municipality'}), 403
 
-        now = datetime.utcnow()
+        now = utc_now()
         program.is_active = False
         program.is_accepting_applications = False
         program.completed_at = now
@@ -2462,7 +2625,7 @@ def admin_complete_benefit_program(program_id: int):
 # ---------------------------------------------
 
 def _parse_range(range_param: str):
-    now = datetime.utcnow()
+    now = utc_now()
     if range_param == 'last_7_days':
         return now - timedelta(days=7), now
     if range_param == 'last_90_days':
@@ -2490,7 +2653,7 @@ def admin_documents_stats():
         start, end = _parse_range(range_param)
 
         base_filter = and_(
-            DocumentRequest.municipality_id == municipality_id,
+            _scope_filter(DocumentRequest.municipality_id, municipality_id),
             DocumentRequest.created_at >= start,
             DocumentRequest.created_at <= end,
         )
@@ -2522,7 +2685,7 @@ def admin_documents_stats():
 
         # Top requested document names if relationship exists; fallback to counts by id
         try:
-            from models.document import DocumentType
+            from apps.api.models.document import DocumentType
             rows = db.session.query(DocumentType.name, func.count(DocumentRequest.id))\
                 .join(DocumentRequest, DocumentRequest.document_type_id == DocumentType.id)\
                 .filter(base_filter)\
@@ -2577,7 +2740,7 @@ def get_document_requests():
         query = db.session.query(DocumentRequest, User, DocumentType)\
             .join(User, DocumentRequest.user_id == User.id)\
             .join(DocumentType, DocumentRequest.document_type_id == DocumentType.id)\
-            .filter(DocumentRequest.municipality_id == municipality_id)
+            .filter(_scope_filter(DocumentRequest.municipality_id, municipality_id))
 
         if ctx.get('role_lower') == 'barangay_admin':
             if not ctx.get('barangay_id'):
@@ -2626,12 +2789,115 @@ def get_document_requests():
         return jsonify({'error': 'Failed to get document requests', 'details': str(e)}), 500
 
 
+@admin_bp.route('/documents/requests/<int:request_id>/upload', methods=['POST'])
+@jwt_required()
+def admin_upload_document_request_files(request_id: int):
+    """Admin upload supporting documents for a request."""
+    try:
+        ctx = _get_staff_context()
+        if not ctx:
+            return jsonify({'error': 'Admin access required'}), 403
+        municipality_id = require_admin_municipality()
+        if isinstance(municipality_id, tuple):
+            return municipality_id
+
+        req = db.session.get(DocumentRequest, request_id)
+        if not req:
+            return jsonify({'error': 'Request not found'}), 404
+        if municipality_id == 'ALL':
+            if req.municipality_id not in ZAMBALES_MUNICIPALITY_IDS:
+                return jsonify({'error': 'Request outside allowed municipality scope'}), 403
+        elif req.municipality_id != municipality_id:
+            return jsonify({'error': 'Request not in your municipality'}), 403
+        if ctx.get('role_lower') == 'barangay_admin':
+            if not ctx.get('barangay_id') or req.barangay_id != ctx['barangay_id']:
+                return jsonify({'error': 'Request not in your barangay'}), 403
+
+        if not request.files:
+            return jsonify({'error': 'No files uploaded'}), 400
+
+        municipality_slug = req.municipality.slug if getattr(req, 'municipality', None) else 'unknown'
+
+        saved = []
+        requirement_labels = request.form.getlist('requirement') or []
+        files_list = request.files.getlist('file') if 'file' in request.files else []
+        if files_list:
+            for idx, f in enumerate(files_list):
+                rel = save_document_request_file(f, req.id, municipality_slug)
+                req_label = requirement_labels[idx] if idx < len(requirement_labels) else None
+                if req_label:
+                    saved.append({'path': rel, 'requirement': req_label})
+                else:
+                    saved.append(rel)
+        else:
+            for key in request.files:
+                files = request.files.getlist(key)
+                for f in files:
+                    rel = save_document_request_file(f, req.id, municipality_slug)
+                    if key and key not in ('file',):
+                        saved.append({'path': rel, 'requirement': key})
+                    else:
+                        saved.append(rel)
+
+        existing = req.supporting_documents or []
+        req.supporting_documents = existing + saved
+
+        # Recalculate fees after requirements update
+        doc_type = req.document_type or db.session.get(DocumentType, req.document_type_id)
+        if doc_type:
+            requirements_submitted = are_requirements_submitted(doc_type, req.supporting_documents or [])
+            fee_calc = calculate_document_fee(
+                document_type=doc_type,
+                user_id=req.user_id,
+                purpose_type=getattr(req, 'purpose_type', None),
+                business_type=getattr(req, 'business_type', None),
+                requirements_submitted=requirements_submitted
+            )
+            prev_fee = float(req.final_fee or 0)
+            req.original_fee = fee_calc.get('original_fee')
+            req.applied_exemption = fee_calc.get('exemption_type')
+            req.final_fee = fee_calc.get('final_fee')
+            new_fee = float(req.final_fee or 0)
+            if new_fee == 0:
+                if getattr(req, 'payment_status', None) != 'paid':
+                    req.payment_status = 'waived'
+                if getattr(req, 'payment_method', None) == 'manual_qr' and getattr(req, 'payment_status', None) != 'paid':
+                    req.manual_payment_status = 'not_started'
+                    req.manual_payment_proof_path = None
+                    req.manual_payment_id_hash = None
+                    req.manual_payment_id_last4 = None
+                    req.manual_payment_id_sent_at = None
+                    req.manual_payment_submitted_at = None
+                    req.manual_reviewed_by = None
+                    req.manual_reviewed_at = None
+                    req.manual_review_notes = None
+            else:
+                if getattr(req, 'payment_status', None) == 'waived':
+                    req.payment_status = 'pending'
+                if prev_fee != new_fee and getattr(req, 'payment_method', None) == 'manual_qr':
+                    if getattr(req, 'manual_payment_status', None) in {'proof_uploaded', 'id_sent', 'submitted'}:
+                        req.manual_payment_status = 'rejected'
+                        req.manual_review_notes = 'Fee changed. Please repay the exact new amount and resubmit proof.'
+                        req.manual_payment_id_hash = None
+                        req.manual_payment_id_last4 = None
+                        req.manual_payment_id_sent_at = None
+                        req.manual_payment_submitted_at = None
+
+        req.updated_at = utc_now()
+        db.session.commit()
+
+        return jsonify({'message': 'Files uploaded', 'files': saved, 'request': req.to_dict()}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Failed to upload files', 'details': str(e)}), 500
+
+
 @admin_bp.route('/documents/requests/<int:request_id>/generate-pdf', methods=['POST'])
 @jwt_required()
 def generate_document_request_pdf(request_id: int):
     """Generate PDF for a digital document request using dynamic ReportLab generator."""
     try:
-        from utils.pdf_generator import generate_document_pdf
+        from apps.api.utils.pdf_generator import generate_document_pdf
 
         ctx = _get_staff_context()
         if not ctx:
@@ -2640,10 +2906,13 @@ def generate_document_request_pdf(request_id: int):
         if isinstance(municipality_id, tuple):
             return municipality_id
 
-        req = DocumentRequest.query.get(request_id)
+        req = db.session.get(DocumentRequest, request_id)
         if not req:
             return jsonify({'error': 'Request not found'}), 404
-        if req.municipality_id != municipality_id:
+        if municipality_id == 'ALL':
+            if req.municipality_id not in ZAMBALES_MUNICIPALITY_IDS:
+                return jsonify({'error': 'Request outside allowed municipality scope'}), 403
+        elif req.municipality_id != municipality_id:
             return jsonify({'error': 'Request not in your municipality'}), 403
         if ctx.get('role_lower') == 'barangay_admin':
             if not ctx.get('barangay_id') or req.barangay_id != ctx['barangay_id']:
@@ -2651,15 +2920,18 @@ def generate_document_request_pdf(request_id: int):
         # Only for digital requests
         if (req.delivery_method or '').lower() not in ('digital',):
             return jsonify({'error': 'PDF generation is only available for digital requests'}), 400
+        # Require payment for paid digital requests
+        if float(getattr(req, 'final_fee', 0) or 0) > 0 and getattr(req, 'payment_status', None) != 'paid':
+            return jsonify({'error': 'Payment required before generating digital documents'}), 400
 
-        user = User.query.get(req.user_id)
-        doc_type = DocumentType.query.get(req.document_type_id)
+        user = db.session.get(User, req.user_id)
+        doc_type = db.session.get(DocumentType, req.document_type_id)
         if not doc_type:
             return jsonify({'error': 'Document type not found'}), 404
 
         # Current admin for BY line
         try:
-            admin_user = User.query.get(get_jwt_identity())
+            admin_user = db.session.get(User, get_jwt_identity())
         except Exception:
             admin_user = None
 
@@ -2669,8 +2941,8 @@ def generate_document_request_pdf(request_id: int):
         # Retain existing behavior for digital requests: set ready after generation,
         # but defer final completion to an explicit action.
         req.status = 'ready'
-        req.ready_at = datetime.utcnow()
-        req.updated_at = datetime.utcnow()
+        req.ready_at = utc_now()
+        req.updated_at = utc_now()
         # Audit (best-effort)
         try:
             log_generic_action(
@@ -2701,7 +2973,11 @@ def generate_document_request_pdf(request_id: int):
             db.session.rollback()
             current_app.logger.warning("Failed to queue document ready notification: %s", notify_exc)
 
-        return jsonify({'message': 'Document generated', 'url': f"/uploads/{rel_path}", 'request': req.to_dict()}), 200
+        return jsonify({
+            'message': 'Document generated',
+            'download_endpoint': f"/api/admin/documents/requests/{req.id}/download",
+            'request': req.to_dict()
+        }), 200
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': 'Failed to generate PDF', 'details': str(e)}), 500
@@ -2719,10 +2995,13 @@ def download_document_request_pdf(request_id: int):
         if isinstance(municipality_id, tuple):
             return municipality_id
 
-        req = DocumentRequest.query.get(request_id)
+        req = db.session.get(DocumentRequest, request_id)
         if not req:
             return jsonify({'error': 'Request not found'}), 404
-        if req.municipality_id != municipality_id:
+        if municipality_id == 'ALL':
+            if req.municipality_id not in ZAMBALES_MUNICIPALITY_IDS:
+                return jsonify({'error': 'Request outside allowed municipality scope'}), 403
+        elif req.municipality_id != municipality_id:
             return jsonify({'error': 'Request not in your municipality'}), 403
         if ctx.get('role_lower') == 'barangay_admin':
             if not ctx.get('barangay_id') or req.barangay_id != ctx['barangay_id']:
@@ -2730,13 +3009,17 @@ def download_document_request_pdf(request_id: int):
         if not req.document_file:
             return jsonify({'error': 'No generated document available'}), 404
 
-        # Return URL - could be Supabase URL or local path
-        url = req.document_file
-        if not url.startswith(('http://', 'https://')):
-            url = f"/uploads/{req.document_file}"
-        return jsonify({'url': url}), 200
+        filename = f"{req.request_number or 'document'}.pdf"
+        return _stream_storage_file(req.document_file, download_name=filename)
+    except PermissionError:
+        return jsonify({'error': 'File access denied'}), 403
+    except FileNotFoundError:
+        return jsonify({'error': 'File not found'}), 404
+    except requests.RequestException:
+        return jsonify({'error': 'Failed to fetch PDF from storage'}), 502
     except Exception as e:
-        return jsonify({'error': 'Failed to download PDF', 'details': str(e)}), 500
+        current_app.logger.error("Failed to download PDF for request %s: %s", request_id, e)
+        return jsonify({'error': 'Failed to download PDF'}), 500
 
 
 @admin_bp.route('/documents/requests/<int:request_id>/regenerate-qr', methods=['POST'])
@@ -2759,27 +3042,30 @@ def regenerate_document_qr_code(request_id: int):
         if isinstance(municipality_id, tuple):
             return municipality_id
 
-        req = DocumentRequest.query.get(request_id)
+        req = db.session.get(DocumentRequest, request_id)
         if not req:
             return jsonify({'error': 'Request not found'}), 404
-        if req.municipality_id != municipality_id:
+        if municipality_id == 'ALL':
+            if req.municipality_id not in ZAMBALES_MUNICIPALITY_IDS:
+                return jsonify({'error': 'Request outside allowed municipality scope'}), 403
+        elif req.municipality_id != municipality_id:
             return jsonify({'error': 'Request not in your municipality'}), 403
         if ctx.get('role_lower') == 'barangay_admin':
             if not ctx.get('barangay_id') or req.barangay_id != ctx['barangay_id']:
                 return jsonify({'error': 'Request not in your barangay'}), 403
         
         # Get municipality slug
-        municipality = Municipality.query.get(municipality_id)
+        municipality = db.session.get(Municipality, req.municipality_id)
         municipality_slug = municipality.slug if municipality else 'unknown'
         
         # Regenerate QR code
-        from utils.qr_generator import regenerate_qr_code
+        from apps.api.utils.qr_generator import regenerate_qr_code
         
         new_qr_url = regenerate_qr_code(req, municipality_slug)
         
         # Update database
         req.qr_code = new_qr_url
-        req.updated_at = datetime.utcnow()
+        req.updated_at = utc_now()
         db.session.commit()
         
         # Audit log
@@ -2796,7 +3082,7 @@ def regenerate_document_qr_code(request_id: int):
         
         return jsonify({
             'message': 'QR code regenerated successfully',
-            'qr_code': new_qr_url,
+            'qr_available': bool(new_qr_url),
             'request': req.to_dict()
         }), 200
         
@@ -2826,10 +3112,13 @@ def regenerate_document_pdf(request_id: int):
         if isinstance(municipality_id, tuple):
             return municipality_id
 
-        req = DocumentRequest.query.get(request_id)
+        req = db.session.get(DocumentRequest, request_id)
         if not req:
             return jsonify({'error': 'Request not found'}), 404
-        if req.municipality_id != municipality_id:
+        if municipality_id == 'ALL':
+            if req.municipality_id not in ZAMBALES_MUNICIPALITY_IDS:
+                return jsonify({'error': 'Request outside allowed municipality scope'}), 403
+        elif req.municipality_id != municipality_id:
             return jsonify({'error': 'Request not in your municipality'}), 403
         if ctx.get('role_lower') == 'barangay_admin':
             if not ctx.get('barangay_id') or req.barangay_id != ctx['barangay_id']:
@@ -2844,22 +3133,22 @@ def regenerate_document_pdf(request_id: int):
         if not doc_type:
             return jsonify({'error': 'Document type not found'}), 404
         
-        user = User.query.get(req.user_id)
+        user = db.session.get(User, req.user_id)
         if not user:
             return jsonify({'error': 'User not found'}), 404
         
         # Get admin user for signatory
         admin_id = get_jwt_identity()
-        admin_user = User.query.get(admin_id)
+        admin_user = db.session.get(User, admin_id)
         
         # Regenerate PDF
-        from utils.pdf_generator import generate_document_pdf
+        from apps.api.utils.pdf_generator import generate_document_pdf
         
         _, new_pdf_url = generate_document_pdf(req, doc_type, user, admin_user)
         
         # Update database
         req.document_file = new_pdf_url
-        req.updated_at = datetime.utcnow()
+        req.updated_at = utc_now()
         db.session.commit()
         
         # Audit log
@@ -2876,7 +3165,7 @@ def regenerate_document_pdf(request_id: int):
         
         return jsonify({
             'message': 'PDF regenerated successfully',
-            'document_file': new_pdf_url,
+            'document_available': bool(new_pdf_url),
             'request': req.to_dict()
         }), 200
         
@@ -2900,7 +3189,7 @@ def check_legacy_files():
         if isinstance(municipality_id, tuple):
             return municipality_id
         
-        from utils.storage_handler import is_legacy_path, is_file_missing
+        from apps.api.utils.storage_handler import is_legacy_path, is_file_missing
         
         results = {
             'document_requests': {'total': 0, 'legacy': 0, 'missing': 0},
@@ -2971,13 +3260,16 @@ def update_document_request_status(request_id: int):
         if new_status not in valid_statuses:
             return jsonify({'error': 'Invalid status'}), 400
 
-        req = DocumentRequest.query.get(request_id)
+        req = db.session.get(DocumentRequest, request_id)
         if not req:
             return jsonify({'error': 'Request not found'}), 404
-        if req.municipality_id != municipality_id:
+        if municipality_id == 'ALL':
+            if req.municipality_id not in ZAMBALES_MUNICIPALITY_IDS:
+                return jsonify({'error': 'Request outside allowed municipality scope'}), 403
+        elif req.municipality_id != municipality_id:
             return jsonify({'error': 'Request not in your municipality'}), 403
         role = ctx.get('role_lower')
-        doc_type = DocumentType.query.get(req.document_type_id) if req.document_type_id else None
+        doc_type = db.session.get(DocumentType, req.document_type_id) if req.document_type_id else None
         if role == 'barangay_admin':
             if not ctx.get('barangay_id') or req.barangay_id != ctx['barangay_id']:
                 return jsonify({'error': 'Request not in your barangay'}), 403
@@ -2989,11 +3281,25 @@ def update_document_request_status(request_id: int):
             if new_status not in barangay_allowed:
                 return jsonify({'error': 'Barangay admins cannot set this status for this request'}), 403
 
+        # Enforce required documents before approval or processing
+        if doc_type and (doc_type.requirements or []):
+            requirements_submitted = are_requirements_submitted(doc_type, req.supporting_documents or [])
+            if not requirements_submitted and new_status in {'approved', 'processing', 'ready', 'completed', 'picked_up', 'barangay_approved'}:
+                return jsonify({'error': 'Cannot approve or process without required documents'}), 400
+
         # Simple transition guardrails (with approved step)
         current = (req.status or 'pending').lower()
         # Idempotent: if status is the same, no-op success
         if new_status == current:
             return jsonify({'message': 'Status unchanged', 'request': req.to_dict()}), 200
+        # Gate fulfillment on payment when a fee is due.
+        fee_due = float(getattr(req, 'final_fee', 0) or 0)
+        delivery_method = (req.delivery_method or '').lower()
+        if fee_due > 0 and getattr(req, 'payment_status', None) != 'paid':
+            if delivery_method == 'digital' and new_status in {'processing', 'ready', 'completed'}:
+                return jsonify({'error': 'Payment required before processing digital requests'}), 400
+            if delivery_method in {'physical', 'pickup'} and new_status in {'ready', 'completed', 'picked_up'}:
+                return jsonify({'error': 'Payment required before releasing pickup requests'}), 400
         # Allow picked_up for physical pickup handover; completed for digital delivery
         allowed = {
             'pending': {'approved', 'rejected', 'cancelled', 'barangay_processing', 'barangay_approved', 'barangay_rejected'},
@@ -3017,7 +3323,7 @@ def update_document_request_status(request_id: int):
             req.admin_notes = notes
         if new_status in {'rejected', 'barangay_rejected'} and rejection_reason:
             req.rejection_reason = rejection_reason
-        now = datetime.utcnow()
+        now = utc_now()
         if new_status in {'approved', 'barangay_approved'}:
             req.approved_at = now
         if new_status == 'ready':
@@ -3026,6 +3332,55 @@ def update_document_request_status(request_id: int):
             req.completed_at = now
         req.updated_at = now
         db.session.commit()
+
+        # Generate office payment code for pickup requests with fees (best-effort)
+        if new_status in {'approved', 'barangay_approved'}:
+            try:
+                # Check if this is a pickup request with a fee that needs office payment
+                is_pickup = (req.delivery_method or '').lower() in {'physical', 'pickup'}
+                has_fee = float(req.final_fee or 0) > 0
+                no_code_yet = not req.office_payment_code_hash
+
+                if is_pickup and has_fee and no_code_yet:
+                    # Generate and hash the payment code
+                    payment_code = generate_office_payment_code()
+                    code_hash = hash_office_payment_code(payment_code)
+
+                    # Store code hash first; set status based on email delivery result.
+                    req.office_payment_code_hash = code_hash
+                    req.office_payment_status = 'not_started'
+
+                    # Send email to user
+                    user = db.session.get(User, req.user_id)
+                    email_sent = False
+                    if user and user.email:
+                        pickup_location = req.delivery_address or 'Municipal Office'
+                        email_sent = bool(send_office_payment_code_email(
+                            to_email=user.email,
+                            first_name=user.first_name or user.username,
+                            request_number=req.request_number,
+                            code=payment_code,
+                            amount=float(req.final_fee),
+                            pickup_location=pickup_location
+                        ))
+                    req.office_payment_status = 'code_sent' if email_sent else 'not_started'
+                    db.session.commit()
+
+                    if email_sent:
+                        current_app.logger.info("Office payment code sent for request %s", req.request_number)
+                    else:
+                        current_app.logger.warning(
+                            "Office payment code generated but email delivery failed for request %s",
+                            req.request_number,
+                        )
+            except Exception as office_payment_exc:
+                # Log error but don't fail the status update
+                db.session.rollback()
+                db.session.commit()  # Re-commit the status change
+                try:
+                    current_app.logger.error(f"Failed to generate office payment code: {office_payment_exc}")
+                except Exception:
+                    pass
 
         # Audit for status transitions (best-effort)
         try:
@@ -3055,8 +3410,8 @@ def update_document_request_status(request_id: int):
 
         # Queue notifications (best-effort)
         try:
-            user = User.query.get(req.user_id)
-            doc_type = DocumentType.query.get(req.document_type_id)
+            user = db.session.get(User, req.user_id)
+            doc_type = db.session.get(DocumentType, req.document_type_id)
             if user and doc_type:
                 queue_document_status_change(
                     user,
@@ -3076,6 +3431,196 @@ def update_document_request_status(request_id: int):
         return jsonify({'error': 'Failed to update request status', 'details': str(e)}), 500
 
 
+@admin_bp.route('/documents/requests/<int:request_id>/verify-office-payment', methods=['POST'])
+@jwt_required()
+def verify_office_payment(request_id: int):
+    """
+    Verify office payment code and mark payment as completed.
+    Used when resident pays at the office with their verification code.
+    """
+    try:
+        ctx = _get_staff_context()
+        if not ctx:
+            return jsonify({'error': 'Admin access required'}), 403
+
+        municipality_id = require_admin_municipality()
+        if isinstance(municipality_id, tuple):
+            return municipality_id
+
+        # Get the request
+        req = db.session.get(DocumentRequest, request_id)
+        if not req:
+            return jsonify({'error': 'Request not found'}), 404
+
+        # Verify admin has access to this municipality
+        if req.municipality_id != municipality_id:
+            return jsonify({'error': 'Access denied'}), 403
+
+        # Get the payment code from request body
+        data = request.get_json(silent=True) or {}
+        payment_code = (data.get('code') or '').strip().upper()
+
+        if not payment_code:
+            return jsonify({'error': 'Payment code is required'}), 400
+
+        # Verify this is a pickup request with office payment
+        if (req.delivery_method or '').lower() not in {'physical', 'pickup'}:
+            return jsonify({'error': 'This request is not for pickup'}), 400
+        fee_due = float(req.final_fee or 0)
+        if fee_due <= 0:
+            return jsonify({'error': 'No office payment is required for this request'}), 400
+
+        if not req.office_payment_code_hash:
+            return jsonify({'error': 'No office payment code exists for this request'}), 400
+
+        if req.payment_status == 'paid':
+            return jsonify({'error': 'Payment already settled'}), 400
+
+        if req.office_payment_status == 'verified':
+            return jsonify({'error': 'Payment already verified'}), 400
+
+        # Verify the code
+        from apps.api.utils.office_payment import verify_office_payment_code
+        if not verify_office_payment_code(payment_code, req.office_payment_code_hash):
+            # Log failed verification attempt
+            try:
+                log_generic_action(
+                    user_id=get_jwt_identity(),
+                    municipality_id=req.municipality_id,
+                    entity_type='document_request',
+                    entity_id=req.id,
+                    action='office_payment_verify_failed',
+                    actor_role='admin',
+                    notes=f'Invalid code attempt for request {req.request_number}'
+                )
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+
+            return jsonify({'error': 'Invalid payment code'}), 400
+
+        # Code is valid - mark payment as verified
+        now = utc_now()
+        req.office_payment_status = 'verified'
+        req.office_payment_verified_at = now
+        req.office_payment_verified_by = get_jwt_identity()
+        req.payment_status = 'paid'
+        req.paid_at = now
+        db.session.commit()
+
+        # Log successful verification
+        try:
+            log_generic_action(
+                user_id=get_jwt_identity(),
+                municipality_id=req.municipality_id,
+                entity_type='document_request',
+                entity_id=req.id,
+                action='office_payment_verified',
+                actor_role='admin',
+                new_values={'payment_status': 'paid', 'office_payment_status': 'verified'},
+                notes=f'Office payment verified for request {req.request_number}'
+            )
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+        return jsonify({
+            'message': 'Payment verified successfully',
+            'request': req.to_dict()
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Failed to verify office payment', 'details': str(e)}), 500
+
+
+@admin_bp.route('/documents/requests/<int:request_id>/resend-office-code', methods=['POST'])
+@jwt_required()
+def resend_office_payment_code(request_id: int):
+    """
+    Resend office payment code email to resident.
+    Used if resident lost their code or email.
+    """
+    try:
+        ctx = _get_staff_context()
+        if not ctx:
+            return jsonify({'error': 'Admin access required'}), 403
+
+        municipality_id = require_admin_municipality()
+        if isinstance(municipality_id, tuple):
+            return municipality_id
+
+        # Get the request
+        req = db.session.get(DocumentRequest, request_id)
+        if not req:
+            return jsonify({'error': 'Request not found'}), 404
+
+        # Verify admin has access to this municipality
+        if req.municipality_id != municipality_id:
+            return jsonify({'error': 'Access denied'}), 403
+
+        # Verify this is a pickup request with office payment
+        if (req.delivery_method or '').lower() not in {'physical', 'pickup'}:
+            return jsonify({'error': 'This request is not for pickup'}), 400
+
+        if not req.office_payment_code_hash:
+            return jsonify({'error': 'No office payment code exists for this request'}), 400
+
+        if req.office_payment_status == 'verified':
+            return jsonify({'error': 'Payment already verified, code no longer needed'}), 400
+
+        # Generate a new code
+        payment_code = generate_office_payment_code()
+        code_hash = hash_office_payment_code(payment_code)
+
+        # Update request fields in memory; commit only after email send succeeds.
+        req.office_payment_code_hash = code_hash
+        req.office_payment_status = 'code_sent'
+
+        # Send email
+        user = db.session.get(User, req.user_id)
+        if not user or not user.email:
+            db.session.rollback()
+            return jsonify({'error': 'User email not found'}), 400
+
+        pickup_location = req.delivery_address or 'Municipal Office'
+        success = send_office_payment_code_email(
+            to_email=user.email,
+            first_name=user.first_name or user.username,
+            request_number=req.request_number,
+            code=payment_code,
+            amount=float(req.final_fee or 0),
+            pickup_location=pickup_location
+        )
+
+        if not success:
+            db.session.rollback()
+            return jsonify({'error': 'Failed to send email'}), 500
+
+        db.session.commit()
+
+        # Log resend action
+        try:
+            log_generic_action(
+                user_id=get_jwt_identity(),
+                municipality_id=req.municipality_id,
+                entity_type='document_request',
+                entity_id=req.id,
+                action='office_payment_code_resent',
+                actor_role='admin',
+                notes=f'Office payment code resent for request {req.request_number}'
+            )
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+        return jsonify({'message': 'Payment code resent successfully'}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Failed to resend office payment code', 'details': str(e)}), 500
+
+
 @admin_bp.route('/documents/requests/<int:request_id>/ready-for-pickup', methods=['POST'])
 @jwt_required()
 def admin_ready_for_pickup(request_id: int):
@@ -3091,10 +3636,13 @@ def admin_ready_for_pickup(request_id: int):
         if isinstance(municipality_id, tuple):
             return municipality_id
 
-        req = DocumentRequest.query.get(request_id)
+        req = db.session.get(DocumentRequest, request_id)
         if not req:
             return jsonify({'error': 'Request not found'}), 404
-        if req.municipality_id != municipality_id:
+        if municipality_id == 'ALL':
+            if req.municipality_id not in ZAMBALES_MUNICIPALITY_IDS:
+                return jsonify({'error': 'Request outside allowed municipality scope'}), 403
+        elif req.municipality_id != municipality_id:
             return jsonify({'error': 'Request not in your municipality'}), 403
         if ctx.get('role_lower') == 'barangay_admin':
             if not ctx.get('barangay_id') or req.barangay_id != ctx['barangay_id']:
@@ -3104,10 +3652,14 @@ def admin_ready_for_pickup(request_id: int):
         if (req.delivery_method or '').lower() not in ('physical', 'pickup'):
             return jsonify({'error': 'Only pickup requests can be marked ready-for-pickup'}), 400
 
+        fee_due = float(getattr(req, 'final_fee', 0) or 0)
+        if fee_due > 0 and getattr(req, 'payment_status', None) != 'paid':
+            return jsonify({'error': 'Payment must be verified before marking ready-for-pickup'}), 400
+
         # Only update status to ready
         req.status = 'ready'
-        req.ready_at = datetime.utcnow()
-        req.updated_at = datetime.utcnow()
+        req.ready_at = utc_now()
+        req.updated_at = utc_now()
         db.session.commit()
 
         # Audit and best-effort notify resident via email
@@ -3127,8 +3679,8 @@ def admin_ready_for_pickup(request_id: int):
         except Exception:
             db.session.rollback()
         try:
-            user = User.query.get(req.user_id)
-            doc_type = DocumentType.query.get(req.document_type_id)
+            user = db.session.get(User, req.user_id)
+            doc_type = db.session.get(DocumentType, req.document_type_id)
             if user and doc_type:
                 queue_document_status_change(
                     user,
@@ -3145,7 +3697,7 @@ def admin_ready_for_pickup(request_id: int):
         return jsonify({
             'message': 'Marked ready for pickup',
             'claim': {
-                'qr_path': f"/uploads/{str(req.qr_code).replace('\\','/')}" if req.qr_code else None,
+                'qr_available': bool(req.qr_code),
                 'code_masked': (req.qr_data or {}).get('code_masked'),
                 'window_start': (req.qr_data or {}).get('window_start'),
                 'window_end': (req.qr_data or {}).get('window_end'),
@@ -3174,10 +3726,13 @@ def admin_generate_claim_token(request_id: int):
         window_start = payload.get('window_start')
         window_end = payload.get('window_end')
 
-        req = DocumentRequest.query.get(request_id)
+        req = db.session.get(DocumentRequest, request_id)
         if not req:
             return jsonify({'error': 'Request not found'}), 404
-        if req.municipality_id != municipality_id:
+        if municipality_id == 'ALL':
+            if req.municipality_id not in ZAMBALES_MUNICIPALITY_IDS:
+                return jsonify({'error': 'Request outside allowed municipality scope'}), 403
+        elif req.municipality_id != municipality_id:
             return jsonify({'error': 'Request not in your municipality'}), 403
         if ctx.get('role_lower') == 'barangay_admin':
             if not ctx.get('barangay_id') or req.barangay_id != ctx['barangay_id']:
@@ -3215,7 +3770,7 @@ def admin_generate_claim_token(request_id: int):
             'window_start': window_start,
             'window_end': window_end,
         }
-        req.updated_at = datetime.utcnow()
+        req.updated_at = utc_now()
         db.session.commit()
 
         # Audit
@@ -3238,7 +3793,7 @@ def admin_generate_claim_token(request_id: int):
         return jsonify({
             'message': 'Claim token generated',
             'claim': {
-                'qr_path': f"/uploads/{rel_png}",
+                'qr_available': bool(rel_png),
                 'code_masked': req.qr_data.get('code_masked'),
                 'window_start': window_start,
                 'window_end': window_end,
@@ -3279,9 +3834,10 @@ def admin_verify_claim():
                 sub = data.get('sub') or ''
                 if sub.startswith('request:'):
                     rid = int(sub.split(':', 1)[1])
-                    req = DocumentRequest.query.get(rid)
+                    req = db.session.get(DocumentRequest, rid)
             except Exception as dec_err:
-                return jsonify({'ok': False, 'error': f'Invalid token: {dec_err}'}), 400
+                current_app.logger.warning("Claim token decode failed: %s", dec_err)
+                return jsonify({'ok': False, 'error': 'Invalid token'}), 400
 
         if req is None and code:
             # Fallback: search by request id in payload and compare code with stored hash
@@ -3289,7 +3845,7 @@ def admin_verify_claim():
             rid = payload.get('request_id')
             if not rid:
                 return jsonify({'ok': False, 'error': 'request_id is required with code verification'}), 400
-            req = DocumentRequest.query.get(int(rid))
+            req = db.session.get(DocumentRequest, int(rid))
             if not req:
                 return jsonify({'ok': False, 'error': 'Request not found'}), 404
             try:
@@ -3306,17 +3862,23 @@ def admin_verify_claim():
         if not req:
             return jsonify({'ok': False, 'error': 'Verification failed'}), 400
 
-        if req.municipality_id != municipality_id:
+        if municipality_id == 'ALL':
+            if req.municipality_id not in ZAMBALES_MUNICIPALITY_IDS:
+                return jsonify({'ok': False, 'error': 'Request outside allowed municipality scope'}), 403
+        elif req.municipality_id != municipality_id:
             return jsonify({'ok': False, 'error': 'Request not in your municipality'}), 403
 
         # Must be ready and not yet picked up
         status = (req.status or '').lower()
         if status != 'ready':
             return jsonify({'ok': False, 'error': f'Request not ready (status={status})'}), 400
+        fee_due = float(getattr(req, 'final_fee', 0) or 0)
+        if fee_due > 0 and getattr(req, 'payment_status', None) != 'paid':
+            return jsonify({'ok': False, 'error': 'Payment not yet verified for this request'}), 400
 
-        user = User.query.get(req.user_id)
-        doc_type = DocumentType.query.get(req.document_type_id)
-        muni = Municipality.query.get(req.municipality_id)
+        user = db.session.get(User, req.user_id)
+        doc_type = db.session.get(DocumentType, req.document_type_id)
+        muni = db.session.get(Municipality, req.municipality_id)
         return jsonify({
             'ok': True,
             'request': {
@@ -3331,7 +3893,175 @@ def admin_verify_claim():
             'window_end': (req.qr_data or {}).get('window_end'),
         }), 200
     except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+        current_app.logger.error("Claim verification failed: %s", e)
+        return jsonify({'ok': False, 'error': 'Verification failed'}), 500
+
+
+@admin_bp.route('/documents/requests/<int:request_id>/manual-payment/proof', methods=['GET'])
+@jwt_required()
+def admin_get_manual_payment_proof(request_id: int):
+    """Stream manual payment proof (admin only)."""
+    try:
+        ctx = _get_staff_context()
+        if not ctx:
+            return jsonify({'error': 'Admin access required'}), 403
+        municipality_id = require_admin_municipality()
+        if isinstance(municipality_id, tuple):
+            return municipality_id
+
+        req = db.session.get(DocumentRequest, request_id)
+        if not req:
+            return jsonify({'error': 'Request not found'}), 404
+        if municipality_id == 'ALL':
+            if req.municipality_id not in ZAMBALES_MUNICIPALITY_IDS:
+                return jsonify({'error': 'Request outside allowed municipality scope'}), 403
+        elif req.municipality_id != municipality_id:
+            return jsonify({'error': 'Request not in your municipality'}), 403
+        if ctx.get('role_lower') == 'barangay_admin':
+            if not ctx.get('barangay_id') or req.barangay_id != ctx['barangay_id']:
+                return jsonify({'error': 'Request not in your barangay'}), 403
+
+        if not req.manual_payment_proof_path:
+            return jsonify({'error': 'No proof uploaded'}), 404
+        if (req.payment_method or '') != 'manual_qr':
+            return jsonify({'error': 'Payment method is not manual QR'}), 400
+
+        source = req.manual_payment_proof_path
+        if not str(source).startswith(('http://', 'https://')):
+            signed = _manual_proof_url(source)
+            source = signed or source
+
+        filename = f"{req.request_number or req.id}-manual-proof"
+        return _stream_storage_file(source, download_name=filename)
+    except PermissionError:
+        return jsonify({'error': 'File access denied'}), 403
+    except FileNotFoundError:
+        return jsonify({'error': 'File not found'}), 404
+    except requests.RequestException:
+        return jsonify({'error': 'Failed to fetch proof from storage'}), 502
+    except Exception as e:
+        current_app.logger.error("Failed to get manual payment proof for request %s: %s", request_id, e)
+        return jsonify({'error': 'Failed to get proof'}), 500
+
+
+@admin_bp.route('/documents/requests/<int:request_id>/manual-payment/approve', methods=['POST'])
+@jwt_required()
+def admin_approve_manual_payment(request_id: int):
+    """Approve a submitted manual QR payment proof."""
+    try:
+        ctx = _get_staff_context()
+        if not ctx:
+            return jsonify({'error': 'Admin access required'}), 403
+        municipality_id = require_admin_municipality()
+        if isinstance(municipality_id, tuple):
+            return municipality_id
+
+        req = db.session.get(DocumentRequest, request_id)
+        if not req:
+            return jsonify({'error': 'Request not found'}), 404
+        if req.municipality_id != municipality_id:
+            return jsonify({'error': 'Request not in your municipality'}), 403
+        if ctx.get('role_lower') == 'barangay_admin':
+            if not ctx.get('barangay_id') or req.barangay_id != ctx['barangay_id']:
+                return jsonify({'error': 'Request not in your barangay'}), 403
+
+        if (req.payment_method or '') != 'manual_qr':
+            return jsonify({'error': 'Payment method is not manual QR'}), 400
+        if (req.payment_status or '') != 'pending':
+            return jsonify({'error': 'Payment is not pending'}), 400
+        if not req.manual_payment_proof_path:
+            return jsonify({'error': 'Proof is required'}), 400
+        if (req.manual_payment_status or '') != 'submitted':
+            return jsonify({'error': 'Manual payment not submitted'}), 400
+
+        now = utc_now()
+        req.payment_status = 'paid'
+        req.paid_at = now
+        req.manual_payment_status = 'approved'
+        req.manual_reviewed_by = get_jwt_identity()
+        req.manual_reviewed_at = now
+        db.session.commit()
+
+        try:
+            log_generic_action(
+                user_id=get_jwt_identity(),
+                municipality_id=req.municipality_id,
+                entity_type='document_request',
+                entity_id=req.id,
+                action='manual_payment_approve',
+                actor_role='admin',
+                old_values={'manual_payment_status': 'submitted'},
+                new_values={'manual_payment_status': 'approved', 'payment_status': 'paid'},
+                notes=None,
+            )
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+        return jsonify({'message': 'Manual payment approved', 'request': req.to_dict()}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Failed to approve manual payment', 'details': str(e)}), 500
+
+
+@admin_bp.route('/documents/requests/<int:request_id>/manual-payment/reject', methods=['POST'])
+@jwt_required()
+def admin_reject_manual_payment(request_id: int):
+    """Reject a manual QR payment proof."""
+    try:
+        ctx = _get_staff_context()
+        if not ctx:
+            return jsonify({'error': 'Admin access required'}), 403
+        municipality_id = require_admin_municipality()
+        if isinstance(municipality_id, tuple):
+            return municipality_id
+
+        req = db.session.get(DocumentRequest, request_id)
+        if not req:
+            return jsonify({'error': 'Request not found'}), 404
+        if req.municipality_id != municipality_id:
+            return jsonify({'error': 'Request not in your municipality'}), 403
+        if ctx.get('role_lower') == 'barangay_admin':
+            if not ctx.get('barangay_id') or req.barangay_id != ctx['barangay_id']:
+                return jsonify({'error': 'Request not in your barangay'}), 403
+
+        if (req.payment_method or '') != 'manual_qr':
+            return jsonify({'error': 'Payment method is not manual QR'}), 400
+        if not req.manual_payment_proof_path:
+            return jsonify({'error': 'Proof is required'}), 400
+        if (req.manual_payment_status or '') != 'submitted':
+            return jsonify({'error': 'Manual payment not submitted'}), 400
+
+        data = request.get_json(silent=True) or {}
+        notes = (data.get('notes') or '').strip()
+
+        now = utc_now()
+        req.manual_payment_status = 'rejected'
+        req.manual_reviewed_by = get_jwt_identity()
+        req.manual_reviewed_at = now
+        req.manual_review_notes = notes or 'Proof rejected. Please resubmit.'
+        db.session.commit()
+
+        try:
+            log_generic_action(
+                user_id=get_jwt_identity(),
+                municipality_id=req.municipality_id,
+                entity_type='document_request',
+                entity_id=req.id,
+                action='manual_payment_reject',
+                actor_role='admin',
+                old_values={'manual_payment_status': 'submitted'},
+                new_values={'manual_payment_status': 'rejected'},
+                notes=req.manual_review_notes,
+            )
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+        return jsonify({'message': 'Manual payment rejected', 'request': req.to_dict()}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Failed to reject manual payment', 'details': str(e)}), 500
 
 
 @admin_bp.route('/documents/requests/<int:request_id>/content', methods=['PUT'])
@@ -3343,7 +4073,7 @@ def update_document_request_content(request_id: int):
         if isinstance(municipality_id, tuple):
             return municipality_id
 
-        req = DocumentRequest.query.get(request_id)
+        req = db.session.get(DocumentRequest, request_id)
         if not req:
             return jsonify({'error': 'Request not found'}), 404
         if req.municipality_id != municipality_id:
@@ -3362,7 +4092,7 @@ def update_document_request_content(request_id: int):
         req.admin_edited_content = base
 
         # Do not alter original columns; admin edits are applied during generation
-        req.updated_at = datetime.utcnow()
+        req.updated_at = utc_now()
         db.session.commit()
 
         # Audit (best-effort)
@@ -3417,7 +4147,7 @@ def admin_municipality_performance():
                 disputes_opened = MarketplaceTransaction.query.filter(and_(MarketplaceTransaction.status == 'disputed', MarketplaceTransaction.created_at >= start, MarketplaceTransaction.created_at <= end)).count()
             except Exception:
                 pass
-            name = (Municipality.query.get(m_id).name if Municipality.query.get(m_id) else f"Municipality {m_id}")
+            name = (db.session.get(Municipality, m_id).name if db.session.get(Municipality, m_id) else f"Municipality {m_id}")
             return {'id': m_id, 'name': name, 'users': users, 'listings': listings, 'documents': docs, 'benefits_active': benefits_active, 'disputes': disputes_opened}
 
         if role == 'superadmin':
@@ -3447,7 +4177,7 @@ def admin_list_transactions():
         q = MarketplaceTransaction.query
         if municipality_id:
             # Scope by items in municipality
-            q = q.join(MarketplaceItem, MarketplaceItem.id == MarketplaceTransaction.item_id).filter(MarketplaceItem.municipality_id == municipality_id)
+            q = q.join(MarketplaceItem, MarketplaceItem.id == MarketplaceTransaction.item_id).filter(_scope_filter(MarketplaceItem.municipality_id, municipality_id))
         if status:
             q = q.filter(MarketplaceTransaction.status == status)
         q = q.order_by(MarketplaceTransaction.created_at.desc())
@@ -3457,14 +4187,14 @@ def admin_list_transactions():
         for t in p.items:
             d = t.to_dict()
             try:
-                item = MarketplaceItem.query.get(t.item_id)
+                item = db.session.get(MarketplaceItem, t.item_id)
                 d['item_title'] = getattr(item, 'title', None)
             except Exception:
                 d['item_title'] = None
             # Attach buyer/seller display names and photos (best-effort)
             try:
-                buyer = User.query.get(t.buyer_id)
-                seller = User.query.get(t.seller_id)
+                buyer = db.session.get(User, t.buyer_id)
+                seller = db.session.get(User, t.seller_id)
                 d['buyer_name'] = (f"{getattr(buyer,'first_name','')} {getattr(buyer,'last_name','')}").strip() or getattr(buyer,'username', None) or str(t.buyer_id)
                 d['seller_name'] = (f"{getattr(seller,'first_name','')} {getattr(seller,'last_name','')}").strip() or getattr(seller,'username', None) or str(t.seller_id)
                 d['buyer_profile_picture'] = getattr(buyer, 'profile_picture', None)
@@ -3487,7 +4217,7 @@ def admin_list_audit():
         municipality_id = require_admin_municipality()
         if isinstance(municipality_id, tuple):
             return municipality_id
-        q = AuditLog.query.filter(AuditLog.municipality_id == municipality_id)
+        q = AuditLog.query.filter(_scope_filter(AuditLog.municipality_id, municipality_id))
         entity_type = request.args.get('entity_type')
         entity_id = request.args.get('entity_id')
         actor_role = request.args.get('actor_role')
@@ -3532,8 +4262,8 @@ def admin_audit_meta():
         if isinstance(municipality_id, tuple):
             return municipality_id
         # Distinct entity types and actions scoped to municipality
-        et_rows = db.session.query(AuditLog.entity_type).filter(AuditLog.municipality_id == municipality_id).distinct().all()
-        ac_rows = db.session.query(AuditLog.action).filter(AuditLog.municipality_id == municipality_id).distinct().all()
+        et_rows = db.session.query(AuditLog.entity_type).filter(_scope_filter(AuditLog.municipality_id, municipality_id)).distinct().all()
+        ac_rows = db.session.query(AuditLog.action).filter(_scope_filter(AuditLog.municipality_id, municipality_id)).distinct().all()
         entity_types = [r[0] for r in et_rows if r and r[0]]
         actions = [r[0] for r in ac_rows if r and r[0]]
         roles = ['superadmin', 'municipal_admin', 'resident', 'system']
@@ -3554,9 +4284,9 @@ def admin_export_entity(entity: str, fmt: str):
         if isinstance(municipality_id, tuple):
             return municipality_id
         # Resolve municipality name/slug
-        muni = Municipality.query.get(municipality_id)
-        municipality_name = getattr(muni, 'name', 'Municipality')
-        muni_slug = getattr(muni, 'slug', str(municipality_id))
+        muni = db.session.get(Municipality, municipality_id) if municipality_id not in ('ALL', None) else None
+        municipality_name = getattr(muni, 'name', 'Zambales (province-wide)' if municipality_id == 'ALL' else 'Municipality')
+        muni_slug = getattr(muni, 'slug', 'zambales' if municipality_id == 'ALL' else str(municipality_id))
 
         filters = request.get_json(silent=True) or {}
         range_param = filters.get('range')
@@ -3567,30 +4297,30 @@ def admin_export_entity(entity: str, fmt: str):
 
         # Build dataset by entity
         et = entity.lower()
-        now = datetime.utcnow()
+        now = utc_now()
         if et == 'users':
-            users = User.query.filter(and_(User.municipality_id == municipality_id, User.role == 'resident')).all()
+            users = User.query.filter(and_(_scope_filter(User.municipality_id, municipality_id), User.role == 'resident')).all()
             headers = ['ID','Name','Email','Phone','Verified','Joined']
             for u in users:
                 name = f"{getattr(u,'first_name','') or ''} {getattr(u,'last_name','') or ''}".strip() or getattr(u,'username','')
                 rows.append([u.id, name, getattr(u,'email',''), getattr(u,'phone_number',''), 'Yes' if getattr(u,'admin_verified',False) else 'No', (u.created_at.isoformat()[:10] if getattr(u,'created_at',None) else '')])
         elif et == 'benefits':
-            items = BenefitProgram.query.filter(BenefitProgram.municipality_id == municipality_id).all()
+            items = BenefitProgram.query.filter(_scope_filter(BenefitProgram.municipality_id, municipality_id)).all()
             headers = ['ID','Name','Active','Created']
             rows = [[b.id, getattr(b,'name',''), 'Yes' if getattr(b,'is_active',False) else 'No', (b.created_at.isoformat()[:10] if getattr(b,'created_at',None) else '')] for b in items]
         elif et == 'requests':
-            items = DocumentRequest.query.filter(and_(DocumentRequest.municipality_id == municipality_id, DocumentRequest.created_at >= start, DocumentRequest.created_at <= end)).all()
+            items = DocumentRequest.query.filter(and_(_scope_filter(DocumentRequest.municipality_id, municipality_id), DocumentRequest.created_at >= start, DocumentRequest.created_at <= end)).all()
             headers = ['ID','Req No','User','Type','Status','Created']
             for r in items:
-                user = User.query.get(r.user_id)
+                user = db.session.get(User, r.user_id)
                 name = f"{getattr(user,'first_name','') or ''} {getattr(user,'last_name','') or ''}".strip() or getattr(user,'username','')
                 rows.append([r.id, r.request_number, name, getattr(r.document_type,'name',None) if hasattr(r,'document_type') else '', r.status, (r.created_at.isoformat()[:19].replace('T',' ') if r.created_at else '')])
         elif et == 'issues':
-            items = Issue.query.filter(Issue.municipality_id == municipality_id).all()
+            items = Issue.query.filter(_scope_filter(Issue.municipality_id, municipality_id)).all()
             headers = ['ID','Title','Status','Created']
             rows = [[i.id, i.title, i.status, (i.created_at.isoformat()[:19].replace('T',' ') if i.created_at else '')] for i in items]
         elif et == 'items':
-            items = MarketplaceItem.query.filter(MarketplaceItem.municipality_id == municipality_id).all()
+            items = MarketplaceItem.query.filter(_scope_filter(MarketplaceItem.municipality_id, municipality_id)).all()
             headers = ['ID','Title','Status','Created']
             rows = [[i.id, i.title, i.status, (i.created_at.isoformat()[:19].replace('T',' ') if i.created_at else '')] for i in items]
         elif et == 'announcements':
@@ -3609,7 +4339,7 @@ def admin_export_entity(entity: str, fmt: str):
                     (a.expire_at.isoformat()[:10] if getattr(a,'expire_at',None) else ''),
                 ])
         elif et == 'audit':
-            items = AuditLog.query.filter(AuditLog.municipality_id == municipality_id).order_by(AuditLog.created_at.desc()).limit(1000).all()
+            items = AuditLog.query.filter(_scope_filter(AuditLog.municipality_id, municipality_id)).order_by(AuditLog.created_at.desc()).limit(1000).all()
             headers = ['Time','Actor','Role','Entity','Entity ID','Action']
             rows = [[(l.created_at.isoformat()[:19].replace('T',' ') if l.created_at else ''), l.user_id, l.actor_role, l.entity_type, l.entity_id, l.action] for l in items]
         else:
@@ -3619,16 +4349,16 @@ def admin_export_entity(entity: str, fmt: str):
         base = Path(current_app.config.get('UPLOAD_FOLDER', 'uploads'))
         out_dir = base / 'exports' / str(muni_slug)
         out_dir.mkdir(parents=True, exist_ok=True)
-        filename_base = f"{et}-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
+        filename_base = f"{et}-{utc_now().strftime('%Y%m%d-%H%M%S')}"
 
         if fmt.lower() == 'pdf':
-            from utils.pdf_table_report import generate_table_pdf
+            from apps.api.utils.pdf_table_report import generate_table_pdf
             out_path = out_dir / f"{filename_base}.pdf"
             generate_table_pdf(out_path=out_path, title=f"{municipality_name} – {et.title()} Report", municipality_name=municipality_name, headers=headers, rows=rows)
             rel = str(out_path.relative_to(base)).replace('\\','/')
             return jsonify({'url': rel, 'summary': {'rows': len(rows)}}), 200
         if fmt.lower() in ('xlsx','excel'):
-            from utils.excel_generator import generate_workbook, save_workbook
+            from apps.api.utils.excel_generator import generate_workbook, save_workbook
             out_path = out_dir / f"{filename_base}.xlsx"
             gov_lines = [
                 'Republic of the Philippines',
@@ -3696,7 +4426,7 @@ def admin_cleanup():
             items = q.all()
             if archive and items:
                 muni_fragment = str(ctx.get('municipality_id') or 'province')
-                zpath = out_dir / f"announcements-{muni_fragment}-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.json"
+                zpath = out_dir / f"announcements-{muni_fragment}-{utc_now().strftime('%Y%m%d-%H%M%S')}.json"
                 _write_json(zpath, [getattr(i,'to_dict',lambda: {})() if hasattr(i,'to_dict') else {'id': i.id, 'title': i.title} for i in items])
                 archived_url = str(zpath.relative_to(base)).replace('\\','/')
             for i in items:
@@ -3705,12 +4435,12 @@ def admin_cleanup():
         elif entity == 'requests':
             if not municipality_id:
                 return jsonify({'error': 'Municipality scope required for this cleanup'}), 403
-            q = DocumentRequest.query.filter(DocumentRequest.municipality_id == municipality_id)
+            q = DocumentRequest.query.filter(_scope_filter(DocumentRequest.municipality_id, municipality_id))
             if cutoff:
                 q = q.filter(DocumentRequest.created_at <= cutoff)
             items = q.all()
             if archive and items:
-                zpath = out_dir / f"requests-{municipality_id}-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.json"
+                zpath = out_dir / f"requests-{municipality_id}-{utc_now().strftime('%Y%m%d-%H%M%S')}.json"
                 _write_json(zpath, [r.to_dict() for r in items])
                 archived_url = str(zpath.relative_to(base)).replace('\\','/')
             for i in items:
@@ -3748,18 +4478,18 @@ def admin_cleanup():
 def admin_get_transaction(tx_id: int):
     try:
         municipality_id = get_admin_municipality_id()
-        tx = MarketplaceTransaction.query.get(tx_id)
+        tx = db.session.get(MarketplaceTransaction, tx_id)
         if not tx:
             return jsonify({'error': 'Transaction not found'}), 404
         if municipality_id:
-            item = MarketplaceItem.query.get(tx.item_id)
+            item = db.session.get(MarketplaceItem, tx.item_id)
             if not item or int(item.municipality_id) != int(municipality_id):
                 return jsonify({'error': 'Transaction not in your municipality'}), 403
         # Build enriched transaction payload with buyer/seller names
         txd = tx.to_dict()
         try:
-            buyer = User.query.get(tx.buyer_id)
-            seller = User.query.get(tx.seller_id)
+            buyer = db.session.get(User, tx.buyer_id)
+            seller = db.session.get(User, tx.seller_id)
             txd['buyer'] = {
                 'id': tx.buyer_id,
                 'first_name': getattr(buyer, 'first_name', None),
@@ -3799,11 +4529,11 @@ def admin_update_transaction_status(tx_id: int):
     """Mark a disputed transaction under_review/resolved/confirmed_scam. Stores as audit metadata."""
     try:
         municipality_id = get_admin_municipality_id()
-        tx = MarketplaceTransaction.query.get(tx_id)
+        tx = db.session.get(MarketplaceTransaction, tx_id)
         if not tx:
             return jsonify({'error': 'Transaction not found'}), 404
         if municipality_id:
-            item = MarketplaceItem.query.get(tx.item_id)
+            item = db.session.get(MarketplaceItem, tx.item_id)
             if not item or int(item.municipality_id) != int(municipality_id):
                 return jsonify({'error': 'Transaction not in your municipality'}), 403
 
@@ -3818,7 +4548,7 @@ def admin_update_transaction_status(tx_id: int):
         if new_status == 'resolved' and tx.status == 'disputed':
             prev = tx.status
             tx.status = 'accepted'  # rollback to pre-dispute neutral state
-            tx.updated_at = datetime.utcnow()
+            tx.updated_at = utc_now()
             db.session.add(tx)
             # Also add audit row for resolution of dispute
             al = MarketplaceTransactionAuditLog(
@@ -3830,7 +4560,7 @@ def admin_update_transaction_status(tx_id: int):
                 to_status=tx.status,
                 notes=notes,
                 metadata_json=meta,
-                created_at=datetime.utcnow(),
+                created_at=utc_now(),
             )
             db.session.add(al)
         else:
@@ -3843,7 +4573,7 @@ def admin_update_transaction_status(tx_id: int):
                 to_status=tx.status,
                 notes=notes,
                 metadata_json=meta,
-                created_at=datetime.utcnow(),
+                created_at=utc_now(),
             )
             db.session.add(al)
 

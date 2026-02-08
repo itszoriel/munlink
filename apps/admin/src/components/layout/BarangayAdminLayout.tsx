@@ -5,6 +5,7 @@ import Sidebar, { type NavSection } from './Sidebar'
 import TopHeader from './TopHeader'
 import { getBestRegion3Seal } from '@munlink/ui'
 import { useAdminStore } from '../../lib/store'
+import { adminThemes } from './adminTheme'
 
 interface BarangayAdminLayoutProps {
   children: ReactNode
@@ -47,11 +48,22 @@ export default function BarangayAdminLayout({ children }: BarangayAdminLayoutPro
       return () => { document.body.style.overflow = prev }
     }
   }, [isMobileSidebarOpen])
+  // Hide mobile FABs when sidebar is open (match web behavior)
+  useEffect(() => {
+    const body = document.body
+    body.classList.toggle('mobile-menu-open', isMobileSidebarOpen)
+    return () => {
+      body.classList.remove('mobile-menu-open')
+    }
+  }, [isMobileSidebarOpen])
 
   const barangayName = (user as any)?.admin_barangay_name || 'Barangay Portal'
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-neutral-50 via-ocean-50/30 to-forest-50/20">
+    <div
+      className="min-h-screen bg-gradient-to-br from-neutral-50 via-ocean-50/30 to-forest-50/20"
+      style={adminThemes.barangay}
+    >
       {/* Transparent municipality seal watermark */}
       <div className="fixed inset-0 pointer-events-none flex items-center justify-center z-0 overflow-hidden">
         <img

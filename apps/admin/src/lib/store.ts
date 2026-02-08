@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { authApi, bootstrapAuth as apiBootstrap, clearAccessToken, setAccessToken, setAuthFailureHandler } from './api'
 
 export type User = {
   id: number
@@ -9,6 +10,7 @@ export type User = {
   last_name: string
   role: string
   admin_municipality_id?: number
+  admin_barangay_id?: number
   barangay_id?: number
   profile_picture?: string
   email_verified: boolean
@@ -53,7 +55,7 @@ type AdminState = {
   bootstrapAuth: () => Promise<void>
 }
 
-export const useAdminStore = create<AdminState>((set) => {
+export const useAdminStore = create<AdminState>((set, get) => {
   // Load user from localStorage on init (tokens managed by api.ts layer)
   const storedUser = typeof window !== 'undefined' ? localStorage.getItem('admin:user') : null
 
@@ -63,6 +65,18 @@ export const useAdminStore = create<AdminState>((set) => {
   } catch {
     initialUser = undefined
   }
+
+  const logout = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('admin:user')
+      try { sessionStorage.clear() } catch { }
+    }
+    clearAccessToken()
+    set({ user: undefined, accessToken: undefined, refreshToken: undefined, isAuthenticated: false, isAuthBootstrapped: true })
+  }
+
+  // Allow API layer to trigger logout without importing the store
+  setAuthFailureHandler(() => get().logout())
 
   return {
     user: initialUser,
@@ -75,26 +89,18 @@ export const useAdminStore = create<AdminState>((set) => {
         localStorage.setItem('admin:user', JSON.stringify(user))
       }
       // Hydrate access token in api layer (refresh token is httpOnly cookie)
-      import('./api').then(({ setAccessToken }) => setAccessToken(accessToken))
+      setAccessToken(accessToken)
       set({ user, accessToken, isAuthenticated: true, isAuthBootstrapped: true })
     },
     setTokens: (accessToken) => {
       // Update in-memory token via api layer
-      import('./api').then(({ setAccessToken }) => setAccessToken(accessToken))
+      setAccessToken(accessToken)
       set((state) => ({
         accessToken,
         isAuthenticated: !!accessToken && !!state.user,
       }))
     },
-    logout: () => {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('admin:user')
-        try { sessionStorage.clear() } catch {}
-      }
-      // Clear tokens in api layer
-      import('./api').then(({ clearAccessToken }) => clearAccessToken())
-      set({ user: undefined, accessToken: undefined, refreshToken: undefined, isAuthenticated: false, isAuthBootstrapped: true })
-    },
+    logout,
     updateUser: (user) => {
       if (typeof window !== 'undefined') {
         localStorage.setItem('admin:user', JSON.stringify(user))
@@ -119,16 +125,20 @@ export const useAdminStore = create<AdminState>((set) => {
 
       try {
         // Use cookie-based auth bootstrap from api layer
-        const { bootstrapAuth: apiBootstrap } = await import('./api')
         const hasAuth = await apiBootstrap()
 
         if (hasAuth) {
           // We have a valid token, try to fetch fresh user profile
-          const { authApi } = await import('./api')
           try {
             const resp = await authApi.getProfile()
-            if (resp?.data) {
-              const user = resp.data as User
+            const maybeWrapped = (resp as any)?.data
+            const user = (
+              maybeWrapped && typeof maybeWrapped === 'object' && 'id' in maybeWrapped
+                ? maybeWrapped
+                : resp
+            ) as User
+
+            if (user?.id) {
               localStorage.setItem('admin:user', JSON.stringify(user))
               set({ user, isAuthenticated: true })
             } else if (cachedUser) {

@@ -4,6 +4,7 @@ Delete all programs and repopulate with new tag-based eligibility programs.
 Uses raw SQL to avoid Flask-SQLAlchemy complications.
 """
 import os
+from apps.api.utils.time import utc_now
 import sys
 import json
 from datetime import datetime
@@ -190,7 +191,7 @@ try:
     
     # Create programs for each municipality
     count = 0
-    now = datetime.now(datetime.UTC) if hasattr(datetime, 'UTC') else datetime.utcnow()
+    now = datetime.now(datetime.UTC) if hasattr(datetime, 'UTC') else utc_now()
     
     insert_sql = """
         INSERT INTO benefit_programs (

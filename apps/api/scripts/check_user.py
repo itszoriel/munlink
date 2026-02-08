@@ -2,6 +2,7 @@
 """
 Check a specific user's municipality information from the database.
 """
+from apps.api import db
 
 import sys
 import os
@@ -41,7 +42,7 @@ def check_user(username):
         
         # Check municipality
         if user.municipality_id:
-            municipality = Municipality.query.get(user.municipality_id)
+            municipality = db.session.get(Municipality, user.municipality_id)
             if municipality:
                 print(f"[LOCATION] Registered Municipality:")
                 print(f"   ID: {municipality.id}")
@@ -50,7 +51,7 @@ def check_user(username):
                 
                 # Get province
                 if municipality.province_id:
-                    province = Province.query.get(municipality.province_id)
+                    province = db.session.get(Province, municipality.province_id)
                     if province:
                         print(f"   Province: {province.name} (ID: {province.id}, Slug: {province.slug})")
                 print()
@@ -61,14 +62,14 @@ def check_user(username):
         
         # Check barangay
         if user.barangay_id:
-            barangay = Barangay.query.get(user.barangay_id)
+            barangay = db.session.get(Barangay, user.barangay_id)
             if barangay:
                 print(f"[BARANGAY] Registered Barangay:")
                 print(f"   ID: {barangay.id}")
                 print(f"   Name: {barangay.name}")
                 print(f"   Slug: {barangay.slug}")
                 if barangay.municipality_id:
-                    brgy_muni = Municipality.query.get(barangay.municipality_id)
+                    brgy_muni = db.session.get(Municipality, barangay.municipality_id)
                     if brgy_muni:
                         print(f"   Municipality: {brgy_muni.name}")
                 print()
@@ -79,7 +80,7 @@ def check_user(username):
         
         # Check admin municipality (if admin)
         if user.role == 'municipal_admin' and user.admin_municipality_id:
-            admin_muni = Municipality.query.get(user.admin_municipality_id)
+            admin_muni = db.session.get(Municipality, user.admin_municipality_id)
             if admin_muni:
                 print(f"[ADMIN] Admin Municipality:")
                 print(f"   ID: {admin_muni.id}")

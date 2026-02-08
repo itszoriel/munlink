@@ -3,15 +3,16 @@
 SCOPE: Zambales province only, excluding Olongapo City.
 """
 from flask import Blueprint, jsonify, request
+from apps.api.utils.time import utc_now
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime, timezone, timedelta
 import sqlite3
 from sqlalchemy.exc import OperationalError as SAOperationalError, ProgrammingError as SAProgrammingError
-from __init__ import db
-from models.user import User
-from models.marketplace import Item, Transaction
-from models.municipality import Municipality
-from utils import (
+from apps.api import db
+from apps.api.models.user import User
+from apps.api.models.marketplace import Item, Transaction
+from apps.api.models.municipality import Municipality
+from apps.api.utils import (
     verified_resident_required,
     fully_verified_required,
     adult_required,
@@ -25,8 +26,8 @@ from utils import (
     assert_status,
     TransitionError,
 )
-from utils.storage_handler import save_marketplace_image
-from utils.zambales_scope import (
+from apps.api.utils.storage_handler import save_marketplace_image
+from apps.api.utils.zambales_scope import (
     ZAMBALES_MUNICIPALITY_IDS,
     is_valid_zambales_municipality,
 )
@@ -71,7 +72,7 @@ def list_items():
             user_id = get_jwt_identity()
             if user_id:
                 is_authenticated = True
-                user = User.query.get(user_id)
+                user = db.session.get(User, user_id)
                 if user:
                     user_municipality_id = user.municipality_id
         except Exception:
@@ -161,7 +162,7 @@ def list_items():
 def get_item(item_id):
     """Get details of a specific item."""
     try:
-        item = Item.query.get(item_id)
+        item = db.session.get(Item, item_id)
         
         if not item:
             return jsonify({'error': 'Item not found'}), 404
@@ -186,7 +187,7 @@ def create_item():
     """Create a new marketplace item."""
     try:
         user_id = get_jwt_identity()
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         
         if not user:
             return jsonify({'error': 'User not found'}), 404
@@ -223,7 +224,7 @@ def create_item():
             return jsonify({'error': 'Your municipality is not available in this system'}), 403
 
         # Create item (force user's municipality/barangay); auto-approve for residents
-        now = datetime.utcnow()
+        now = utc_now()
         item = Item(
             user_id=user_id,
             title=data['title'],
@@ -269,7 +270,7 @@ def update_item(item_id):
             uid = int(user_id) if isinstance(user_id, str) else user_id
         except Exception:
             uid = user_id
-        item = Item.query.get(item_id)
+        item = db.session.get(Item, item_id)
         
         if not item:
             return jsonify({'error': 'Item not found'}), 404
@@ -302,7 +303,7 @@ def update_item(item_id):
         if 'images' in data and isinstance(data['images'], list):
             item.images = data['images']
         
-        item.updated_at = datetime.utcnow()
+        item.updated_at = utc_now()
         db.session.commit()
         
         return jsonify({
@@ -328,7 +329,7 @@ def delete_item(item_id):
             uid = int(user_id) if isinstance(user_id, str) else user_id
         except Exception:
             uid = user_id
-        item = Item.query.get(item_id)
+        item = db.session.get(Item, item_id)
         
         if not item:
             return jsonify({'error': 'Item not found'}), 404
@@ -339,7 +340,7 @@ def delete_item(item_id):
         
         # Soft delete
         item.is_active = False
-        item.updated_at = datetime.utcnow()
+        item.updated_at = utc_now()
         db.session.commit()
         
         return jsonify({'message': 'Item deleted successfully'}), 200
@@ -391,7 +392,7 @@ def upload_item_image(item_id):
             uid = int(user_id) if isinstance(user_id, str) else int(user_id)
         except Exception:
             uid = user_id
-        item = Item.query.get(item_id)
+        item = db.session.get(Item, item_id)
         if not item:
             return jsonify({'error': 'Item not found'}), 404
         if item.user_id != uid:
@@ -405,7 +406,7 @@ def upload_item_image(item_id):
         if len(images) >= 5:
             return jsonify({'error': 'Maximum images reached (5)'}), 400
 
-        municipality = Municipality.query.get(item.municipality_id)
+        municipality = db.session.get(Municipality, item.municipality_id)
         municipality_slug = municipality.slug if municipality else 'unknown'
 
         rel_path = save_marketplace_image(file, item_id, municipality_slug)
@@ -426,7 +427,7 @@ def create_transaction():
     """Create a transaction request (buy, borrow, or request donation)."""
     try:
         user_id = get_jwt_identity()
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         
         if not user:
             return jsonify({'error': 'User not found'}), 404
@@ -442,7 +443,7 @@ def create_transaction():
             return jsonify({'error': 'item_id is required'}), 400
         
         # Get item
-        item = Item.query.get(item_id)
+        item = db.session.get(Item, item_id)
         
         if not item:
             return jsonify({'error': 'Item not found'}), 404
@@ -518,7 +519,7 @@ def propose_transaction(transaction_id):
         if when_utc <= datetime.now(timezone.utc) + timedelta(minutes=5):
             return jsonify({'error': 'pickup_at must be at least 5 minutes in the future'}), 400
 
-        tx = Transaction.query.get(transaction_id)
+        tx = db.session.get(Transaction, transaction_id)
         if not tx:
             return jsonify({'error': 'Transaction not found'}), 404
         if tx.seller_id != uid:
@@ -529,7 +530,7 @@ def propose_transaction(transaction_id):
         tx.pickup_at = when_utc.replace(tzinfo=None)
         tx.pickup_location = pickup_location
         tx.status = 'awaiting_buyer'
-        tx.updated_at = datetime.utcnow()
+        tx.updated_at = utc_now()
         db.session.commit()
         return jsonify({'message': 'Pickup details proposed', 'transaction': tx.to_dict()}), 200
     except Exception as e:
@@ -547,7 +548,7 @@ def buyer_confirm_transaction(transaction_id):
             uid = int(user_id) if isinstance(user_id, str) else user_id
         except Exception:
             uid = user_id
-        tx = Transaction.query.get(transaction_id)
+        tx = db.session.get(Transaction, transaction_id)
         if not tx:
             return jsonify({'error': 'Transaction not found'}), 404
         if tx.buyer_id != uid:
@@ -558,12 +559,12 @@ def buyer_confirm_transaction(transaction_id):
             return jsonify({'error': 'Pickup details are incomplete'}), 400
 
         # Reserve the item and accept
-        item = Item.query.get(tx.item_id)
+        item = db.session.get(Item, tx.item_id)
         if item and item.status == 'available':
             item.status = 'reserved'
-            item.updated_at = datetime.utcnow()
+            item.updated_at = utc_now()
         tx.status = 'accepted'
-        tx.updated_at = datetime.utcnow()
+        tx.updated_at = utc_now()
         db.session.commit()
         return jsonify({'message': 'Transaction accepted by buyer', 'transaction': tx.to_dict()}), 200
     except Exception as e:
@@ -581,7 +582,7 @@ def buyer_reject_transaction(transaction_id):
             uid = int(user_id) if isinstance(user_id, str) else user_id
         except Exception:
             uid = user_id
-        tx = Transaction.query.get(transaction_id)
+        tx = db.session.get(Transaction, transaction_id)
         if not tx:
             return jsonify({'error': 'Transaction not found'}), 404
         if tx.buyer_id != uid:
@@ -590,12 +591,12 @@ def buyer_reject_transaction(transaction_id):
             return jsonify({'error': 'Transaction is not awaiting buyer confirmation'}), 400
 
         # Free the item for new requests
-        item = Item.query.get(tx.item_id)
+        item = db.session.get(Item, tx.item_id)
         if item and item.is_active:
             item.status = 'available'
-            item.updated_at = datetime.utcnow()
+            item.updated_at = utc_now()
         tx.status = 'rejected'
-        tx.updated_at = datetime.utcnow()
+        tx.updated_at = utc_now()
         db.session.commit()
         return jsonify({'message': 'Proposal rejected. Item is available again.', 'transaction': tx.to_dict()}), 200
     except Exception as e:
@@ -633,7 +634,7 @@ def accept_transaction(transaction_id):
         # Require pickup to be at least 5 minutes in the future
         if when_utc <= datetime.now(timezone.utc) + timedelta(minutes=5):
             return jsonify({'error': 'pickup_at must be at least 5 minutes in the future'}), 400
-        transaction = Transaction.query.get(transaction_id)
+        transaction = db.session.get(Transaction, transaction_id)
         
         if not transaction:
             return jsonify({'error': 'Transaction not found'}), 404
@@ -649,15 +650,15 @@ def accept_transaction(transaction_id):
         transaction.pickup_at = when_utc.replace(tzinfo=None)
         transaction.pickup_location = pickup_location
         transaction.status = 'awaiting_buyer'
-        transaction.updated_at = datetime.utcnow()
+        transaction.updated_at = utc_now()
 
         # Do NOT reserve item yet; reservation happens upon buyer confirmation
         try:
-            item = Item.query.get(transaction.item_id)
+            item = db.session.get(Item, transaction.item_id)
             if item and item.status == 'reserved' and transaction.status == 'pending':
                 # normalize any inconsistent state
                 item.status = 'available'
-                item.updated_at = datetime.utcnow()
+                item.updated_at = utc_now()
         except Exception:
             pass
 
@@ -676,7 +677,7 @@ def reject_transaction(transaction_id):
     """Reject a pending transaction request (seller only). Keeps item available for others."""
     try:
         user_id = get_jwt_identity()
-        transaction = Transaction.query.get(transaction_id)
+        transaction = db.session.get(Transaction, transaction_id)
 
         if not transaction:
             return jsonify({'error': 'Transaction not found'}), 404
@@ -689,15 +690,15 @@ def reject_transaction(transaction_id):
             return jsonify({'error': 'Only pending or awaiting_buyer transactions can be rejected'}), 400
 
         transaction.status = 'rejected'
-        transaction.updated_at = datetime.utcnow()
+        transaction.updated_at = utc_now()
 
         # Ensure item stays available for others
         try:
-            item = Item.query.get(transaction.item_id)
+            item = db.session.get(Item, transaction.item_id)
             if item and item.is_active:
                 # If anyone had set it otherwise, keep it available for new requests
                 item.status = 'available'
-                item.updated_at = datetime.utcnow()
+                item.updated_at = utc_now()
         except Exception:
             pass
 
@@ -749,7 +750,7 @@ def tx_handover_seller(transaction_id: int):
     """Seller confirms item handed over to buyer. accepted -> handed_over"""
     try:
         user_id = get_jwt_identity()
-        tx = Transaction.query.get(transaction_id)
+        tx = db.session.get(Transaction, transaction_id)
         if not tx:
             return jsonify({'error': 'Transaction not found'}), 404
         # Guards
@@ -758,10 +759,10 @@ def tx_handover_seller(transaction_id: int):
 
         prev = tx.status
         tx.status = 'handed_over'
-        tx.updated_at = datetime.utcnow()
+        tx.updated_at = utc_now()
         # For lend, capture start date at handover
         if tx.transaction_type == 'lend' and not tx.borrow_start_date:
-            tx.borrow_start_date = datetime.utcnow()
+            tx.borrow_start_date = utc_now()
 
         db.session.commit()
         # Best-effort audit after main commit
@@ -794,7 +795,7 @@ def tx_handover_buyer(transaction_id: int):
     """Buyer confirms they received the item. handed_over -> received"""
     try:
         user_id = get_jwt_identity()
-        tx = Transaction.query.get(transaction_id)
+        tx = db.session.get(Transaction, transaction_id)
         if not tx:
             return jsonify({'error': 'Transaction not found'}), 404
         require_tx_role(tx, int(user_id), 'buyer')
@@ -802,9 +803,9 @@ def tx_handover_buyer(transaction_id: int):
 
         prev = tx.status
         tx.status = 'received'
-        tx.updated_at = datetime.utcnow()
+        tx.updated_at = utc_now()
         if tx.transaction_type == 'lend' and not tx.borrow_start_date:
-            tx.borrow_start_date = datetime.utcnow()
+            tx.borrow_start_date = utc_now()
 
         db.session.commit()
         try:
@@ -836,7 +837,7 @@ def tx_return_buyer(transaction_id: int):
     """Buyer indicates they returned a lent item. received -> returned (lend only)"""
     try:
         user_id = get_jwt_identity()
-        tx = Transaction.query.get(transaction_id)
+        tx = db.session.get(Transaction, transaction_id)
         if not tx:
             return jsonify({'error': 'Transaction not found'}), 404
         if tx.transaction_type != 'lend':
@@ -846,8 +847,8 @@ def tx_return_buyer(transaction_id: int):
 
         prev = tx.status
         tx.status = 'returned'
-        tx.return_date = datetime.utcnow()
-        tx.updated_at = datetime.utcnow()
+        tx.return_date = utc_now()
+        tx.updated_at = utc_now()
 
         db.session.commit()
         try:
@@ -879,7 +880,7 @@ def tx_return_seller(transaction_id: int):
     """Seller confirms they received the lent item back. returned -> completed (lend only)"""
     try:
         user_id = get_jwt_identity()
-        tx = Transaction.query.get(transaction_id)
+        tx = db.session.get(Transaction, transaction_id)
         if not tx:
             return jsonify({'error': 'Transaction not found'}), 404
         if tx.transaction_type != 'lend':
@@ -889,14 +890,14 @@ def tx_return_seller(transaction_id: int):
 
         prev = tx.status
         tx.status = 'completed'
-        tx.completed_at = datetime.utcnow()
-        tx.updated_at = datetime.utcnow()
+        tx.completed_at = utc_now()
+        tx.updated_at = utc_now()
         try:
-            item = Item.query.get(tx.item_id)
+            item = db.session.get(Item, tx.item_id)
             if item:
                 item.status = 'available'
                 item.is_active = True
-                item.updated_at = datetime.utcnow()
+                item.updated_at = utc_now()
         except Exception:
             pass
 
@@ -930,7 +931,7 @@ def tx_complete(transaction_id: int):
     """Complete sell/donate after buyer received the item. received -> completed"""
     try:
         user_id = get_jwt_identity()
-        tx = Transaction.query.get(transaction_id)
+        tx = db.session.get(Transaction, transaction_id)
         if not tx:
             return jsonify({'error': 'Transaction not found'}), 404
         # Either party can complete after received for sell/donate to reduce friction
@@ -940,14 +941,14 @@ def tx_complete(transaction_id: int):
 
         prev = tx.status
         tx.status = 'completed'
-        tx.completed_at = datetime.utcnow()
-        tx.updated_at = datetime.utcnow()
+        tx.completed_at = utc_now()
+        tx.updated_at = utc_now()
         try:
-            item = Item.query.get(tx.item_id)
+            item = db.session.get(Item, tx.item_id)
             if item:
                 item.status = 'completed'
                 item.is_active = False
-                item.updated_at = datetime.utcnow()
+                item.updated_at = utc_now()
         except Exception:
             pass
 
@@ -981,7 +982,7 @@ def tx_dispute(transaction_id: int):
     """Either party can dispute a transaction; sets status to disputed and records notes."""
     try:
         user_id = get_jwt_identity()
-        tx = Transaction.query.get(transaction_id)
+        tx = db.session.get(Transaction, transaction_id)
         if not tx:
             return jsonify({'error': 'Transaction not found'}), 404
         # Only buyer or seller
@@ -997,7 +998,7 @@ def tx_dispute(transaction_id: int):
 
         prev = tx.status
         tx.status = 'disputed'
-        tx.updated_at = datetime.utcnow()
+        tx.updated_at = utc_now()
 
         db.session.commit()
         try:
@@ -1030,7 +1031,7 @@ def tx_audit(transaction_id: int):
     """Return audit timeline. Visible to buyer, seller, or admin via role in JWT."""
     try:
         user_id = get_jwt_identity()
-        tx = Transaction.query.get(transaction_id)
+        tx = db.session.get(Transaction, transaction_id)
         if not tx:
             return jsonify({'error': 'Transaction not found'}), 404
         # Allow buyer or seller; admins handled at gateway/role level elsewhere.
@@ -1050,7 +1051,7 @@ def tx_audit(transaction_id: int):
                 return jsonify({'error': 'Forbidden'}), 403
 
         # Sort by created_at ascending
-        logs = [l.to_dict() for l in sorted(tx.audit_logs, key=lambda x: x.created_at or datetime.utcnow())]
+        logs = [l.to_dict() for l in sorted(tx.audit_logs, key=lambda x: x.created_at or utc_now())]
         return jsonify({'transaction': tx.to_dict(), 'audit': logs}), 200
     except Exception as e:
         return jsonify({'error': 'Failed to get audit timeline', 'details': str(e)}), 500

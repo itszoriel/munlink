@@ -3,6 +3,7 @@
 Runs in a loop (or once with --once) to deliver queued email/SMS notifications.
 """
 from __future__ import annotations
+from apps.api.utils.time import utc_now
 import time
 import argparse
 from datetime import datetime, timedelta
@@ -25,10 +26,10 @@ except ImportError:
     
     from app import create_app, db
     # db is imported from app to avoid importing scripts/__init__
-    from models.notification import NotificationOutbox
-    from models.user import User
-    from utils.email_sender import send_generic_email
-    from utils.sms_provider import normalize_sms_number, send_sms
+    from apps.api.models.notification import NotificationOutbox
+    from apps.api.models.user import User
+    from apps.api.utils.email_sender import send_generic_email
+    from apps.api.utils.sms_provider import normalize_sms_number, send_sms
 
 
 MAX_ATTEMPTS_DEFAULT = 5
@@ -60,7 +61,7 @@ def _mark_failed(item: NotificationOutbox, reason: str, max_attempts: int):
         item.next_attempt_at = None
     else:
         item.status = 'pending'
-        item.next_attempt_at = datetime.utcnow() + timedelta(minutes=_backoff_minutes(item.attempts))
+        item.next_attempt_at = utc_now() + timedelta(minutes=_backoff_minutes(item.attempts))
 
 
 def _process_email_item(item: NotificationOutbox, user: User, max_attempts: int):
@@ -153,7 +154,7 @@ def _process_sms_items(items: List[NotificationOutbox], user_map: Dict[int, User
 
 def process_batch(max_items: int = 200, max_attempts: int = MAX_ATTEMPTS_DEFAULT) -> int:
     """Process pending notification outbox rows. Returns count processed."""
-    now = datetime.utcnow()
+    now = utc_now()
     pending = NotificationOutbox.query.filter(
         NotificationOutbox.status == 'pending',
         or_(NotificationOutbox.next_attempt_at == None, NotificationOutbox.next_attempt_at <= now)

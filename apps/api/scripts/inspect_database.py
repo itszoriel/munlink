@@ -63,9 +63,9 @@ def main():
             muni = None
             try:
                 if u.admin_municipality_id:
-                    muni = Municipality.query.get(u.admin_municipality_id)
+                    muni = db.session.get(Municipality, u.admin_municipality_id)
                 elif u.municipality_id:
-                    muni = Municipality.query.get(u.municipality_id)
+                    muni = db.session.get(Municipality, u.municipality_id)
             except Exception:
                 muni = None
             muni_name = muni.name if muni else 'N/A'

@@ -1,5 +1,6 @@
 """Validation utilities for input data."""
 import re
+from apps.api.utils.time import utc_now, utc_today
 from datetime import datetime
 
 # Regex patterns
@@ -132,11 +133,11 @@ def validate_date_of_birth(dob):
             raise ValidationError('date_of_birth', 'Invalid date format. Use YYYY-MM-DD')
     
     # Check if date is in the past
-    if dob >= datetime.utcnow().date():
+    if dob >= utc_today():
         raise ValidationError('date_of_birth', 'Date of birth must be in the past')
     
     # Check if age is reasonable (not more than 150 years old)
-    age = datetime.utcnow().date().year - dob.year
+    age = utc_today().year - dob.year
     if age > 150:
         raise ValidationError('date_of_birth', 'Invalid date of birth')
     

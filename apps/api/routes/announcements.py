@@ -3,6 +3,9 @@
 SCOPE: Zambales province only, excluding Olongapo City.
 """
 from datetime import datetime, timezone
+import json
+import re
+from apps.api.utils.time import utc_now
 from flask import Blueprint, jsonify, request
 from sqlalchemy import and_, or_, case, func
 from sqlalchemy.orm import selectinload
@@ -10,9 +13,9 @@ import sqlalchemy as sa
 from sqlalchemy.exc import OperationalError as SAOperationalError, ProgrammingError as SAProgrammingError
 import sqlite3
 
-from models.announcement import Announcement
-from __init__ import db
-from utils.zambales_scope import (
+from apps.api.models.announcement import Announcement
+from apps.api import db
+from apps.api.utils.zambales_scope import (
     ZAMBALES_MUNICIPALITY_IDS,
     is_valid_zambales_municipality,
 )
@@ -28,6 +31,29 @@ def _parse_bool(value, default=False):
         return value
     return str(value).lower() in ('1', 'true', 'yes', 'y')
 
+
+def _normalize_shared_municipalities(raw):
+    """Return a clean list of int municipality IDs from stored JSON/text values."""
+    if not raw:
+        return []
+    items = raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            items = parsed if isinstance(parsed, list) else []
+        except Exception:
+            # Fallback: extract digits from string like "[112,113]"
+            items = re.findall(r'\d+', raw)
+    if not isinstance(items, (list, tuple)):
+        return []
+    cleaned = []
+    for val in items:
+        try:
+            num = int(val)
+        except Exception:
+            continue
+        cleaned.append(num)
+    return cleaned
 
 def _is_published_active(now, announcement: Announcement) -> bool:
     """Check if announcement is published and inside publish window."""
@@ -67,7 +93,7 @@ def list_announcements():
         requested_barangay_id = request.args.get('barangay_id', type=int)
 
         # Use naive UTC to match stored timestamps (SQLite test DB stores naive datetimes)
-        now = datetime.utcnow()
+        now = utc_now()
 
         # Attempt to resolve authenticated resident
         resident_municipality_id = None
@@ -77,7 +103,7 @@ def list_announcements():
             verify_jwt_in_request(optional=True)
             user_id = get_jwt_identity()
             if user_id:
-                from models.user import User
+                from apps.api.models.user import User
                 user = db.session.get(User, user_id)
                 if user and user.role == 'resident' and user.admin_verified and is_valid_zambales_municipality(user.municipality_id):
                     resident_municipality_id = user.municipality_id
@@ -111,7 +137,7 @@ def list_announcements():
             if browse and requested_municipality_id and is_valid_zambales_municipality(requested_municipality_id):
                 effective_muni_id = requested_municipality_id
                 if requested_barangay_id:
-                    from models.municipality import Barangay
+                    from apps.api.models.municipality import Barangay
                     brgy = db.session.get(Barangay, requested_barangay_id)
                     if brgy and brgy.municipality_id == requested_municipality_id:
                         effective_barangay_id = requested_barangay_id
@@ -132,7 +158,7 @@ def list_announcements():
 
         # Validate barangay scope if provided
         if effective_barangay_id:
-            from models.municipality import Barangay
+            from apps.api.models.municipality import Barangay
             barangay = db.session.get(Barangay, effective_barangay_id)
             if not barangay or not is_valid_zambales_municipality(barangay.municipality_id):
                 return jsonify({'error': 'Barangay is not available in this system'}), 400
@@ -230,7 +256,7 @@ def list_announcements():
 def get_announcement(announcement_id: int):
     """Get a single announcement by id with scope enforcement."""
     from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
-    now = datetime.utcnow()
+    now = utc_now()
     try:
         browse = _parse_bool(request.args.get('browse'), default=False)
         requested_muni_id = request.args.get('municipality_id', type=int)
@@ -249,17 +275,13 @@ def get_announcement(announcement_id: int):
         if scope != 'PROVINCE':
             if ann.municipality_id and not is_valid_zambales_municipality(ann.municipality_id):
                 return jsonify({'error': 'Announcement not found'}), 404
-            shared_munis = []
-            try:
-                shared_munis = [int(m) for m in (ann.shared_with_municipalities or [])]
-            except Exception:
-                shared_munis = ann.shared_with_municipalities or []
+            shared_munis = _normalize_shared_municipalities(ann.shared_with_municipalities)
 
             try:
                 verify_jwt_in_request(optional=True)
                 user_id = get_jwt_identity()
                 if user_id:
-                    from models.user import User
+                    from apps.api.models.user import User
                     user = db.session.get(User, user_id)
                 else:
                     user = None

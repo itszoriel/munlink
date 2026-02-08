@@ -4,6 +4,7 @@ import { authApi, mediaUrl, transferApi, showToast, municipalityApi } from '@/li
 import { Form, FormField, Input, Button } from '@munlink/ui'
 import { getProvinces, getMunicipalities, getMunicipalityById } from '@/lib/locations'
 import SafeImage from '@/components/SafeImage'
+import SpecialStatusSection from '@/components/SpecialStatusSection'
 import { useAppStore } from '@/lib/store'
 import { getAccessToken } from '@/lib/api'
 
@@ -358,6 +359,9 @@ export default function ProfilePage() {
             </div>
           </div>
         </div>
+
+        {/* Special Status Section */}
+        <SpecialStatusSection />
 
         {/* Personal Info Form */}
         <Form onSubmit={onSubmit} className="max-w-2xl" columns={2}>

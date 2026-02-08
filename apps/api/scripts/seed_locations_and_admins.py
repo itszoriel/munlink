@@ -7,6 +7,7 @@ Format:
 - email: municipalityname.munlink@gmail.com
 """
 import sys
+from apps.api.utils.time import utc_now
 import os
 from datetime import datetime, date
 from pathlib import Path
@@ -117,8 +118,8 @@ with app.app_context():
                 municipality_id=municipality.id,
                 email_verified=True,
                 admin_verified=True,
-                email_verified_at=datetime.utcnow(),
-                admin_verified_at=datetime.utcnow(),
+                email_verified_at=utc_now(),
+                admin_verified_at=utc_now(),
                 is_active=True
             )
             

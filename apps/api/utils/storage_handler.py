@@ -10,7 +10,7 @@ This module provides a single interface for file storage operations that:
 This replaces direct usage of file_handler.py for production deployments.
 
 Usage:
-    from utils.storage_handler import (
+    from apps.api.utils.storage_handler import (
         save_file,
         save_profile_picture,
         save_marketplace_image,
@@ -32,7 +32,7 @@ from werkzeug.datastructures import FileStorage
 logger = logging.getLogger(__name__)
 
 # Import validators
-from utils.validators import (
+from apps.api.utils.validators import (
     validate_file_size, 
     validate_file_extension, 
     ALLOWED_IMAGE_EXTENSIONS, 
@@ -140,8 +140,8 @@ def save_file(
     # Validate MIME type if enabled
     if validate_mime:
         try:
-            from utils.security import validate_file_mime_type
-            from utils.file_handler import ALLOWED_IMAGE_MIMES, ALLOWED_DOCUMENT_MIMES
+            from apps.api.utils.security import validate_file_mime_type
+            from apps.api.utils.file_handler import ALLOWED_IMAGE_MIMES, ALLOWED_DOCUMENT_MIMES
             
             if allowed_extensions == ALLOWED_IMAGE_EXTENSIONS:
                 allowed_mimes = ALLOWED_IMAGE_MIMES
@@ -190,7 +190,7 @@ def _save_to_supabase(
 ) -> str:
     """Save file to Supabase Storage, return public URL."""
     try:
-        from utils.supabase_storage import upload_file as supabase_upload
+        from apps.api.utils.supabase_storage import upload_file as supabase_upload
         
         # Determine content type
         content_type = None
@@ -225,7 +225,7 @@ def _save_to_filesystem(
     user_type: str
 ) -> str:
     """Save file to local filesystem, return relative path."""
-    from utils.file_handler import (
+    from apps.api.utils.file_handler import (
         get_file_path, 
         ensure_directory_exists, 
         generate_unique_filename
@@ -283,7 +283,7 @@ def save_bytes(
     """
     if _use_supabase_storage():
         try:
-            from utils.supabase_storage import upload_bytes as supabase_upload_bytes
+            from apps.api.utils.supabase_storage import upload_bytes as supabase_upload_bytes
             
             storage_path, public_url = supabase_upload_bytes(
                 data=data,
@@ -303,7 +303,7 @@ def save_bytes(
             raise StorageError(f"Failed to upload: {e}")
     else:
         # Save to filesystem
-        from utils.file_handler import (
+        from apps.api.utils.file_handler import (
             get_file_path, 
             ensure_directory_exists, 
             generate_unique_filename

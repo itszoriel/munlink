@@ -25,6 +25,7 @@ Output:
 """
 from __future__ import annotations
 
+from apps.api.utils.time import utc_now
 import os
 import sys
 import json
@@ -296,7 +297,7 @@ def generate_report(results: List[Dict[str, Any]]) -> Dict[str, Any]:
             by_model[model]['missing'] += 1
     
     return {
-        'scan_time': datetime.utcnow().isoformat(),
+        'scan_time': utc_now().isoformat(),
         'summary': {
             'total_legacy_paths': total,
             'missing_files': missing,

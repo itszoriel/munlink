@@ -1,9 +1,10 @@
 """Document request and management models."""
 from datetime import datetime
+from apps.api.utils.time import utc_now
 try:
-    from __init__ import db
+    from apps.api import db
 except ImportError:
-    from __init__ import db
+    from apps.api import db
 from sqlalchemy import Index
 
 class DocumentType(db.Model):
@@ -27,7 +28,14 @@ class DocumentType(db.Model):
     
     # Pricing
     fee = db.Column(db.Numeric(10, 2), default=0.00)
-    
+
+    # Fee tiers for business types (JSON): {"big_business": 300, "small_business": 150, "banca_tricycle": 100}
+    fee_tiers = db.Column(db.JSON, nullable=True)
+
+    # Exemption rules for special statuses (JSON):
+    # {"student": {"requires_purpose": "educational"}, "pwd": true, "senior": true}
+    exemption_rules = db.Column(db.JSON, nullable=True)
+
     # Processing Time
     processing_days = db.Column(db.Integer, default=3)
     
@@ -39,8 +47,8 @@ class DocumentType(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationships
     requests = db.relationship('DocumentRequest', backref='document_type', lazy='dynamic')
@@ -65,6 +73,8 @@ class DocumentType(db.Model):
             'barangay_id': self.barangay_id,
             'requirements': self.requirements,
             'fee': float(self.fee) if self.fee else 0.00,
+            'fee_tiers': self.fee_tiers,
+            'exemption_rules': self.exemption_rules,
             'processing_days': self.processing_days,
             'supports_physical': self.supports_physical,
             'supports_digital': self.supports_digital,
@@ -98,7 +108,41 @@ class DocumentRequest(db.Model):
     # Request Details
     purpose = db.Column(db.String(200), nullable=False)
     additional_notes = db.Column(db.Text, nullable=True)
-    
+
+    # Enhanced request fields
+    purpose_type = db.Column(db.String(50), nullable=True)  # educational, employment, legal, personal, business, travel, other
+    purpose_other = db.Column(db.String(200), nullable=True)  # Custom purpose if purpose_type is 'other'
+    civil_status = db.Column(db.String(30), nullable=True)  # single, married, widowed, separated, divorced
+    business_type = db.Column(db.String(50), nullable=True)  # big_business, small_business, banca_tricycle
+
+    # Fee tracking
+    original_fee = db.Column(db.Numeric(10, 2), nullable=True)  # Base fee before exemptions
+    applied_exemption = db.Column(db.String(30), nullable=True)  # student, pwd, senior, or null
+    final_fee = db.Column(db.Numeric(10, 2), nullable=True)  # Fee after exemptions
+
+    # Payment fields
+    payment_status = db.Column(db.String(20), nullable=True)  # pending, paid, waived
+    payment_intent_id = db.Column(db.String(100), nullable=True)  # Stripe PaymentIntent ID
+    paid_at = db.Column(db.DateTime, nullable=True)
+    payment_method = db.Column(db.String(20), nullable=True)  # stripe, manual_qr
+
+    # Manual QR payment fields
+    manual_payment_status = db.Column(db.String(30), nullable=True)  # not_started, proof_uploaded, id_sent, submitted, approved, rejected
+    manual_payment_proof_path = db.Column(db.String(255), nullable=True)
+    manual_payment_id_hash = db.Column(db.String(255), nullable=True)
+    manual_payment_id_last4 = db.Column(db.String(10), nullable=True)
+    manual_payment_id_sent_at = db.Column(db.DateTime, nullable=True)
+    manual_payment_submitted_at = db.Column(db.DateTime, nullable=True)
+    manual_reviewed_by = db.Column(db.Integer, nullable=True)
+    manual_reviewed_at = db.Column(db.DateTime, nullable=True)
+    manual_review_notes = db.Column(db.Text, nullable=True)
+
+    # Office payment verification fields (for pickup documents)
+    office_payment_code_hash = db.Column(db.String(255), nullable=True)  # Hashed 6-digit code
+    office_payment_status = db.Column(db.String(50), nullable=True)  # not_started, code_sent, verified
+    office_payment_verified_at = db.Column(db.DateTime, nullable=True)
+    office_payment_verified_by = db.Column(db.Integer, nullable=True)  # Admin user ID who verified
+
     # Supporting Documents (JSON array of file paths)
     supporting_documents = db.Column(db.JSON, nullable=True)
     
@@ -121,8 +165,8 @@ class DocumentRequest(db.Model):
     admin_edited_content = db.Column(db.JSON, nullable=True)
     
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
     approved_at = db.Column(db.DateTime, nullable=True)
     completed_at = db.Column(db.DateTime, nullable=True)
     ready_at = db.Column(db.DateTime, nullable=True)
@@ -144,7 +188,7 @@ class DocumentRequest(db.Model):
     def __repr__(self):
         return f'<DocumentRequest {self.request_number}>'
     
-    def to_dict(self, include_user=False, include_audit=False):
+    def to_dict(self, include_user=False, include_audit=False, include_storage_paths=False):
         """Convert document request to dictionary."""
         data = {
             'id': self.id,
@@ -157,12 +201,38 @@ class DocumentRequest(db.Model):
             'delivery_address': self.delivery_address,
             'purpose': self.purpose,
             'additional_notes': self.additional_notes,
+            'purpose_type': self.purpose_type,
+            'purpose_other': self.purpose_other,
+            'civil_status': self.civil_status,
+            'business_type': self.business_type,
+            'original_fee': float(self.original_fee) if self.original_fee else None,
+            'applied_exemption': self.applied_exemption,
+            'final_fee': float(self.final_fee) if self.final_fee else None,
+            'payment_status': self.payment_status,
+            'payment_intent_id': self.payment_intent_id,
+            'paid_at': self.paid_at.isoformat() if self.paid_at else None,
+            'payment_method': self.payment_method,
+            'manual_payment_status': self.manual_payment_status,
+            # Never expose raw storage paths by default.
+            'manual_payment_proof_path': self.manual_payment_proof_path if include_storage_paths else (True if self.manual_payment_proof_path else None),
+            'has_manual_payment_proof': bool(self.manual_payment_proof_path),
+            'manual_payment_id_last4': self.manual_payment_id_last4,
+            'manual_payment_id_sent_at': self.manual_payment_id_sent_at.isoformat() if self.manual_payment_id_sent_at else None,
+            'manual_payment_submitted_at': self.manual_payment_submitted_at.isoformat() if self.manual_payment_submitted_at else None,
+            'manual_reviewed_by': self.manual_reviewed_by,
+            'manual_reviewed_at': self.manual_reviewed_at.isoformat() if self.manual_reviewed_at else None,
+            'manual_review_notes': self.manual_review_notes,
+            'office_payment_status': self.office_payment_status,
+            'office_payment_verified_at': self.office_payment_verified_at.isoformat() if self.office_payment_verified_at else None,
+            'office_payment_verified_by': self.office_payment_verified_by,
             'supporting_documents': self.supporting_documents,
             'status': self.status,
             'admin_notes': self.admin_notes,
             'rejection_reason': self.rejection_reason,
-            'qr_code': self.qr_code,
-            'document_file': self.document_file,
+            'qr_code': self.qr_code if include_storage_paths else (True if self.qr_code else None),
+            'has_qr_code': bool(self.qr_code),
+            'document_file': self.document_file if include_storage_paths else (True if self.document_file else None),
+            'has_document_file': bool(self.document_file),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'approved_at': self.approved_at.isoformat() if self.approved_at else None,

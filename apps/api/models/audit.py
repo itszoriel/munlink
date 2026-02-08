@@ -3,13 +3,14 @@
 Tracks admin and system actions across entities (users, benefits, requests,
 issues, items, announcements, etc.). Intended for unified audit browsing.
 """
+from apps.api.utils.time import utc_now
 
 from datetime import datetime
 
 try:
-    from __init__ import db
+    from apps.api import db
 except Exception:  # pragma: no cover
-    from __init__ import db
+    from apps.api import db
 
 from sqlalchemy import Index
 
@@ -32,7 +33,7 @@ class AuditLog(db.Model):
     new_values = db.Column(db.JSON, nullable=True)
 
     notes = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
 
     # Relationships
     user = db.relationship('User', backref=db.backref('audit_logs', lazy='dynamic'))

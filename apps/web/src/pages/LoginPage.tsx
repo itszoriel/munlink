@@ -202,6 +202,15 @@ export default function LoginPage() {
                 </div>
               </div>
 
+              <div className="flex items-center justify-end text-sm">
+                <Link
+                  to="/forgot-password"
+                  className="text-ocean-600 hover:text-ocean-700 font-semibold hover:underline"
+                >
+                  Forgot password?
+                </Link>
+              </div>
+
               {error && (
                 <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm flex items-start gap-2">
                   <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">

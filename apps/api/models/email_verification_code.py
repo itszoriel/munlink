@@ -6,12 +6,13 @@ Used for:
 - Future: email change verification
 """
 from datetime import datetime, timedelta
+from apps.api.utils.time import utc_now
 import secrets
 
 try:
-    from __init__ import db
+    from apps.api import db
 except ImportError:
-    from __init__ import db
+    from apps.api import db
 
 from sqlalchemy import Index
 
@@ -34,7 +35,7 @@ class EmailVerificationCode(db.Model):
     # Track attempts for rate limiting
     attempts = db.Column(db.Integer, default=0, nullable=False)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
 
     # Relationships
     user = db.relationship('User', backref=db.backref('verification_codes', lazy='dynamic'))
@@ -50,7 +51,7 @@ class EmailVerificationCode(db.Model):
 
     def is_expired(self) -> bool:
         """Check if the code has expired."""
-        return datetime.utcnow() > self.expires_at
+        return utc_now() > self.expires_at
 
     def is_valid(self) -> bool:
         """Check if the code is still valid (not used and not expired)."""
@@ -119,7 +120,7 @@ class EmailVerificationCode(db.Model):
             code=cls.generate_code(),
             purpose=purpose,
             session_id=cls.generate_session_id() if purpose == '2fa_login' else None,
-            expires_at=datetime.utcnow() + timedelta(minutes=expiry_minutes)
+            expires_at=utc_now() + timedelta(minutes=expiry_minutes)
         )
         db.session.add(code)
         db.session.commit()

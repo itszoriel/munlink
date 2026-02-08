@@ -1,5 +1,7 @@
 from apps.api.app import create_app
 from apps.api.config import Config
+from apps.api import db
+from apps.api.models.user import User
 from flask_jwt_extended import create_access_token
 
 
@@ -12,13 +14,8 @@ class RateLimitConfig(Config):
     ADMIN_SECRET_KEY = 'test-admin-secret'
 
 
-def test_admin_register_rate_limit_keys_by_superadmin_identity():
-    """
-    /api/auth/admin/register should:
-    - stay strict for unauth usage (keyed by IP)
-    - allow superadmin-authenticated bursts keyed by superadmin identity
-    - return JSON on 429
-    """
+def test_admin_register_requires_authenticated_superadmin():
+    """/api/auth/admin/register must be inaccessible without superadmin auth."""
     app = create_app(RateLimitConfig)
     client = app.test_client()
 
@@ -26,23 +23,26 @@ def test_admin_register_rate_limit_keys_by_superadmin_identity():
         'X-Forwarded-For': '203.0.113.9',  # stable, unique IP for test
     }
 
-    # Secret-only requests are strict: 3 per hour
-    for _ in range(3):
-        resp = client.post('/api/auth/admin/register', json={'admin_secret': 'test-admin-secret'}, headers=headers)
-        assert resp.status_code == 400  # missing required fields, but should count toward the limit
+    # Unauthenticated request must fail fast.
+    resp = client.post('/api/auth/admin/register', json={}, headers=headers)
+    assert resp.status_code in (401, 422)
 
-    resp = client.post('/api/auth/admin/register', json={'admin_secret': 'test-admin-secret'}, headers=headers)
-    assert resp.status_code == 429
-    assert resp.is_json
-    assert (resp.get_json() or {}).get('error')
-
-    # Superadmin-authenticated request should not be blocked by the exhausted IP bucket
+    # With authenticated superadmin, request is accepted for validation flow.
     with app.app_context():
-        token = create_access_token(identity='999', additional_claims={'role': 'superadmin'})
+        db.create_all()
+        superadmin = User(
+            username='root',
+            email='root@example.com',
+            password_hash='test',
+            first_name='Root',
+            last_name='Admin',
+            role='superadmin',
+            email_verified=True,
+            admin_verified=True,
+        )
+        db.session.add(superadmin)
+        db.session.commit()
+        token = create_access_token(identity=str(superadmin.id), additional_claims={'role': 'superadmin'})
 
-    resp = client.post(
-        '/api/auth/admin/register',
-        json={'admin_secret': 'test-admin-secret'},
-        headers={**headers, 'Authorization': f'Bearer {token}'},
-    )
+    resp = client.post('/api/auth/admin/register', json={}, headers={**headers, 'Authorization': f'Bearer {token}'})
     assert resp.status_code == 400

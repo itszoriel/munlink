@@ -6,18 +6,42 @@ import GatedAction from '@/components/GatedAction'
 import { documentsApi } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 import { useCachedFetch } from '@/lib/useCachedFetch'
-import { CACHE_KEYS } from '@/lib/dataStore'
+import { CACHE_KEYS, invalidateMultiple } from '@/lib/dataStore'
 import Stepper from '@/components/ui/Stepper'
-import FileUploader from '@/components/ui/FileUploader'
 import { EmptyState } from '@munlink/ui'
 import MunicipalitySelect from '@/components/MunicipalitySelect'
 // pickup location is tied to resident profile; no remote fetch needed
+
+const PURPOSE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'educational', label: 'Educational' },
+  { value: 'employment', label: 'Employment' },
+  { value: 'legal', label: 'Legal' },
+  { value: 'personal', label: 'Personal' },
+  { value: 'business', label: 'Business' },
+  { value: 'travel', label: 'Travel' },
+  { value: 'other', label: 'Other' },
+]
+
+const CIVIL_STATUS_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'single', label: 'Single' },
+  { value: 'married', label: 'Married' },
+  { value: 'widowed', label: 'Widowed' },
+  { value: 'separated', label: 'Separated' },
+  { value: 'divorced', label: 'Divorced' },
+]
+
+const BUSINESS_TYPE_LABELS: Record<string, string> = {
+  big_business: 'Big Business',
+  small_business: 'Small Business',
+  banca_tricycle: 'Banca/Tricycle',
+}
 
 export default function DocumentsPage() {
   const selectedMunicipality = useAppStore((s) => s.selectedMunicipality)
   const selectedProvince = useAppStore((s) => s.selectedProvince)
   const user = useAppStore((s) => s.user)
   const isAuthenticated = useAppStore((s) => s.isAuthenticated)
+  const isAuthBootstrapped = useAppStore((s) => s.isAuthBootstrapped)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [step, setStep] = useState(1)
@@ -25,16 +49,28 @@ export default function DocumentsPage() {
   const [selectedTypeId, setSelectedTypeId] = useState<number | null>(null)
   const [deliveryMethod, setDeliveryMethod] = useState<'digital' | 'pickup'>('digital')
   // deliveryAddress is derived server-side for pickup; no free-text field
-  const [purpose, setPurpose] = useState('')
+  const [purposeType, setPurposeType] = useState('')
+  const [purposeOther, setPurposeOther] = useState('')
   const [remarks, setRemarks] = useState('')
   const [civilStatus, setCivilStatus] = useState('')
+  const [businessType, setBusinessType] = useState('')
   const [age, setAge] = useState<string>('')
   // const [uploadForm, setUploadForm] = useState<FormData | null>(null)
   const [resultMsg, setResultMsg] = useState<string>('')
   const [createdId, setCreatedId] = useState<number | null>(null)
   const userBarangayName = (user as any)?.barangay_name // kept for review display and future use
   const [consent, setConsent] = useState(false)
+  const [requirementFiles, setRequirementFiles] = useState<Record<string, File | null>>({})
+  const [requirementsError, setRequirementsError] = useState<string>('')
+  const [uploadingRequirements, setUploadingRequirements] = useState(false)
+  const [requirementsUploaded, setRequirementsUploaded] = useState(false)
+  const [feePreview, setFeePreview] = useState<any | null>(null)
+  const [feeLoading, setFeeLoading] = useState(false)
   const [pickupLocation, setPickupLocation] = useState<'municipal'|'barangay'>('municipal')
+  const [typeFilter, setTypeFilter] = useState<'all' | 'municipal' | 'barangay'>('all')
+  const [currentPage, setCurrentPage] = useState(1)
+  const userMunicipalityId = (user as any)?.municipality_id as number | undefined
+  const userBarangayId = (user as any)?.barangay_id as number | undefined
 
   // Municipality scoping: Determine if location context is ready
   const guestLocationComplete = !isAuthenticated && !!selectedProvince?.id && !!selectedMunicipality?.id
@@ -42,10 +78,14 @@ export default function DocumentsPage() {
   // Use cached fetch for document types (rarely changes)
   const { data: typesData, loading } = useCachedFetch(
     'document_types',
-    () => documentsApi.getTypes(),
-    { staleTime: 30 * 60 * 1000 } // 30 minutes - document types rarely change
+    () => documentsApi.getTypes({ municipality_id: userMunicipalityId, barangay_id: userBarangayId }),
+    {
+      staleTime: 30 * 60 * 1000,
+      enabled: isAuthBootstrapped && isAuthenticated && !!userMunicipalityId,
+      dependencies: [userMunicipalityId, userBarangayId]
+    } // 30 minutes - document types rarely change
   )
-  const types: Array<{ id: number; name: string; code: string; fee: number; processing_days: number; supports_digital: boolean }> = (typesData as any)?.data?.types || []
+  const types: Array<{ id: number; name: string; code: string; fee: number; processing_days: number; supports_digital: boolean; authority_level?: string; requirements?: string[]; fee_tiers?: Record<string, number>; exemption_rules?: Record<string, any> }> = (typesData as any)?.data?.types || []
 
   // Check if tab is requests
   const isRequestsTab = (searchParams.get('tab') || '').toLowerCase() === 'requests'
@@ -60,7 +100,9 @@ export default function DocumentsPage() {
 
   // Auto-select user's registered municipality if authenticated and no municipality is selected
   useEffect(() => {
-    if (isAuthenticated && user && !selectedMunicipality && (user as any)?.municipality_id && (user as any)?.municipality_name) {
+    if (isAuthenticated && user && (user as any)?.municipality_id && (user as any)?.municipality_name) {
+      const shouldSyncMunicipality = !selectedMunicipality || Number(selectedMunicipality?.id) !== Number((user as any)?.municipality_id)
+      if (!shouldSyncMunicipality) return
       // Set municipality from user's registered data
       const { setMunicipality, setProvince } = useAppStore.getState()
       const userMunId = (user as any).municipality_id
@@ -75,7 +117,7 @@ export default function DocumentsPage() {
       } as any)
       
       // Also set province if available
-      if (userProvName && !selectedProvince) {
+      if (userProvName && (!selectedProvince || Number((user as any)?.province_id || 0) !== Number(selectedProvince?.id))) {
         setProvince({
           id: (user as any).province_id || 0,
           name: userProvName,
@@ -90,11 +132,37 @@ export default function DocumentsPage() {
     setPickupLocation(((user as any)?.barangay_id ? 'barangay' : 'municipal'))
   }, [(user as any)?.municipality_id, (user as any)?.barangay_id])
 
+  useEffect(() => {
+    setRequirementFiles({})
+    setRequirementsError('')
+    setRequirementsUploaded(false)
+    setBusinessType('')
+  }, [selectedTypeId])
+
   const selectedType = useMemo(() => types.find((t) => t.id === selectedTypeId) || null, [types, selectedTypeId])
+  const requirements = useMemo(() => (selectedType?.requirements || []).filter(Boolean), [selectedType])
+  const businessTypeRequired = useMemo(() => {
+    const tiers = selectedType?.fee_tiers || {}
+    return Object.keys(tiers).length > 0
+  }, [selectedType])
+  const requirementsReady = useMemo(() => {
+    if (!requirements.length) return true
+    return requirements.every((req) => requirementFiles[req])
+  }, [requirements, requirementFiles])
+  const filteredTypes = useMemo(() => {
+    if (typeFilter === 'all') return types
+    return types.filter((t) => (t as any).authority_level === typeFilter)
+  }, [types, typeFilter])
+  const pageSize = 10
+  const totalPages = Math.max(1, Math.ceil(filteredTypes.length / pageSize))
+  const safePage = Math.min(currentPage, totalPages)
+  const pagedTypes = useMemo(() => {
+    const start = (safePage - 1) * pageSize
+    return filteredTypes.slice(start, start + pageSize)
+  }, [filteredTypes, safePage])
   const digitalAllowed = useMemo(() => {
     if (!selectedType) return false
-    const fee = Number(selectedType.fee || 0)
-    return !!selectedType.supports_digital && fee <= 0
+    return !!selectedType.supports_digital
   }, [selectedType])
   // Check for mismatch - compare by ID (static data now uses real database IDs)
   const isMismatch = useMemo(() => {
@@ -106,12 +174,60 @@ export default function DocumentsPage() {
   }, [user, selectedMunicipality?.id])
   const userMunicipalityName = (user as any)?.municipality_name
 
+  const purposeText = useMemo(() => {
+    if (!purposeType) return ''
+    if (purposeType === 'other') return purposeOther.trim()
+    const match = PURPOSE_OPTIONS.find((opt) => opt.value === purposeType)
+    return match?.label || purposeType
+  }, [purposeType, purposeOther])
+  const civilStatusLabel = useMemo(() => {
+    if (!civilStatus) return ''
+    const match = CIVIL_STATUS_OPTIONS.find((opt) => opt.value === civilStatus)
+    return match?.label || civilStatus
+  }, [civilStatus])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!isAuthenticated || !isAuthBootstrapped || !selectedTypeId) {
+      setFeePreview(null)
+      return
+    }
+    const loadPreview = async () => {
+      setFeeLoading(true)
+      try {
+        const res = await documentsApi.calculateFee({
+          document_type_id: selectedTypeId,
+          purpose_type: purposeType || undefined,
+          business_type: businessType || undefined,
+          requirements_submitted: requirementsReady
+        })
+        // Handle axios response structure: { data: {...} }
+        const responseData = (res as any)?.data || res
+        if (!cancelled) setFeePreview(responseData)
+      } catch (err) {
+        console.error('Fee calculation error:', err)
+        if (!cancelled) setFeePreview(null)
+      } finally {
+        if (!cancelled) setFeeLoading(false)
+      }
+    }
+    loadPreview()
+    return () => { cancelled = true }
+  }, [isAuthenticated, isAuthBootstrapped, selectedTypeId, purposeType, businessType, requirementsReady])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [typeFilter, types.length])
+
   const canSubmit = useMemo(() => {
-    if (!selectedTypeId || !(user as any)?.municipality_id || !purpose) return false
+    if (!selectedTypeId || !(user as any)?.municipality_id || !purposeText) return false
+    if (!civilStatus) return false
+    if (businessTypeRequired && !businessType) return false
+    if (!requirementsReady) return false
     if (deliveryMethod === 'digital') return true
     // pickup requires barangay on profile
     return !!(user as any)?.barangay_id
-  }, [selectedTypeId, (user as any)?.municipality_id, purpose, deliveryMethod, (user as any)?.barangay_id])
+  }, [selectedTypeId, (user as any)?.municipality_id, purposeText, civilStatus, businessTypeRequired, businessType, requirementsReady, deliveryMethod, (user as any)?.barangay_id])
 
   return (
     <div className="container-responsive py-12">
@@ -133,7 +249,7 @@ export default function DocumentsPage() {
             <button className="btn-secondary" onClick={() => navigate('/documents')}>New Request</button>
           </div>
           {loadingMy ? (
-            <div className="text-sm text-gray-600">Loading…</div>
+            <div className="text-sm text-gray-600">Loading...</div>
           ) : myRequests.length === 0 ? (
             <EmptyState
               icon="document"
@@ -209,39 +325,82 @@ export default function DocumentsPage() {
             {/* Step 1: Select Type */}
             {step === 1 && (
               <div>
-                <h2 className="text-xl font-bold mb-4">Select Document Type</h2>
-                <div className="grid grid-cols-1 xs:grid-cols-2 gap-4">
-                  {types.map((t) => (
-                    <button
-                      key={t.id}
-                      className={`text-left p-4 rounded-xl border ${selectedTypeId===t.id?'border-ocean-500 bg-ocean-50':'border-gray-200 hover:border-ocean-300'}`}
-                      onClick={() => { setSelectedTypeId(t.id); const fee = Number(t.fee||0); const allowDigital = !!t.supports_digital && fee<=0; setDeliveryMethod(allowDigital? 'digital':'pickup') }}
+                <div className="flex flex-col xs:flex-row xs:items-center xs:justify-between gap-3 mb-4">
+                  <h2 className="text-xl font-bold">Select Document Type</h2>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-gray-600">Filter</label>
+                    <select
+                      className="input-field h-9 py-1"
+                      value={typeFilter}
+                      onChange={(e) => setTypeFilter(e.target.value as any)}
                     >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h3 className="font-semibold">{t.name}</h3>
-                          <p className="text-sm text-gray-600">Processing: {t.processing_days} days</p>
-                        </div>
-                        <div className="text-right">
-                          {Number(t.fee || 0) > 0 ? (
-                            <>
-                              <div className="text-sm text-gray-700">Fee</div>
-                              <div className="text-lg font-bold">₱{Number(t.fee).toFixed(2)}</div>
-                            </>
-                          ) : (
-                            <div className="mt-1 text-xs">
-                              {t.supports_digital ? (
-                                <span className="inline-block rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5">Free digital copy</span>
+                      <option value="all">All</option>
+                      <option value="municipal">Municipal</option>
+                      <option value="barangay">Barangay</option>
+                    </select>
+                  </div>
+                </div>
+                {filteredTypes.length === 0 ? (
+                  <div className="text-sm text-gray-600">No document types match this filter.</div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 xs:grid-cols-2 gap-4">
+                      {pagedTypes.map((t) => (
+                        <button
+                          key={t.id}
+                          className={`text-left p-4 rounded-xl border ${selectedTypeId===t.id?'border-ocean-500 bg-ocean-50':'border-gray-200 hover:border-ocean-300'}`}
+                          onClick={() => {
+                            setSelectedTypeId(t.id)
+                            const allowDigital = !!(t as any).supports_digital
+                            setDeliveryMethod(allowDigital ? 'digital' : 'pickup')
+                          }}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <h3 className="font-semibold">{t.name}</h3>
+                              <p className="text-sm text-gray-600">Processing: {t.processing_days} days</p>
+                            </div>
+                            <div className="text-right">
+                              {Number(t.fee || 0) > 0 ? (
+                                <>
+                                  <div className="text-sm text-gray-700">Fee</div>
+                                  <div className="text-lg font-bold">PHP {Number(t.fee).toFixed(2)}</div>
+                                </>
                               ) : (
-                                <span className="inline-block rounded-full bg-gray-100 text-gray-700 px-2 py-0.5">Pickup only</span>
+                                <div className="mt-1 text-xs">
+                                  {t.supports_digital ? (
+                                    <span className="inline-block rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5">Free digital copy</span>
+                                  ) : (
+                                    <span className="inline-block rounded-full bg-gray-100 text-gray-700 px-2 py-0.5">Pickup only</span>
+                                  )}
+                                </div>
                               )}
                             </div>
-                          )}
-                        </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-4 flex items-center justify-between text-xs text-gray-600">
+                      <span>Page {safePage} of {totalPages} | {filteredTypes.length} documents</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          className="btn-secondary px-3 py-1"
+                          onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                          disabled={safePage <= 1}
+                        >
+                          Prev
+                        </button>
+                        <button
+                          className="btn-secondary px-3 py-1"
+                          onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                          disabled={safePage >= totalPages}
+                        >
+                          Next
+                        </button>
                       </div>
-                    </button>
-                  ))}
-                </div>
+                    </div>
+                  </>
+                )}
                 <div className="mt-6 flex justify-end">
                   <GatedAction
                     required="fullyVerified"
@@ -291,7 +450,9 @@ export default function DocumentsPage() {
                   <div>
                     <label className="block text-sm font-medium mb-1">Delivery Method</label>
                     <select className="input-field" value={digitalAllowed ? deliveryMethod : 'pickup'} onChange={(e) => setDeliveryMethod(e.target.value as any)}>
-                      <option value="digital" disabled={!digitalAllowed}>Digital {digitalAllowed? '(Free)': '(Not available)'}</option>
+                      <option value="digital" disabled={!digitalAllowed}>
+                        Digital {digitalAllowed ? (Number(selectedType?.fee || 0) > 0 ? '(Pay online after approval)' : '(Free)') : '(Not available)'}
+                      </option>
                       <option value="pickup">Pickup</option>
                     </select>
                     {!digitalAllowed && (
@@ -320,22 +481,136 @@ export default function DocumentsPage() {
                   )}
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium mb-1">Purpose</label>
-                    <input className="input-field" value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="e.g., employment requirement" />
+                    <select
+                      className="input-field"
+                      value={purposeType}
+                      onChange={(e) => setPurposeType(e.target.value)}
+                    >
+                      <option value="">Select purpose</option>
+                      {PURPOSE_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
                   </div>
+                  {purposeType === 'other' && (
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium mb-1">Other Purpose</label>
+                      <input
+                        className="input-field"
+                        value={purposeOther}
+                        onChange={(e) => setPurposeOther(e.target.value)}
+                        placeholder="Specify your purpose"
+                      />
+                    </div>
+                  )}
+                  {businessTypeRequired && (
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium mb-1">Business Type</label>
+                      <select
+                        className="input-field"
+                        value={businessType}
+                        onChange={(e) => setBusinessType(e.target.value)}
+                      >
+                        <option value="">Select business type</option>
+                        {Object.keys(selectedType?.fee_tiers || {}).map((key) => (
+                          <option key={key} value={key}>{BUSINESS_TYPE_LABELS[key] || key}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   <div>
-                    <label className="block text-sm font-medium mb-1">Civil Status (optional)</label>
-                    <input className="input-field" value={civilStatus} onChange={(e) => setCivilStatus(e.target.value)} placeholder="e.g., single" />
+                    <label className="block text-sm font-medium mb-1">Civil Status</label>
+                    <select
+                      className="input-field"
+                      value={civilStatus}
+                      onChange={(e) => setCivilStatus(e.target.value)}
+                    >
+                      <option value="">Select civil status</option>
+                      {CIVIL_STATUS_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">Age (optional)</label>
                     <input className="input-field" type="number" min={0} value={age} onChange={(e) => setAge(e.target.value)} placeholder="e.g., 22" />
                   </div>
+                  {requirements.length > 0 && (
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium mb-1">Requirements</label>
+                      <div className="space-y-3">
+                        {requirements.map((req) => (
+                          <div key={req} className="rounded-lg border border-gray-200 p-3">
+                            <div className="text-sm font-medium text-gray-800">{req}</div>
+                            <div className="mt-2 flex items-center gap-3">
+                              <input
+                                type="file"
+                                accept="image/*,.pdf"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0] || null
+                                  setRequirementFiles((prev) => ({ ...prev, [req]: file }))
+                                  setRequirementsError('')
+                                }}
+                              />
+                              {requirementFiles[req] && (
+                                <span className="text-xs text-gray-600">
+                                  {requirementFiles[req]?.name}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      {requirementsError && (
+                        <div className="text-xs text-red-600 mt-2">{requirementsError}</div>
+                      )}
+                      <div className="text-xs text-gray-600 mt-2">
+                        Required documents must be uploaded per request to qualify for exemptions.
+                      </div>
+                      {!requirementsReady && (
+                        <div className="text-xs text-amber-700 mt-1">
+                          Please upload all required documents to continue.
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium mb-1">Remarks or Additional Information</label>
                     <textarea className="input-field" rows={3} value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Provide extra context to help process your request" />
                     <div className="text-xs text-gray-600 mt-1">Provide extra context or clarifications that may help the office process your request.</div>
                   </div>
                 </div>
+                {isAuthenticated && selectedTypeId && (
+                  <div className="mt-4 rounded-lg border bg-gray-50 p-3 text-sm">
+                    <div className="font-medium text-gray-700 mb-2">Fee Preview</div>
+                    {feeLoading ? (
+                      <div className="text-gray-600">Calculating...</div>
+                    ) : feePreview?.fee_calculation ? (
+                      <div className="space-y-1">
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Original Fee</span>
+                          <span>PHP {Number(feePreview.fee_calculation.original_fee ?? 0).toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Final Fee</span>
+                          <span className="font-semibold">PHP {Number(feePreview.fee_calculation.final_fee ?? 0).toFixed(2)}</span>
+                        </div>
+                        {feePreview.fee_calculation.exemption_type && (
+                          <div className="text-xs text-green-700">
+                            Exempted: {String(feePreview.fee_calculation.exemption_type).toUpperCase()}
+                          </div>
+                        )}
+                        {requirements.length > 0 && !requirementsReady && (
+                          <div className="text-xs text-amber-700">
+                            Upload all required documents to qualify for exemptions.
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-gray-600">Fee preview unavailable.</div>
+                    )}
+                  </div>
+                )}
                 <div className="mt-6 flex flex-col xs:flex-row gap-3 xs:justify-between">
                   <button className="btn btn-secondary w-full xs:w-auto inline-flex items-center gap-2" onClick={() => setStep(1)}>
                     <ArrowLeft className="w-4 h-4" aria-hidden="true" />
@@ -355,10 +630,11 @@ export default function DocumentsPage() {
                 <h2 className="text-xl font-bold mb-4">Review & Submit</h2>
                 <div className="space-y-2 text-sm">
                   <div><span className="font-medium">Type:</span> {selectedType?.name}</div>
-                  <div><span className="font-medium">Municipality:</span> {isMismatch ? `${selectedMunicipality?.name} (viewing) • Submission: ${userMunicipalityName || 'Your municipality'}` : (selectedMunicipality?.name || userMunicipalityName || '')}</div>
-                  <div><span className="font-medium">Delivery:</span> {deliveryMethod}{deliveryMethod==='pickup' ? (pickupLocation==='municipal' ? ` • ${(user as any)?.municipality_name || ''} Municipal` : ` • Barangay ${(user as any)?.barangay_name || ''}`) : ''}</div>
-                  <div><span className="font-medium">Purpose:</span> {purpose}</div>
-                  {civilStatus && <div><span className="font-medium">Civil Status:</span> {civilStatus}</div>}
+                  <div><span className="font-medium">Municipality:</span> {isMismatch ? `${selectedMunicipality?.name} (viewing) - Submission: ${userMunicipalityName || 'Your municipality'}` : (selectedMunicipality?.name || userMunicipalityName || '')}</div>
+                  <div><span className="font-medium">Delivery:</span> {deliveryMethod}{deliveryMethod==='pickup' ? (pickupLocation==='municipal' ? ` - ${(user as any)?.municipality_name || ''} Municipal` : ` - Barangay ${(user as any)?.barangay_name || ''}`) : ''}</div>
+                  <div><span className="font-medium">Purpose:</span> {purposeText}</div>
+                  {civilStatusLabel && <div><span className="font-medium">Civil Status:</span> {civilStatusLabel}</div>}
+                  {businessType && <div><span className="font-medium">Business Type:</span> {BUSINESS_TYPE_LABELS[businessType] || businessType}</div>}
                   {age && <div><span className="font-medium">Age:</span> {age}</div>}
                   {remarks && <div><span className="font-medium">Remarks:</span> {remarks}</div>}
                 </div>
@@ -379,6 +655,10 @@ export default function DocumentsPage() {
                     onAllowed={async () => {
                       if (submitting) return
                       if (isMismatch || !(user as any)?.municipality_id || !selectedTypeId) return
+                      if (requirements.length > 0 && !requirementsReady) {
+                        setRequirementsError('Please upload all required documents before submitting.')
+                        return
+                      }
                       setSubmitting(true)
                       setResultMsg('')
                       try {
@@ -389,14 +669,42 @@ export default function DocumentsPage() {
                           // delivery_address is derived server-side for pickup
                           pickup_location: pickupLocation,
                           barangay_id: (pickupLocation==='barangay' ? (user as any)?.barangay_id : undefined) as any,
-                          purpose,
+                          purpose: purposeText,
+                          purpose_type: purposeType || undefined,
+                          purpose_other: purposeType === 'other' ? (purposeOther || undefined) : undefined,
+                          business_type: businessType || undefined,
                           civil_status: civilStatus || undefined,
                           age: (age && !Number.isNaN(Number(age))) ? Number(age) : undefined,
                           remarks: remarks || undefined,
+                          requirements_submitted: requirementsReady,
                         })
                         const id = res?.data?.request?.id
                         setCreatedId(id || null)
+
+                        if (id && requirements.length > 0 && requirementsReady) {
+                          try {
+                            setUploadingRequirements(true)
+                            const form = new FormData()
+                            requirements.forEach((req) => {
+                              const file = requirementFiles[req]
+                              if (file) {
+                                form.append('file', file)
+                                form.append('requirement', req)
+                              }
+                            })
+                            await documentsApi.uploadSupportingDocs(id, form)
+                            setRequirementsUploaded(true)
+                          } catch (uploadErr: any) {
+                            setResultMsg(uploadErr?.response?.data?.error || 'Failed to upload requirements')
+                            return
+                          } finally {
+                            setUploadingRequirements(false)
+                          }
+                        }
+
                         setResultMsg('Request created successfully')
+                        // Invalidate caches to reflect new request immediately
+                        invalidateMultiple([CACHE_KEYS.DOCUMENT_REQUESTS])
                         // Redirect to dashboard with a flash toast
                         navigate('/dashboard', {
                           replace: true,
@@ -415,32 +723,45 @@ export default function DocumentsPage() {
                     }}
                     tooltip="Login required to use this feature"
                   >
-                    <button className="btn btn-primary w-full xs:w-auto" disabled={!canSubmit || submitting || isMismatch || !consent} title={isMismatch ? 'Requests are limited to your registered municipality' : undefined}>
-                      {submitting ? 'Submitting...' : 'Submit Request'}
+                    <button className="btn btn-primary w-full xs:w-auto" disabled={!canSubmit || submitting || uploadingRequirements || isMismatch || !consent} title={isMismatch ? 'Requests are limited to your registered municipality' : undefined}>
+                      {submitting || uploadingRequirements ? 'Submitting...' : 'Submit Request'}
                     </button>
                   </GatedAction>
                 </div>
                 {resultMsg && (
                   <div className="mt-4 text-sm text-gray-700">
                     {resultMsg}
-                    {createdId && (
+                    {createdId && requirements.length > 0 && !requirementsUploaded && (
                       <div className="mt-3">
-                        <div className="font-medium mb-1">Upload supporting documents (optional)</div>
-                        <FileUploader
-                          accept="image/*,.pdf"
-                          multiple
-                          onFiles={async (files) => {
-                            const form = new FormData()
-                            files.forEach((f) => form.append('file', f))
+                        <div className="font-medium mb-2">Upload required documents</div>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          disabled={uploadingRequirements}
+                          onClick={async () => {
+                            setRequirementsError('')
                             try {
+                              setUploadingRequirements(true)
+                              const form = new FormData()
+                              requirements.forEach((req) => {
+                                const file = requirementFiles[req]
+                                if (file) {
+                                  form.append('file', file)
+                                  form.append('requirement', req)
+                                }
+                              })
                               await documentsApi.uploadSupportingDocs(createdId, form)
-                              setResultMsg('Files uploaded successfully')
-                            } catch {
-                              setResultMsg('Upload failed')
+                              setRequirementsUploaded(true)
+                              setResultMsg('Requirements uploaded successfully')
+                            } catch (err: any) {
+                              setResultMsg(err?.response?.data?.error || 'Failed to upload requirements')
+                            } finally {
+                              setUploadingRequirements(false)
                             }
                           }}
-                          label="Upload files"
-                        />
+                        >
+                          {uploadingRequirements ? 'Uploading...' : 'Upload Requirements'}
+                        </button>
                       </div>
                     )}
                   </div>
@@ -452,5 +773,3 @@ export default function DocumentsPage() {
     </div>
   )
 }
-
-

@@ -1,7 +1,9 @@
 import axios from 'axios'
 
-// Local-only: rely on explicit env or default to localhost
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api-munlink.up.railway.app'
+// Default to Vite proxy in dev; use explicit env or production URL in prod
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? '/api' : 'https://api-munlink.up.railway.app')
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -269,6 +271,10 @@ export const authApi = {
   },
   resendVerification: () => api.post('/api/auth/resend-verification'),
   resendVerificationPublic: (email: string) => api.post('/api/auth/resend-verification-public', { email }),
+  requestPasswordReset: (email: string) => api.post('/api/auth/password-reset/request', { email }),
+  validatePasswordReset: (token: string) => api.post('/api/auth/password-reset/validate', { token }),
+  confirmPasswordReset: (token: string, new_password: string, confirm_password?: string) =>
+    api.post('/api/auth/password-reset/confirm', { token, new_password, confirm_password }),
   uploadVerificationDocs: (files: { valid_id_front?: File, valid_id_back?: File, selfie_with_id?: File, municipality_slug?: string }) => {
     const form = new FormData()
     if (files.municipality_slug) form.append('municipality_slug', files.municipality_slug)
@@ -330,13 +336,62 @@ export const announcementsApi = {
 }
 
 export const documentsApi = {
-  getTypes: () => api.get('/api/documents/types'),
+  getTypes: (params?: { municipality_id?: number; barangay_id?: number }) =>
+    api.get('/api/documents/types', { params }),
+  getType: (id: number) => api.get(`/api/documents/types/${id}`),
   createRequest: (data: any) => api.post('/api/documents/requests', data),
   getMyRequests: () => api.get('/api/documents/my-requests'),
   getRequest: (id: number) => api.get(`/api/documents/requests/${id}`),
+  downloadDocument: (id: number) => api.get(`/api/documents/requests/${id}/download`, { responseType: 'blob' }),
   uploadSupportingDocs: (id: number, form: FormData) => api.post(`/api/documents/requests/${id}/upload`, form, { headers: { 'Content-Type': 'multipart/form-data' } }),
   getClaimTicket: (id: number, params?: any) => api.get(`/api/documents/requests/${id}/claim-ticket`, { params }),
   publicVerify: (requestNumber: string) => api.get(`/api/documents/verify/${encodeURIComponent(requestNumber)}`),
+  // Fee calculation
+  calculateFee: (params: { document_type_id: number, purpose_type?: string, business_type?: string, requirements_submitted?: boolean }) =>
+    api.get('/api/documents/calculate-fee', { params }),
+  // Payment
+  getPaymentConfig: () => api.get('/api/documents/payment-config'),
+  setPaymentMethod: (requestId: number, payment_method: 'stripe' | 'manual_qr') =>
+    api.post(`/api/documents/requests/${requestId}/payment-method`, { payment_method }),
+  createPaymentIntent: (requestId: number) => api.post(`/api/documents/requests/${requestId}/payment-intent`),
+  confirmPayment: (requestId: number, paymentIntentId: string) =>
+    api.post(`/api/documents/requests/${requestId}/confirm-payment`, { payment_intent_id: paymentIntentId }),
+  uploadManualPaymentProof: (requestId: number, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post(`/api/documents/requests/${requestId}/manual-payment/proof`, form, { headers: { 'Content-Type': 'multipart/form-data' } })
+  },
+  resendManualPaymentId: (requestId: number) =>
+    api.post(`/api/documents/requests/${requestId}/manual-payment/resend-id`),
+  submitManualPaymentId: (requestId: number, payment_id: string) =>
+    api.post(`/api/documents/requests/${requestId}/manual-payment/submit`, { payment_id }),
+  getManualPaymentProof: (requestId: number) =>
+    api.get(`/api/documents/requests/${requestId}/manual-payment/proof`, { responseType: 'blob' }),
+  getManualQrImage: (url?: string) =>
+    api.get(url || '/api/documents/manual-qr-image', { responseType: 'blob' }),
+}
+
+export const specialStatusApi = {
+  // Get my statuses
+  getMyStatuses: () => api.get('/api/user/special-statuses'),
+  // Apply for student status
+  applyStudent: (data: FormData) => api.post('/api/user/special-statuses/student', data, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+  // Apply for PWD status
+  applyPwd: (data: FormData) => api.post('/api/user/special-statuses/pwd', data, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+  // Apply for senior status
+  applySenior: (data: FormData) => api.post('/api/user/special-statuses/senior', data, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+  // Renew student status
+  renewStudent: (statusId: number, data: FormData) => api.put(`/api/user/special-statuses/${statusId}/renew`, data, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+  // Get status types info (public)
+  getStatusTypes: () => api.get('/api/special-status-types'),
 }
 
 export const issuesApi = {
@@ -372,6 +427,7 @@ export const mediaUrl = (p?: string): string => {
   if (!p) return ''
   let s = p.replace(/\\/g, '/').replace(/^\/+/, '')
   if (/^https?:\/\//i.test(s)) return s
+  if (s.startsWith('api/')) return `${API_BASE_URL}/${s}`
   const idx = s.indexOf('/uploads/')
   if (idx !== -1) s = s.slice(idx + 9)
   s = s.replace(/^uploads\//, '')

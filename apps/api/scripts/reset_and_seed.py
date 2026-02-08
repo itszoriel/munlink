@@ -18,6 +18,7 @@ Usage (from repo root, venv active):
       --benefits-per-muni 3
 """
 
+from apps.api.utils.time import utc_now
 import sys
 import os
 import re
@@ -72,7 +73,7 @@ def backup_database_file(app) -> str:
     if not os.path.exists(db_path):
         return ''
 
-    ts = datetime.utcnow().strftime('%Y%m%d%H%M%S')
+    ts = utc_now().strftime('%Y%m%d%H%M%S')
     backup_path = f"{db_path}.backup-{ts}.db"
     shutil.copy2(db_path, backup_path)
     return backup_path
@@ -249,8 +250,8 @@ def create_admin_accounts_from_entries(entries):
             municipality_id=municipality.id,
             email_verified=True,
             admin_verified=True,
-            email_verified_at=datetime.utcnow(),
-            admin_verified_at=datetime.utcnow(),
+            email_verified_at=utc_now(),
+            admin_verified_at=utc_now(),
             is_active=True,
         )
         db.session.add(admin_user)

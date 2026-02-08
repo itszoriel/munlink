@@ -2,12 +2,13 @@
 Database model for scoped announcements with municipality/barangay targeting.
 """
 from datetime import datetime, timezone
+from apps.api.utils.time import utc_now
 from sqlalchemy import Index
 
 try:
-    from __init__ import db
+    from apps.api import db
 except ImportError:
-    from __init__ import db
+    from apps.api import db
 
 
 def _to_naive_utc(dt):
@@ -43,8 +44,8 @@ class Announcement(db.Model):
     shared_with_municipalities = db.Column(db.JSON, nullable=True)  # Array of municipality IDs for cross-municipality sharing
     public_viewable = db.Column(db.Boolean, nullable=False, default=False)  # True = guests can view when scoped
     is_active = db.Column(db.Boolean, default=True, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Relationships
     municipality = db.relationship('Municipality', backref='announcements')
@@ -70,7 +71,7 @@ class Announcement(db.Model):
 
     def to_dict(self):
         """Convert announcement to dictionary with scoped metadata and safe UTC datetimes."""
-        now = datetime.utcnow()
+        now = utc_now()
         status_value = (self.status or 'DRAFT').upper()
         publish_at = _to_naive_utc(self.publish_at)
         expire_at = _to_naive_utc(self.expire_at)

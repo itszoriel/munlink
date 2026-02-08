@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type CSSProperties } from 'react'
 import { useAnimatedCounter } from '../hooks/useAnimatedCounter'
 
 export type StatCardProps = {
@@ -116,6 +116,10 @@ export const StatCard: React.FC<StatCardProps> = ({
 
   // Display value
   const displayValue = isNumeric && animated ? formatValue(animatedValue) : value
+  const iconStyle: CSSProperties = {
+    backgroundColor: 'var(--admin-accent-100, #e0f2fe)',
+    color: 'var(--admin-accent-600, #0ea5e9)',
+  }
 
   const content = (
     <div className={`card-stat bg-white p-6 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 ${onClick ? 'cursor-pointer' : ''} ${className || ''}`.trim()}>
@@ -151,7 +155,7 @@ export const StatCard: React.FC<StatCardProps> = ({
           )}
         </div>
         {icon ? (
-          <div className="w-12 h-12 bg-sky-100 rounded-xl flex items-center justify-center text-sky-600">
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={iconStyle}>
             {icon}
           </div>
         ) : null}

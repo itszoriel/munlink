@@ -185,7 +185,7 @@ def validate_file_mime_type(
     Raises:
         ValidationError: If MIME type is not allowed or doesn't match extension
     """
-    from utils.validators import ValidationError
+    from apps.api.utils.validators import ValidationError
 
     # Normalize extension (remove leading dot if present)
     normalized_ext = None

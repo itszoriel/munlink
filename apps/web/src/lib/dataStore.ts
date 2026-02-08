@@ -141,3 +141,32 @@ export const CACHE_KEYS = {
   HOME_MARKETPLACE: 'home_marketplace',
 } as const
 
+/**
+ * Invalidate multiple cache keys at once
+ * Use this after mutations to ensure UI reflects changes immediately
+ *
+ * @example
+ * await marketplaceApi.createTransaction({ item_id: 123 })
+ * invalidateMultiple(['my_transactions', 'marketplace_items'])
+ */
+export function invalidateMultiple(keys: string[]) {
+  const store = useDataStore.getState()
+  keys.forEach(key => store.invalidate(key))
+}
+
+/**
+ * Get a function to invalidate cache keys
+ * Useful when you need to pass invalidation as a callback
+ *
+ * @example
+ * const invalidate = useInvalidator()
+ * await api.create(data)
+ * invalidate(['my_items', 'marketplace_items'])
+ */
+export function useInvalidator() {
+  const store = useDataStore()
+  return (keys: string[]) => {
+    keys.forEach(key => store.invalidate(key))
+  }
+}
+

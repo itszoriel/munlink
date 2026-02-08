@@ -323,9 +323,17 @@ function SidebarLink({ link, onClose, textReveal }: { link: NavItem; onClose?: (
       className={({ isActive }) =>
         `flex items-center justify-start gap-2 group/sidebar py-2 px-3 rounded-md transition-all ${
           isActive
-            ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-lg'
+            ? 'text-white shadow-lg'
             : 'text-neutral-700 hover:bg-neutral-100'
         }`
+      }
+      style={({ isActive }) =>
+        isActive
+          ? {
+              backgroundImage: 'linear-gradient(to right, var(--admin-accent-from), var(--admin-accent-to))',
+              boxShadow: '0 12px 24px var(--admin-accent-shadow)',
+            }
+          : undefined
       }
     >
       {IconFor(link.icon, 'w-5 h-5 flex-shrink-0')}

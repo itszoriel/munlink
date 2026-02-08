@@ -10,7 +10,15 @@ import Footer from './Footer'
 import AuthStatusBanner from './AuthStatusBanner'
 import { Toast } from '@munlink/ui'
 import { mediaUrl } from '@/lib/api'
-import { Menu, X, Home as HomeIcon, Bell, ShoppingBag, FileText, AlertCircle, GraduationCap, Info, MapPin, User, LogOut, LayoutDashboard, Store } from 'lucide-react'
+import { Menu, X, Home as HomeIcon, Bell, ShoppingBag, FileText, AlertCircle, GraduationCap, Info, MapPin, User, LogOut, LayoutDashboard, Activity } from 'lucide-react'
+
+const isProtectedResidentRoute = (pathname: string) => (
+  pathname.startsWith('/dashboard') ||
+  pathname.startsWith('/documents') ||
+  pathname.startsWith('/upload-id') ||
+  pathname.startsWith('/profile') ||
+  pathname.startsWith('/my-marketplace')
+)
 
 export default function Layout() {
   const accountRef = useRef<HTMLDetailsElement>(null)
@@ -24,6 +32,7 @@ export default function Layout() {
   const logout = useAppStore((s) => s.logout)
   const navigate = useNavigate()
   const location = useLocation()
+  const hideLocationSelector = location.pathname.startsWith('/dashboard') || location.pathname.startsWith('/documents')
 
   // Scroll to top on route change
   useEffect(() => {
@@ -33,9 +42,12 @@ export default function Layout() {
   // Re-validate auth on history navigation to prevent back access after logout
   useEffect(() => {
     const recheckAuth = () => {
-      const { isAuthenticated: auth, role: currentRole } = useAppStore.getState()
+      const { isAuthenticated: auth, role: currentRole, isAuthBootstrapped } = useAppStore.getState()
+      const pathname = window.location.pathname
+      if (!isAuthBootstrapped) return
+      if (!isProtectedResidentRoute(pathname)) return
       if (!auth || currentRole === 'public') {
-        navigate('/login', { replace: true })
+        navigate('/login', { replace: true, state: { from: pathname } })
       }
     }
     window.addEventListener('pageshow', recheckAuth)
@@ -54,11 +66,14 @@ export default function Layout() {
   }, [])
 
   // Toggle a body class so pages can respond to the mobile menu being open (e.g., hiding FABs)
+  // and lock body scroll while the mobile drawer is active.
   useEffect(() => {
     const body = document.body
     body.classList.toggle('mobile-menu-open', mobileOpen)
+    body.style.overflow = mobileOpen ? 'hidden' : ''
     return () => {
       body.classList.remove('mobile-menu-open')
+      body.style.overflow = ''
     }
   }, [mobileOpen])
 
@@ -78,6 +93,11 @@ export default function Layout() {
     try {
       document.querySelectorAll('details[open]').forEach((d) => d.removeAttribute('open'))
     } catch {}
+  }, [location.pathname])
+
+  // Close mobile drawer after route changes (including browser back/forward).
+  useEffect(() => {
+    setMobileOpen(false)
   }, [location.pathname])
 
   // Close dropdowns when clicking outside them
@@ -124,8 +144,8 @@ export default function Layout() {
               
               <span aria-hidden="true" className="w-px h-5 bg-gray-300 mx-1" />
               
-              {/* Location context: Hide on Dashboard */}
-              {location.pathname !== '/dashboard' && (
+              {/* Location context: Hide on Dashboard and Documents */}
+              {!hideLocationSelector && (
               <div className="flex items-center gap-1 bg-ocean-50/50 rounded-lg px-2 py-1">
                 {/* Municipality/Barangay selection for browsing - available to all users (Province auto-selected to Zambales) */}
                 <MunicipalitySelect />
@@ -157,11 +177,14 @@ export default function Layout() {
                     <span className="font-serif text-sm">Account ▾</span>
                   </summary>
                   <div className="absolute right-0 mt-3 w-52 bg-white/95 backdrop-blur-xl rounded-xl shadow-2xl border border-white/50 p-2 z-50">
-                    <button onClick={() => { closeAccount(); navigate('/dashboard') }} className="block w-full text-left px-3 py-2 rounded hover:bg-ocean-50 text-sm">Dashboard</button>
-                    <button onClick={() => { closeAccount(); navigate('/my-marketplace') }} className="block w-full text-left px-3 py-2 rounded hover:bg-ocean-50 text-sm">My Marketplace</button>
-                    <button onClick={() => { closeAccount(); navigate('/profile') }} className="block w-full text-left px-3 py-2 rounded hover:bg-ocean-50 text-sm">Profile</button>
-                    <hr className="my-1 border-gray-200" />
-                    <button onClick={() => { closeAccount(); logout(); navigate('/login', { replace: true }) }} className="block w-full text-left px-3 py-2 rounded hover:bg-red-50 text-sm text-red-600">Logout</button>
+                    <button onClick={() => { closeAccount(); navigate('/dashboard') }} className="block w-full text-left px-3 py-2 rounded hover:bg-ocean-50 text-sm font-medium">Dashboard</button>
+                    <button onClick={() => { closeAccount(); navigate('/profile') }} className="block w-full text-left px-3 py-2 rounded hover:bg-ocean-50 text-sm font-medium">Profile</button>
+                    <hr className="my-2 border-gray-200" />
+                    <div className="px-3 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">Activity</div>
+                    <button onClick={() => { closeAccount(); navigate('/my-marketplace?tab=transactions') }} className="block w-full text-left px-3 py-2 rounded hover:bg-ocean-50 text-sm">Transactions</button>
+                    <button onClick={() => { closeAccount(); navigate('/dashboard/requests') }} className="block w-full text-left px-3 py-2 rounded hover:bg-ocean-50 text-sm">Document Requests</button>
+                    <hr className="my-2 border-gray-200" />
+                    <button onClick={() => { closeAccount(); logout(); navigate('/login', { replace: true }) }} className="block w-full text-left px-3 py-2 rounded hover:bg-red-50 text-sm text-red-600 font-medium">Logout</button>
                   </div>
                 </details>
               )}
@@ -230,7 +253,6 @@ export default function Layout() {
                 <span>Marketplace</span>
               </Link>
 
-              {/* Services Section */}
               <div className="pt-3 pb-2">
                 <div className="px-4 py-2 text-xs font-bold tracking-wider text-gray-500 uppercase flex items-center gap-2">
                   <div className="h-px flex-1 bg-gradient-to-r from-transparent via-gray-300 to-transparent"></div>
@@ -275,8 +297,7 @@ export default function Layout() {
                 <span>About</span>
               </Link>
 
-              {/* Location Selectors */}
-              {location.pathname !== '/dashboard' && (
+              {!hideLocationSelector && (
                 <div className="pt-4 pb-2">
                   <div className="px-4 py-2 text-xs font-bold tracking-wider text-gray-500 uppercase flex items-center gap-2">
                     <MapPin className="w-4 h-4" />
@@ -319,25 +340,41 @@ export default function Layout() {
               <div className="space-y-2">
                 <button
                   onClick={() => { setMobileOpen(false); navigate('/dashboard'); }}
-                  className="flex items-center gap-3 w-full px-4 py-3 rounded-xl hover:bg-ocean-50 active:bg-ocean-100 transition-all duration-200 text-gray-700 hover:text-ocean-700 font-medium"
+                  className="flex items-center gap-3 w-full px-4 py-3 rounded-xl hover:bg-ocean-50 active:bg-ocean-100 transition-all duration-200 text-gray-700 hover:text-ocean-700 font-semibold"
                 >
                   <LayoutDashboard className="w-5 h-5" />
                   <span>Dashboard</span>
                 </button>
                 <button
-                  onClick={() => { setMobileOpen(false); navigate('/my-marketplace'); }}
-                  className="flex items-center gap-3 w-full px-4 py-3 rounded-xl hover:bg-ocean-50 active:bg-ocean-100 transition-all duration-200 text-gray-700 hover:text-ocean-700 font-medium"
-                >
-                  <Store className="w-5 h-5" />
-                  <span>My Marketplace</span>
-                </button>
-                <button
                   onClick={() => { setMobileOpen(false); navigate('/profile'); }}
-                  className="flex items-center gap-3 w-full px-4 py-3 rounded-xl hover:bg-ocean-50 active:bg-ocean-100 transition-all duration-200 text-gray-700 hover:text-ocean-700 font-medium"
+                  className="flex items-center gap-3 w-full px-4 py-3 rounded-xl hover:bg-ocean-50 active:bg-ocean-100 transition-all duration-200 text-gray-700 hover:text-ocean-700 font-semibold"
                 >
                   <User className="w-5 h-5" />
                   <span>Profile</span>
                 </button>
+
+                <div className="pt-3 pb-2 border-t border-gray-200">
+                  <div className="px-4 py-2 text-xs font-bold tracking-wider text-gray-500 uppercase flex items-center gap-2">
+                    <Activity className="w-4 h-4" />
+                    <span>Activity</span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => { setMobileOpen(false); navigate('/my-marketplace?tab=transactions'); }}
+                  className="flex items-center gap-3 w-full px-4 py-3 rounded-xl hover:bg-ocean-50 active:bg-ocean-100 transition-all duration-200 text-gray-700 hover:text-ocean-700 font-medium"
+                >
+                  <ShoppingBag className="w-5 h-5" />
+                  <span>Transactions</span>
+                </button>
+                <button
+                  onClick={() => { setMobileOpen(false); navigate('/dashboard/requests'); }}
+                  className="flex items-center gap-3 w-full px-4 py-3 rounded-xl hover:bg-ocean-50 active:bg-ocean-100 transition-all duration-200 text-gray-700 hover:text-ocean-700 font-medium"
+                >
+                  <FileText className="w-5 h-5" />
+                  <span>Document Requests</span>
+                </button>
+
                 <div className="pt-2 border-t border-gray-200">
                   <button
                     onClick={() => { setMobileOpen(false); logout(); navigate('/login', { replace: true }) }}

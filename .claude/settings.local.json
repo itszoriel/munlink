@@ -18,7 +18,14 @@
       "Bash(python:*)",
       "Bash(.venvScriptspython.exe scripts/diagnose_philsms.py)",
       "Bash(venv/Scripts/python:*)",
-      "Bash(flask db migrate:*)"
+      "Bash(flask db migrate:*)",
+      "Bash(flask db:*)",
+      "Bash(if [ -d \"venv\" ])",
+      "Bash(then echo \"venv exists\")",
+      "Bash(else echo \"venv not found\")",
+      "Bash(fi)",
+      "Bash(source venv/Scripts/activate)",
+      "Bash(export PYTHONPATH=\".\":*)"
     ]
   }
 }

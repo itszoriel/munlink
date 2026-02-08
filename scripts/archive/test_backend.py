@@ -61,14 +61,15 @@ def test_backend():
         print("  python app.py")
         print("\nServer will be available at: http://localhost:5000")
         
-        return True
-        
     except Exception as e:
         print(f"\n[ERROR] {str(e)}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 if __name__ == '__main__':
-    success = test_backend()
-    sys.exit(0 if success else 1)
+    try:
+        test_backend()
+        sys.exit(0)
+    except Exception:
+        sys.exit(1)

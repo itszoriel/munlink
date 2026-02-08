@@ -4,9 +4,9 @@ import { ArrowRight, ArrowLeft, CheckCircle2, XCircle } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import GatedAction from '@/components/GatedAction'
 import { useAppStore } from '@/lib/store'
-import { benefitsApi, mediaUrl } from '@/lib/api'
+import { authApi, benefitsApi, mediaUrl } from '@/lib/api'
 import { useCachedFetch } from '@/lib/useCachedFetch'
-import { CACHE_KEYS } from '@/lib/dataStore'
+import { CACHE_KEYS, invalidateMultiple } from '@/lib/dataStore'
 import Modal from '@/components/ui/Modal'
 import Stepper from '@/components/ui/Stepper'
 import FileUploader from '@/components/ui/FileUploader'
@@ -73,7 +73,6 @@ export default function ProgramsPage() {
     if (open && selected && isAuthenticated) {
       const fetchProfile = async () => {
         try {
-          const { authApi } = await import('@/lib/api')
           const profileRes = await authApi.getProfile()
           const profileData = (profileRes as any).data || profileRes
           setUserProfile(profileData)
@@ -330,8 +329,8 @@ export default function ProgramsPage() {
               return (
               <Card key={p.id} className="flex flex-col">
                 {img ? (
-                  <div className="mb-3 -mx-4 -mt-4 overflow-hidden rounded-t-lg border-b border-[var(--color-border)]">
-                    <img src={img} alt={`${p.name} image`} className="h-36 w-full object-cover" />
+                  <div className="mb-3 -mx-4 -mt-4 overflow-hidden rounded-t-lg border-b border-[var(--color-border)] bg-gray-50">
+                    <img src={img} alt={`${p.name} image`} className="w-full h-48 object-contain" />
                   </div>
                 ) : null}
                 <div className="flex items-start justify-between gap-3">
@@ -680,6 +679,8 @@ export default function ProgramsPage() {
                     setResult(app)
                     // Refresh applications list after successful submission
                     refetchApplications()
+                    // Invalidate programs cache to reflect any slot/capacity changes
+                    invalidateMultiple([CACHE_KEYS.BENEFITS_PROGRAMS])
                   } catch (e: any) {
                     const errorMsg = e?.response?.data?.error || e?.message || 'Failed to submit application'
                     setResult({ error: errorMsg })

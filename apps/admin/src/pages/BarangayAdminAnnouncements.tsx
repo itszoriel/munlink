@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { createPortal } from 'react-dom'
 import { Plus, Megaphone, Edit, Trash2, Pin } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import BarangayAdminLayout from '../components/layout/BarangayAdminLayout'
@@ -207,15 +206,13 @@ export default function BarangayAdminAnnouncements() {
             <h1 className="text-3xl font-serif font-bold text-gray-900">Barangay Announcements</h1>
             <p className="text-gray-600 mt-2">Manage announcements for {barangayName}</p>
           </div>
-          {announcements.length > 0 && (
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="hidden sm:flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-600 to-green-700 text-white rounded-xl hover:shadow-lg transition-shadow"
-            >
-              <Plus className="w-5 h-5" />
-              <span className="font-medium">New Announcement</span>
-            </button>
-          )}
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="hidden sm:flex items-center gap-2 px-6 py-3 bg-ocean-gradient text-white rounded-xl hover:shadow-lg transition-shadow"
+          >
+            <Plus className="w-5 h-5" />
+            <span className="font-medium">New Announcement</span>
+          </button>
         </div>
 
         {/* Announcements List */}
@@ -237,7 +234,7 @@ export default function BarangayAdminAnnouncements() {
             action={
               <button
                 onClick={() => setShowCreateModal(true)}
-                className="hidden sm:block px-6 py-3 bg-gradient-to-r from-indigo-600 to-violet-700 text-white rounded-xl hover:shadow-lg transition-shadow"
+                className="hidden sm:block px-6 py-3 bg-ocean-gradient text-white rounded-xl hover:shadow-lg transition-shadow"
               >
                 Create Announcement
               </button>
@@ -260,7 +257,7 @@ export default function BarangayAdminAnnouncements() {
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[announcement.status || 'DRAFT']}`}>
                         {announcement.status || 'DRAFT'}
                       </span>
-                      <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
+                      <span className="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700">
                         BARANGAY
                       </span>
                     </div>
@@ -310,7 +307,7 @@ export default function BarangayAdminAnnouncements() {
 
         {/* Create/Edit Modal */}
         {isFormOpen && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-start md:items-center justify-center p-4 pt-20 md:pt-4 overflow-y-auto">
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-start md:items-center justify-center p-4 pt-24 md:pt-4 overflow-y-auto">
             <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 my-auto">
               <h2 className="text-2xl font-bold text-gray-900 mb-6">
                 {editingAnnouncement ? 'Edit Announcement' : `Create Barangay Announcement for ${barangayName}`}
@@ -323,7 +320,7 @@ export default function BarangayAdminAnnouncements() {
                     type="text"
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     required
                   />
                 </div>
@@ -334,7 +331,7 @@ export default function BarangayAdminAnnouncements() {
                     value={formData.content}
                     onChange={(e) => setFormData({ ...formData, content: e.target.value })}
                     rows={5}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     required
                   />
                 </div>
@@ -345,7 +342,7 @@ export default function BarangayAdminAnnouncements() {
                     <select
                       value={formData.priority}
                       onChange={(e) => setFormData({ ...formData, priority: e.target.value as any })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     >
                       <option value="low">Low</option>
                       <option value="medium">Medium</option>
@@ -358,7 +355,7 @@ export default function BarangayAdminAnnouncements() {
                     <select
                       value={formData.status}
                       onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     >
                       <option value="DRAFT">Draft</option>
                       <option value="PUBLISHED">Published</option>
@@ -372,7 +369,7 @@ export default function BarangayAdminAnnouncements() {
                       type="checkbox"
                       checked={formData.pinned}
                       onChange={(e) => setFormData({ ...formData, pinned: e.target.checked })}
-                      className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                     />
                     <span className="text-sm font-medium text-gray-700">Pin this announcement</span>
                   </label>
@@ -385,7 +382,7 @@ export default function BarangayAdminAnnouncements() {
                       type="datetime-local"
                       value={formData.pinned_until}
                       onChange={(e) => setFormData({ ...formData, pinned_until: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     />
                   </div>
                 )}
@@ -397,7 +394,7 @@ export default function BarangayAdminAnnouncements() {
                     multiple
                     accept="image/*"
                     onChange={(e) => setFormImages(e.target.files)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   />
                 </div>
 
@@ -405,7 +402,7 @@ export default function BarangayAdminAnnouncements() {
                   <button
                     type="submit"
                     disabled={formLoading}
-                    className="flex-1 py-3 bg-gradient-to-r from-emerald-600 to-green-700 text-white rounded-xl hover:shadow-lg transition-shadow disabled:opacity-50"
+                    className="flex-1 py-3 bg-ocean-gradient text-white rounded-xl hover:shadow-lg transition-shadow disabled:opacity-50"
                   >
                     {formLoading ? 'Saving...' : editingAnnouncement ? 'Update' : 'Create'}
                   </button>
@@ -422,83 +419,78 @@ export default function BarangayAdminAnnouncements() {
           </div>
         )}
 
-        {/* Floating Action Button - MOBILE ONLY */}
-        {/* Using Portal to render outside parent container */}
-        {/* Show only when there are announcements and no modal is open */}
-        {!isFormOpen && announcements.length > 0 && createPortal(
-          <>
-            <motion.div
-              className="fixed bottom-20 right-4 z-[9999] sm:hidden"
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              transition={{ duration: 0.2 }}
+        {/* Floating Action Button (Mobile Only) */}
+        {!isFormOpen && (
+          <motion.div
+            className="fixed bottom-20 right-4 z-50 sm:hidden fab-mobile"
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            transition={{ duration: 0.2 }}
+          >
+            <motion.button
+              className="relative flex items-center justify-center bg-ocean-gradient text-white shadow-lg hover:shadow-xl transition-shadow"
+              onClick={() => {
+                if (fabExpanded) {
+                  setShowCreateModal(true)
+                  setFabExpanded(false)
+                } else {
+                  setFabExpanded(true)
+                }
+              }}
+              animate={{
+                width: fabExpanded ? 200 : 56,
+                height: 56,
+                borderRadius: 28,
+              }}
+              transition={{
+                type: "spring",
+                stiffness: 400,
+                damping: 25,
+              }}
+              whileTap={{ scale: 0.95 }}
             >
-              <motion.button
-                className="relative flex items-center justify-center bg-gradient-to-r from-emerald-600 to-green-700 text-white shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50 transition-shadow"
-                onClick={() => {
-                  if (fabExpanded) {
-                    setShowCreateModal(true)
-                    setFabExpanded(false)
-                  } else {
-                    setFabExpanded(true)
-                  }
-                }}
-                animate={{
-                  width: fabExpanded ? 200 : 56,
-                  height: 56,
-                  borderRadius: 28,
-                }}
-                transition={{
-                  type: "spring",
-                  stiffness: 400,
-                  damping: 25,
-                }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <AnimatePresence mode="wait">
-                  {fabExpanded ? (
-                    <motion.div
-                      key="expanded"
-                      className="flex items-center gap-2 px-4"
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.8 }}
-                      transition={{ duration: 0.15 }}
-                    >
-                      <Plus className="w-5 h-5 flex-shrink-0" />
-                      <span className="text-sm font-medium whitespace-nowrap">New Announcement</span>
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key="collapsed"
-                      initial={{ opacity: 0, rotate: -90 }}
-                      animate={{ opacity: 1, rotate: 0 }}
-                      exit={{ opacity: 0, rotate: 90 }}
-                      transition={{ duration: 0.15 }}
-                    >
-                      <Plus className="w-6 h-6" />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.button>
-            </motion.div>
-
-            {/* Backdrop to close FAB when clicking outside - MOBILE ONLY */}
-            <AnimatePresence>
-              {fabExpanded && (
-                <motion.div
-                  className="fixed inset-0 z-[9998] sm:hidden"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  onClick={() => setFabExpanded(false)}
-                />
-              )}
-            </AnimatePresence>
-          </>,
-          document.body
+              <AnimatePresence mode="wait">
+                {fabExpanded ? (
+                  <motion.div
+                    key="expanded"
+                    className="flex items-center gap-2 px-4"
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                    transition={{ duration: 0.15 }}
+                  >
+                    <Plus className="w-5 h-5 flex-shrink-0" />
+                    <span className="text-sm font-medium whitespace-nowrap">New Announcement</span>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="collapsed"
+                    initial={{ opacity: 0, rotate: -90 }}
+                    animate={{ opacity: 1, rotate: 0 }}
+                    exit={{ opacity: 0, rotate: 90 }}
+                    transition={{ duration: 0.15 }}
+                  >
+                    <Plus className="w-6 h-6" />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.button>
+          </motion.div>
         )}
+
+        {/* Backdrop to close FAB when clicking outside */}
+        <AnimatePresence>
+          {fabExpanded && !isFormOpen && (
+            <motion.div
+              className="fixed inset-0 z-40 sm:hidden fab-mobile-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setFabExpanded(false)}
+            />
+          )}
+        </AnimatePresence>
       </div>
     </BarangayAdminLayout>
   )

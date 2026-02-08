@@ -74,6 +74,7 @@ npm run dev
   - Prevents logout redirects during the bootstrap phase
   - Falls back to cached user data if profile fetch fails (network issues, temporary backend unavailability)
   - Only clears authentication if truly no valid session exists
+- **Cache Invalidation**: Frontend uses Zustand-based data cache (`apps/web/src/lib/dataStore.ts`) with 5-minute stale time. After mutations (create/update/delete operations), always call `invalidateMultiple([CACHE_KEY1, CACHE_KEY2, ...])` to ensure UI reflects changes immediately without requiring page refresh. Pattern: `await api.create(data) → invalidateMultiple([...relevant cache keys]) → showToast(message)`. See examples in MarketplacePage, DocumentsPage, ProgramsPage, ProblemsPage.
 - **Frontend UI Guide**: See `docs/frontend-ui-guide/` for responsive design patterns, mobile FAB implementation, table-to-card conversion, and reusable component snippets.
 
 ## Super Admin Setup
@@ -226,6 +227,7 @@ The project is configured for Railway deployment with three services:
 ### Admins (Municipal/Barangay)
 - **Resident verification**: Review and approve/reject resident registrations with privacy-hardened ID viewing (watermarked display, audit logging, permission-based access). ID images are fetched server-side and returned as blob data to prevent CORS issues and avoid exposing storage URLs
 - **Document processing**: Generate PDFs with QR codes, create claim tickets, validate QR codes at claim time
+- **Payment verification**: Review manual QR proofs for digital requests and verify office payment codes for pickup requests before release
 - **Marketplace moderation**: Monitor and moderate live marketplace listings (resident posts publish immediately)
 - **Problem triage**: Review and categorize problem reports, update status and resolution
 - **Benefit program management**: Create and manage municipal benefit programs with image uploads

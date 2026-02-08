@@ -3,10 +3,11 @@ import { Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Plus } from 'lucide-react'
 import GatedAction from '@/components/GatedAction'
+import SafeImage from '@/components/SafeImage'
 import { marketplaceApi, mediaUrl, showToast } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 import { useCachedFetch } from '@/lib/useCachedFetch'
-import { CACHE_KEYS } from '@/lib/dataStore'
+import { CACHE_KEYS, invalidateMultiple } from '@/lib/dataStore'
 import { EmptyState } from '@munlink/ui'
 
 type Item = {
@@ -164,98 +165,175 @@ export default function MarketplacePage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {items.map((item) => (
-            <div key={item.id} className="card">
-              <div className="w-full aspect-[4/3] bg-gray-200 rounded-lg mb-4 overflow-hidden relative">
+          {items.map((item, index) => (
+            <motion.div
+              key={item.id}
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.4, delay: index * 0.05 }}
+              className="group bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-lg hover:border-ocean-200 transition-all duration-300"
+            >
+              {/* Image with overlays */}
+              <div className="w-full aspect-[4/3] bg-gray-100 overflow-hidden relative">
                 <Link to={`/marketplace/${item.id}`} aria-label={`View ${item.title}`} className="absolute inset-0">
-                  {item.images?.[0] ? (
-                    <img src={mediaUrl(item.images[0])} alt={item.title} loading="lazy" className="responsive-img h-full" />
-                  ) : (
-                    <div className="w-full h-full" />
-                  )}
+                  <SafeImage
+                    src={mediaUrl(item.images?.[0])}
+                    alt={item.title}
+                    className="w-full h-full object-cover"
+                    fallbackIcon="image"
+                  />
                 </Link>
-                <div className="absolute top-3 left-3 flex items-center gap-2">
-                  <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-white/90 text-neutral-800 shadow">{(item as any).municipality_name || (selectedMunicipality as any)?.name || 'Province-wide'}</span>
+
+                {/* Location badge - top left */}
+                <div className="absolute top-3 left-3">
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-white/95 backdrop-blur-sm text-gray-800 shadow-sm">
+                    {(item as any).municipality_name || (selectedMunicipality as any)?.name || 'Province-wide'}
+                  </span>
                 </div>
+
+                {/* Transaction type badge - top right */}
                 <div className="absolute top-3 right-3">
-                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wide shadow ${
+                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wide shadow-sm ${
                     item.transaction_type === 'sell'
                       ? 'bg-ocean-600 text-white'
                       : item.transaction_type === 'lend'
                         ? 'bg-forest-600 text-white'
                         : 'bg-sunset-600 text-white'
-                  }`}>{item.transaction_type}</span>
+                  }`}>
+                    {item.transaction_type}
+                  </span>
                 </div>
-                <div className="absolute bottom-3 right-3">
-                  <Link to={`/marketplace/${item.id}`} className="px-2.5 py-1 rounded-lg text-xs bg-white/90 hover:bg-white shadow">View</Link>
+
+                {/* Photo count - bottom left */}
+                {Array.isArray(item.images) && item.images.length > 1 && (
+                  <div className="absolute bottom-3 left-3">
+                    <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-black/70 backdrop-blur-sm text-white shadow-sm">
+                      {item.images.length} Photos
+                    </span>
+                  </div>
+                )}
+
+                {/* View button - bottom right - appears on hover */}
+                <div className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                  <Link
+                    to={`/marketplace/${item.id}`}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white/95 backdrop-blur-sm hover:bg-white shadow-sm hover:shadow-md transition-all"
+                  >
+                    View Details
+                  </Link>
                 </div>
               </div>
-              <h3 className="font-bold mb-2"><Link to={`/marketplace/${item.id}`} className="hover:underline">{item.title}</Link></h3>
-              <p className="text-sm text-gray-600 mb-2">Category: {item.category}</p>
-              {(() => {
-                const u = (item as any).user
-                const photo = u?.profile_picture
-                return (
-                  <div className="flex items-center gap-2 text-xs text-gray-600 mb-2">
-                    {photo ? (
-                      <img src={mediaUrl(photo)} alt="profile" className="w-6 h-6 rounded-full object-cover border" />
-                    ) : (
-                      <span className="text-[10px] text-gray-600 border border-gray-200 rounded-full px-2 py-0.5">No photo</span>
-                    )}
-                    <span>{u?.username || 'User'}</span>
-                  </div>
-                )
-              })()}
-              <p className="text-primary-500 font-bold capitalize">{item.transaction_type}{item.transaction_type==='sell'&& item.price?` • ₱${item.price}`:''}</p>
-              <div className="mt-4">
+
+              {/* Content section */}
+              <div className="p-4 space-y-3">
+                {/* Title */}
+                <h3 className="font-bold text-gray-900 line-clamp-2 leading-tight">
+                  <Link to={`/marketplace/${item.id}`} className="hover:text-ocean-600 transition-colors">
+                    {item.title}
+                  </Link>
+                </h3>
+
+                {/* Category */}
+                <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">
+                  {item.category}
+                </p>
+
+                {/* Seller info */}
                 {(() => {
-                  const currentUserId = Number((user as any)?.id ?? (user as any)?.user_id)
-                  const isOwner = !!currentUserId && currentUserId === Number((item as any).user_id)
-                  if (isOwner) {
-                    return (
-                      <div className="text-xs text-gray-500">This is your item.</div>
-                    )
-                  }
+                  const u = (item as any).user
+                  const photo = u?.profile_picture
                   return (
-                <GatedAction
-                  required="fullyVerified"
-                  onAllowed={async () => {
-                        try {
-                          if (!window.confirm('Submit this request? The seller/donor will be notified and must accept.')) return
-                          setCreatingTxId(item.id)
-                          await marketplaceApi.createTransaction({ item_id: item.id })
-                          showToast('Request submitted. Awaiting seller/donor response.', 'success')
-                          setMyPending((prev) => ({ ...prev, [item.id]: 'pending' }))
-                        } catch (e: any) {
-                          const msg = e?.response?.data?.error || 'Failed to create transaction request'
-                          showToast(msg, 'error')
-                        } finally {
-                          setCreatingTxId(null)
-                        }
-                  }}
-                  featureDescription={item.transaction_type === 'sell' ? `Request to buy "${item.title}"` : item.transaction_type === 'lend' ? `Request to borrow "${item.title}"` : `Request donation "${item.title}"`}
-                >
-                  {(() => {
-                    const isCross = !!userMunicipalityId && !!item.municipality_id && userMunicipalityId !== item.municipality_id
-                    return (
-                      <button
-                        className="btn btn-primary w-full"
-                            disabled={creatingTxId === item.id || isCross || !!myPending[item.id]}
-                            title={isCross ? 'Transactions are limited to your municipality' : (myPending[item.id] ? 'You already requested this item' : undefined)}
-                      >
-                            {creatingTxId === item.id
-                              ? 'Submitting...'
-                              : myPending[item.id]
-                                ? 'Requested'
-                                : (item.transaction_type === 'sell' ? 'Request to Buy' : item.transaction_type === 'lend' ? 'Request to Borrow' : 'Request Donation')}
-                      </button>
-                    )
-                  })()}
-                </GatedAction>
+                    <div className="flex items-center gap-2">
+                      {photo ? (
+                        <img
+                          src={mediaUrl(photo)}
+                          alt="profile"
+                          className="w-7 h-7 rounded-full object-cover border-2 border-gray-100"
+                        />
+                      ) : (
+                        <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center border-2 border-gray-200">
+                          <span className="text-[10px] text-gray-500 font-medium">
+                            {(u?.username?.[0] || 'U').toUpperCase()}
+                          </span>
+                        </div>
+                      )}
+                      <span className="text-sm text-gray-700 font-medium truncate">
+                        {u?.username || 'User'}
+                      </span>
+                    </div>
                   )
                 })()}
+
+                {/* Price */}
+                <div className="pt-2 border-t border-gray-100">
+                  <p className={`font-bold text-lg ${
+                    item.transaction_type === 'sell' ? 'text-ocean-600' :
+                    item.transaction_type === 'lend' ? 'text-forest-600' :
+                    'text-sunset-600'
+                  }`}>
+                    {item.transaction_type === 'sell' && item.price
+                      ? `₱${Number(item.price).toLocaleString()}`
+                      : item.transaction_type === 'lend'
+                        ? 'For Lending'
+                        : 'Free'}
+                  </p>
+                </div>
+
+                {/* Action button */}
+                <div className="pt-1">
+                  {(() => {
+                    const currentUserId = Number((user as any)?.id ?? (user as any)?.user_id)
+                    const isOwner = !!currentUserId && currentUserId === Number((item as any).user_id)
+                    if (isOwner) {
+                      return (
+                        <div className="text-xs text-gray-500 italic py-2 text-center bg-gray-50 rounded-lg">
+                          Your listing
+                        </div>
+                      )
+                    }
+                    return (
+                      <GatedAction
+                        required="fullyVerified"
+                        onAllowed={async () => {
+                          try {
+                            if (!window.confirm('Submit this request? The seller/donor will be notified and must accept.')) return
+                            setCreatingTxId(item.id)
+                            await marketplaceApi.createTransaction({ item_id: item.id })
+                            showToast('Request submitted. Awaiting seller/donor response.', 'success')
+                            setMyPending((prev) => ({ ...prev, [item.id]: 'pending' }))
+                            invalidateMultiple([CACHE_KEYS.MY_TRANSACTIONS, CACHE_KEYS.MARKETPLACE_ITEMS])
+                          } catch (e: any) {
+                            const msg = e?.response?.data?.error || 'Failed to create transaction request'
+                            showToast(msg, 'error')
+                          } finally {
+                            setCreatingTxId(null)
+                          }
+                        }}
+                        featureDescription={item.transaction_type === 'sell' ? `Request to buy "${item.title}"` : item.transaction_type === 'lend' ? `Request to borrow "${item.title}"` : `Request donation "${item.title}"`}
+                      >
+                        {(() => {
+                          const isCross = !!userMunicipalityId && !!item.municipality_id && userMunicipalityId !== item.municipality_id
+                          return (
+                            <button
+                              className="btn btn-primary w-full py-2.5 text-sm font-semibold rounded-xl shadow-sm hover:shadow-md transition-all"
+                              disabled={creatingTxId === item.id || isCross || !!myPending[item.id]}
+                              title={isCross ? 'Transactions are limited to your municipality' : (myPending[item.id] ? 'You already requested this item' : undefined)}
+                            >
+                              {creatingTxId === item.id
+                                ? 'Submitting...'
+                                : myPending[item.id]
+                                  ? '✓ Requested'
+                                  : (item.transaction_type === 'sell' ? 'Request to Buy' : item.transaction_type === 'lend' ? 'Request to Borrow' : 'Request Donation')}
+                            </button>
+                          )
+                        })()}
+                      </GatedAction>
+                    )
+                  })()}
+                </div>
               </div>
-            </div>
+            </motion.div>
           ))}
           {items.length === 0 && (
             <div className="col-span-full">
@@ -332,7 +410,7 @@ export default function MarketplacePage() {
                 </div>
                 {form.transaction_type === 'sell' && (
                   <div>
-                    <label className="block text-sm font-medium mb-1.5">Price (₱)</label>
+                    <label className="block text-sm font-medium mb-1.5">Price (PHP)</label>
                     <input className="input-field" type="number" min="0" step="0.01" placeholder="0.00" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
                   </div>
                 )}
@@ -347,13 +425,18 @@ export default function MarketplacePage() {
                     return next.slice(0,5)
                   })} />
                   {files.length > 0 && (
-                    <div className="mt-3 grid grid-cols-4 xs:grid-cols-5 gap-2">
-                      {files.map((f, i) => (
-                        <div key={`${f.name}-${i}`} className="relative aspect-square">
-                          <img src={URL.createObjectURL(f)} alt={f.name} className="w-full h-full object-cover rounded-lg border" />
-                          <button type="button" className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center bg-red-500 text-white rounded-full text-xs shadow hover:bg-red-600 transition-colors" aria-label="Remove image" onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}>✕</button>
-                        </div>
-                      ))}
+                    <div className="mt-3 space-y-2">
+                      <div className="grid grid-cols-4 xs:grid-cols-5 gap-2">
+                        {files.map((f, i) => (
+                          <div key={`${f.name}-${i}`} className="relative aspect-square">
+                            <img src={URL.createObjectURL(f)} alt={f.name} className="w-full h-full object-cover rounded-lg border" />
+                            <button type="button" className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center bg-red-500 text-white rounded-full text-xs shadow hover:bg-red-600 transition-colors" aria-label="Remove image" onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}>
+                              <X className="w-3 h-3" aria-hidden="true" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-500">{files.length} of 5 images selected</p>
                     </div>
                   )}
                 </div>
@@ -394,7 +477,7 @@ export default function MarketplacePage() {
                     setCreating(false)
                   }
                 }}>
-                {creating ? 'Posting…' : 'Post Item'}
+                {creating ? 'Posting...' : 'Post Item'}
               </button>
             </div>
           </div>

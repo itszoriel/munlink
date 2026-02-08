@@ -17,6 +17,7 @@ from apps.api.models.document import DocumentType
 from apps.api.models.issue import IssueCategory
 from apps.api.models.benefit import BenefitProgram
 from apps.api.scripts.seed_lgu_document_types import seed_lgu_document_types
+from apps.api.utils.constants import ISSUE_CATEGORIES as ISSUE_CATEGORY_SLUGS
 from datetime import datetime
 import json
 from pathlib import Path
@@ -129,423 +130,205 @@ ZAMBALES_MUNICIPALITIES = [
 ]
 
 # Document types (legally-safe defaults aligned to project scope)
-# Digital PDFs are enabled only for zero-fee barangay certifications.
+# Digital availability is controlled per document type; paid digital requires Stripe.
 DOCUMENT_TYPES = [
-    # Barangay - Digital, Free
     {
         'name': 'Barangay Clearance',
         'code': 'BRGY_CLEARANCE',
-        'description': 'Certificate of good standing from the barangay',
+        'description': 'Clearance for general purposes (employment, school, etc.)',
         'authority_level': 'barangay',
-        'requirements': ['Valid ID', 'Purpose of request'],
-        'fee': 0.00,
+        'requirements': ['Cedula', 'Valid ID'],
+        'fee': 50.00,
+        'exemption_rules': {'student': {'requires_purpose': 'educational'}},
         'processing_days': 1,
         'supports_physical': True,
         'supports_digital': True,
     },
     {
-        'name': 'Certificate of Residency',
-        'code': 'BRGY_RESIDENCY',
-        'description': 'Confirms that the requester is a resident of the barangay',
+        'name': 'Barangay Certification',
+        'code': 'BRGY_CERTIFICATION',
+        'description': 'General barangay certification for residents',
         'authority_level': 'barangay',
         'requirements': ['Valid ID'],
-        'fee': 0.00,
+        'fee': 50.00,
+        'exemption_rules': {'pwd': True, 'senior': True},
+        'processing_days': 1,
+        'supports_physical': True,
+        'supports_digital': True,
+    },
+    {
+        'name': 'Barangay Records',
+        'code': 'BRGY_RECORDS',
+        'description': 'Certification or copy of barangay records',
+        'authority_level': 'barangay',
+        'requirements': ['Valid ID'],
+        'fee': 50.00,
+        'processing_days': 2,
+        'supports_physical': True,
+        'supports_digital': True,
+    },
+    {
+        'name': 'Barangay Residency',
+        'code': 'BRGY_RESIDENCY',
+        'description': 'Certification that the requester resides in the barangay',
+        'authority_level': 'barangay',
+        'requirements': ['Valid ID'],
+        'fee': 50.00,
         'processing_days': 3,
         'supports_physical': True,
         'supports_digital': True,
     },
     {
-        'name': 'Certificate of Indigency',
+        'name': 'Barangay Indigency',
         'code': 'BRGY_INDIGENCY',
-        'description': 'Attests that the requester is indigent for assistance programs',
+        'description': 'Certification for indigent residents (for assistance programs)',
         'authority_level': 'barangay',
-        'requirements': ['Valid ID', 'Purpose of request'],
-        'fee': 0.00,
-        'processing_days': 1,
-        'supports_physical': True,
-        'supports_digital': True,
-    },
-    {
-        'name': 'Certificate of Good Moral Character',
-        'code': 'BRGY_GOOD_MORAL',
-        'description': 'Certification from the barangay on good moral character',
-        'authority_level': 'barangay',
-        'requirements': ['Valid ID', 'Purpose of request'],
-        'fee': 0.00,
+        'requirements': ['Valid ID'],
+        'fee': 50.00,
         'processing_days': 2,
         'supports_physical': True,
         'supports_digital': True,
     },
     {
-        'name': 'Certificate of No Barangay Case',
-        'code': 'BRGY_NO_CASE',
-        'description': 'Certification that there is no pending barangay case',
-        'authority_level': 'barangay',
-        'requirements': ['Valid ID', 'Purpose of request'],
-        'fee': 0.00,
-        'processing_days': 2,
-        'supports_physical': True,
-        'supports_digital': True,
-    },
-
-    # Barangay - In-person only
-    {
-        'name': 'Barangay Business Clearance',
+        'name': 'Business Clearance',
         'code': 'BRGY_BUSINESS_CLEARANCE',
         'description': 'Clearance for businesses operating within the barangay',
         'authority_level': 'barangay',
-        'requirements': ['Valid ID', 'Business details'],
-        'fee': 100.00,
-        'processing_days': 2,
-        'supports_physical': True,
-        'supports_digital': False,
-    },
-    {
-        'name': 'Barangay Blotter Certification',
-        'code': 'BRGY_BLOTTER_CERT',
-        'description': 'Certification referencing barangay blotter (restricted release)',
-        'authority_level': 'barangay',
-        'requirements': ['Valid ID'],
-        'fee': 0.00,
-        'processing_days': 3,
-        'supports_physical': True,
-        'supports_digital': False,
-    },
-    {
-        'name': 'Barangay Protection Order (Assisted)',
-        'code': 'BRGY_BPO',
-        'description': 'Assisted request for Barangay Protection Order (RA 9262)',
-        'authority_level': 'barangay',
-        'requirements': ['In-person processing'],
-        'fee': 0.00,
-        'processing_days': 0,
-        'supports_physical': True,
-        'supports_digital': False,
-    },
-
-    # Municipal - In-person only (application online)
-    {
-        'name': 'Business Permit (New/Renewal)',
-        'code': 'BUSINESS_PERMIT',
-        'description': 'Permit to operate a business (application only)',
-        'authority_level': 'municipal',
-        'requirements': ['DTI/SEC Registration', 'Barangay Clearance', 'Lease/Proof of address'],
-        'fee': 500.00,
-        'processing_days': 7,
-        'supports_physical': True,
-        'supports_digital': False,
-    },
-    {
-        'name': 'Sanitary Permit',
-        'code': 'SANITARY_PERMIT',
-        'description': 'Sanitary clearance for establishments (application only)',
-        'authority_level': 'municipal',
-        'requirements': ['Health Certificate(s)', 'Inspection schedule'],
-        'fee': 200.00,
-        'processing_days': 3,
-        'supports_physical': True,
-        'supports_digital': False,
-    },
-    {
-        'name': 'Zoning/Locational Clearance',
-        'code': 'ZONING_CLEARANCE',
-        'description': 'Locational clearance from the planning/zoning office (application only)',
-        'authority_level': 'municipal',
-        'requirements': ['Site plan/sketch', 'Lot documents'],
+        'requirements': ['Valid ID', 'DTI Registration', 'Proof of Ownership'],
         'fee': 300.00,
-        'processing_days': 5,
-        'supports_physical': True,
-        'supports_digital': False,
-    },
-    {
-        'name': 'Building Permit',
-        'code': 'BUILDING_PERMIT',
-        'description': 'Permit to construct/renovate structures (application only)',
-        'authority_level': 'municipal',
-        'requirements': ['Signed plans', 'Zoning clearance', 'Lot documents'],
-        'fee': 1000.00,
-        'processing_days': 10,
-        'supports_physical': True,
-        'supports_digital': False,
-    },
-    {
-        'name': 'Occupancy Certificate',
-        'code': 'OCCUPANCY_CERT',
-        'description': 'Certificate of Occupancy (application only)',
-        'authority_level': 'municipal',
-        'requirements': ['As-built plans', 'Final inspection reports'],
-        'fee': 0.00,
-        'processing_days': 7,
-        'supports_physical': True,
-        'supports_digital': False,
-    },
-    {
-        'name': 'Community Tax Certificate (Cedula)',
-        'code': 'CEDULA',
-        'description': 'Community Tax Certificate (application only)',
-        'authority_level': 'municipal',
-        'requirements': ['Valid ID'],
-        'fee': 30.00,
-        'processing_days': 1,
-        'supports_physical': True,
-        'supports_digital': False,
-    },
-    {
-        'name': 'Civil Registry Copy - Birth (Certified)',
-        'code': 'CR_COPY_BIRTH',
-        'description': 'Certified copy/transcription from Local Civil Registrar',
-        'authority_level': 'municipal',
-        'requirements': ['Valid ID'],
-        'fee': 0.00,
-        'processing_days': 3,
-        'supports_physical': True,
-        'supports_digital': False,
-    },
-    {
-        'name': 'Civil Registry Copy - Marriage (Certified)',
-        'code': 'CR_COPY_MARRIAGE',
-        'description': 'Certified copy/transcription from Local Civil Registrar',
-        'authority_level': 'municipal',
-        'requirements': ['Valid ID'],
-        'fee': 0.00,
-        'processing_days': 3,
-        'supports_physical': True,
-        'supports_digital': False,
-    },
-    {
-        'name': 'Civil Registry Copy - Death (Certified)',
-        'code': 'CR_COPY_DEATH',
-        'description': 'Certified copy/transcription from Local Civil Registrar',
-        'authority_level': 'municipal',
-        'requirements': ['Valid ID'],
-        'fee': 0.00,
-        'processing_days': 3,
-        'supports_physical': True,
-        'supports_digital': False,
-    },
-    {
-        'name': 'Marriage License',
-        'code': 'MARRIAGE_LICENSE',
-        'description': 'Application for marriage license',
-        'authority_level': 'municipal',
-        'requirements': ['Birth certificates', 'CENOMAR (PSA)', 'Barangay certificate'],
-        'fee': 0.00,
-        'processing_days': 10,
-        'supports_physical': True,
-        'supports_digital': False,
-    },
-    {
-        'name': 'Tax Declaration Copy (Certified)',
-        'code': 'TAX_DECLARATION_COPY',
-        'description': 'Certified true copy of tax declaration (Assessor)',
-        'authority_level': 'municipal',
-        'requirements': ['Valid ID', 'Property details'],
-        'fee': 0.00,
-        'processing_days': 3,
-        'supports_physical': True,
-        'supports_digital': False,
-    },
-    {
-        'name': 'Real Property Tax Clearance',
-        'code': 'RPT_CLEARANCE',
-        'description': 'Clearance from Treasurer for real property taxes',
-        'authority_level': 'municipal',
-        'requirements': ['Valid ID', 'Property details'],
-        'fee': 0.00,
+        'fee_tiers': {
+            'big_business': 300,
+            'small_business': 150,
+            'banca_tricycle': 100
+        },
         'processing_days': 2,
         'supports_physical': True,
         'supports_digital': False,
     },
-    {
-        'name': 'PWD ID Application',
-        'code': 'PWD_ID_APP',
-        'description': 'Application for Persons with Disability ID',
-        'authority_level': 'municipal',
-        'requirements': ['Medical certificate', 'Photo'],
-        'fee': 0.00,
-        'processing_days': 7,
-        'supports_physical': True,
-        'supports_digital': False,
-    },
-    {
-        'name': 'Senior Citizen ID Application',
-        'code': 'SENIOR_ID_APP',
-        'description': 'Application for Senior Citizen ID',
-        'authority_level': 'municipal',
-        'requirements': ['Birth certificate', 'Photo'],
-        'fee': 0.00,
-        'processing_days': 7,
-        'supports_physical': True,
-        'supports_digital': False,
-    },
-    {
-        'name': 'Solo Parent ID Application',
-        'code': 'SOLO_PARENT_ID_APP',
-        'description': 'Application for Solo Parent ID',
-        'authority_level': 'municipal',
-        'requirements': ['Barangay certificate', 'Affidavit'],
-        'fee': 0.00,
-        'processing_days': 7,
-        'supports_physical': True,
-        'supports_digital': False,
-    },
 ]
 
-# Issue categories
+def _slugify(text: str) -> str:
+    """Basic slugify for province/municipality/barangay names."""
+    return (
+        text.strip()
+        .lower()
+        .replace('&', 'and')
+        .replace('(', '')
+        .replace(')', '')
+        .replace('.', '')
+        .replace(',', '')
+        .replace('  ', ' ')
+        .replace(' ', '-')
+    )
+
+
+ISSUE_CATEGORY_META = {
+    'infrastructure': {
+        'name': 'Infrastructure',
+        'description': 'Roads, bridges, public facilities, and utilities.',
+        'icon': 'construction',
+    },
+    'public_safety': {
+        'name': 'Public Safety',
+        'description': 'Safety hazards, crime, and emergency concerns.',
+        'icon': 'shield',
+    },
+    'environmental': {
+        'name': 'Environmental',
+        'description': 'Waste, pollution, and environmental hazards.',
+        'icon': 'leaf',
+    },
+    'administrative': {
+        'name': 'Administrative',
+        'description': 'Government services and administrative issues.',
+        'icon': 'file-text',
+    },
+}
+
+# Issue categories used by seed_issue_categories()
 ISSUE_CATEGORIES = [
-    {'name': 'Infrastructure', 'slug': 'infrastructure', 'description': 'Road damage, bridges, public facilities', 'icon': 'road'},
-    {'name': 'Public Safety', 'slug': 'public-safety', 'description': 'Crime, accidents, hazards', 'icon': 'shield'},
-    {'name': 'Environment', 'slug': 'environment', 'description': 'Pollution, waste management, flooding', 'icon': 'tree'},
-    {'name': 'Public Health', 'slug': 'public-health', 'description': 'Health concerns, sanitation', 'icon': 'heart'},
-    {'name': 'Utilities', 'slug': 'utilities', 'description': 'Water, electricity, internet issues', 'icon': 'zap'},
-    {'name': 'Others', 'slug': 'others', 'description': 'Other municipal concerns', 'icon': 'alert-circle'},
-    {'name': 'Reporting Issue', 'slug': 'reporting-issue', 'description': 'General issue reporting by residents', 'icon': 'flag'},
+    {
+        'name': ISSUE_CATEGORY_META.get(slug, {}).get('name', slug.replace('_', ' ').title()),
+        'slug': slug,
+        'description': ISSUE_CATEGORY_META.get(slug, {}).get('description', ''),
+        'icon': ISSUE_CATEGORY_META.get(slug, {}).get('icon', None),
+    }
+    for slug in ISSUE_CATEGORY_SLUGS
 ]
-
-
-def get_slug(name: str) -> str:
-    """Convert name to ASCII-safe URL-friendly slug."""
-    import unicodedata
-    # Normalize unicode characters (ñ -> n, etc.)
-    normalized = unicodedata.normalize('NFKD', name)
-    ascii_name = normalized.encode('ASCII', 'ignore').decode('ASCII')
-    # Convert to slug
-    return ascii_name.lower().replace(' ', '-').replace("'", '').replace('(', '').replace(')', '').replace('.', '').replace(',', '')
 
 
 def seed_provinces():
-    """Seed Region 3 provinces."""
-    print("Seeding Region 3 provinces...")
-    
-    # Get API root (apps/api) - works both locally and on Render
-    api_root = Path(__file__).parent.parent.resolve()
-    region3_file = api_root / 'data' / 'locations' / 'region3_locations.json'
-    
-    # Fallback to project root for local development
-    if not region3_file.exists():
-        project_root = api_root.parent.parent
-        region3_file = project_root / 'data' / 'locations' / 'region3_locations.json'
-    
-    if not region3_file.exists():
-        print(f"  ERROR: Region 3 data file not found: {region3_file}")
-        print("  Run: python apps/api/utils/region3_extractor.py")
-        return
-    
-    with open(region3_file, 'r', encoding='utf-8') as f:
-        region3_data = json.load(f)
-    
-    for province_name in region3_data.keys():
-        # Check if province already exists
-        existing = Province.query.filter_by(slug=get_slug(province_name)).first()
-        
+    """Seed provinces for Region 3."""
+    print("Seeding provinces...")
+    for name, psgc_code in REGION3_PROVINCE_PSGC.items():
+        existing = Province.query.filter_by(psgc_code=psgc_code).first()
         if existing:
-            print(f"  - {province_name} already exists, skipping...")
+            print(f"  - {name} already exists, skipping...")
             continue
-        
-        # Create province
         province = Province(
-            name=province_name,
-            slug=get_slug(province_name),
-            psgc_code=REGION3_PROVINCE_PSGC.get(province_name, '000000000'),
+            name=name,
+            slug=_slugify(name),
+            psgc_code=psgc_code,
             region_code='03',
             region_name='Central Luzon',
-            description=f'Province in Region 3 (Central Luzon)',
-            is_active=True
+            is_active=True,
         )
-        
         db.session.add(province)
-        print(f"  - Created province: {province_name}")
-    
+        print(f"  - Created {name}")
+
     db.session.commit()
     print("Provinces seeded successfully\n")
 
 
 def seed_municipalities():
-    """Seed municipalities and barangays from Region 3 data."""
-    print("Seeding municipalities and barangays...")
-    
-    # Get API root (apps/api) - works both locally and on Render
-    api_root = Path(__file__).parent.parent.resolve()
-    region3_file = api_root / 'data' / 'locations' / 'region3_locations.json'
-    
-    # Fallback to project root for local development
-    if not region3_file.exists():
-        project_root = api_root.parent.parent
-        region3_file = project_root / 'data' / 'locations' / 'region3_locations.json'
-    
-    if not region3_file.exists():
-        print(f"  ERROR: Region 3 data file not found: {region3_file}")
-        print("  Run: python apps/api/utils/region3_extractor.py")
-        return
-    
-    with open(region3_file, 'r', encoding='utf-8') as f:
-        region3_data = json.load(f)
-    
-    total_municipalities = 0
-    total_barangays = 0
-    
-    for province_name, municipalities_data in region3_data.items():
-        # Get province
-        province = Province.query.filter_by(slug=get_slug(province_name)).first()
-        if not province:
-            print(f"  ERROR: Province {province_name} not found. Run seed_provinces() first.")
+    """Seed municipalities and barangays for Zambales."""
+    print("Seeding municipalities...")
+    zambales = Province.query.filter_by(slug='zambales').first()
+    if not zambales:
+        zambales = Province.query.filter_by(name='Zambales').first()
+    if not zambales:
+        raise RuntimeError("Zambales province not found. Run seed_provinces first.")
+
+    for mun_data in ZAMBALES_MUNICIPALITIES:
+        existing = Municipality.query.filter_by(psgc_code=mun_data['psgc_code']).first()
+        if existing:
+            print(f"  - {mun_data['name']} already exists, skipping...")
             continue
-        
-        print(f"\n  Processing {province_name}...")
-        
-        for mun_name, barangays_list in municipalities_data.items():
-            if not isinstance(barangays_list, list):
+
+        municipality = Municipality(
+            name=mun_data['name'],
+            slug=mun_data['slug'],
+            province_id=zambales.id,
+            psgc_code=mun_data['psgc_code'],
+            description=mun_data.get('description'),
+            is_active=True,
+        )
+        db.session.add(municipality)
+        db.session.flush()
+
+        barangays = mun_data.get('barangays', [])
+        for idx, brgy_name in enumerate(barangays, start=1):
+            brgy_slug = _slugify(brgy_name)
+            brgy_exists = Barangay.query.filter_by(
+                municipality_id=municipality.id,
+                slug=brgy_slug,
+            ).first()
+            if brgy_exists:
                 continue
-            
-            mun_slug = get_slug(mun_name)
-            
-            # Check if municipality already exists
-            existing = Municipality.query.filter_by(slug=mun_slug).first()
-            
-            if existing:
-                print(f"    - {mun_name} already exists, skipping...")
-                continue
-            
-            # Generate PSGC code (approximate - first 6 digits from province, last 3 for municipality)
-            # This is a placeholder - real PSGC codes should be looked up
-            mun_psgc = f"{province.psgc_code[:6]}{str(total_municipalities + 1).zfill(3)}"
-            
-            # Create municipality
-            municipality = Municipality(
-                name=mun_name,
-                slug=mun_slug,
-                province_id=province.id,
-                psgc_code=mun_psgc,
-                description=f'Municipality in {province_name}',
-                is_active=True
+            barangay = Barangay(
+                name=brgy_name,
+                slug=brgy_slug,
+                municipality_id=municipality.id,
+                psgc_code=f"{mun_data['psgc_code']}{idx:03d}",
+                is_active=True,
             )
-            
-            db.session.add(municipality)
-            db.session.flush()  # Flush to get municipality ID
-            
-            # Create barangays
-            for idx, brgy_name in enumerate(barangays_list):
-                brgy_slug = get_slug(brgy_name)
-                brgy_psgc = f"{mun_psgc}{str(idx + 1).zfill(3)}"
-                
-                barangay = Barangay(
-                    name=brgy_name,
-                    slug=brgy_slug,
-                    municipality_id=municipality.id,
-                    psgc_code=brgy_psgc,
-                    is_active=True
-                )
-                
-                db.session.add(barangay)
-                total_barangays += 1
-            
-            total_municipalities += 1
-            print(f"    - Created {mun_name} with {len(barangays_list)} barangays")
-        
-        db.session.commit()
-    
-    print(f"\nMunicipalities seeded successfully!")
-    print(f"  Total: {total_municipalities} municipalities, {total_barangays} barangays\n")
+            db.session.add(barangay)
+
+        print(f"  - Created {mun_data['name']} with {len(barangays)} barangays")
+
+    db.session.commit()
+    print("Municipalities seeded successfully\n")
+
 
 
 def seed_document_types():
@@ -567,6 +350,8 @@ def seed_document_types():
             authority_level=doc_data['authority_level'],
             requirements=doc_data.get('requirements'),
             fee=doc_data.get('fee', 0.00),
+            fee_tiers=doc_data.get('fee_tiers'),
+            exemption_rules=doc_data.get('exemption_rules'),
             processing_days=doc_data.get('processing_days', 3),
             supports_physical=doc_data.get('supports_physical', True),
             supports_digital=doc_data.get('supports_digital', True),

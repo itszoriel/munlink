@@ -4,6 +4,7 @@ import { useLocation } from 'react-router-dom'
 import Sidebar, { type NavSection } from './Sidebar'
 import TopHeader from './TopHeader'
 import { getBestRegion3Seal } from '@munlink/ui'
+import { adminThemes } from './adminTheme'
 
 interface ProvincialAdminLayoutProps {
   children: ReactNode
@@ -44,9 +45,20 @@ export default function ProvincialAdminLayout({ children }: ProvincialAdminLayou
       return () => { document.body.style.overflow = prev }
     }
   }, [isMobileSidebarOpen])
+  // Hide mobile FABs when sidebar is open (match web behavior)
+  useEffect(() => {
+    const body = document.body
+    body.classList.toggle('mobile-menu-open', isMobileSidebarOpen)
+    return () => {
+      body.classList.remove('mobile-menu-open')
+    }
+  }, [isMobileSidebarOpen])
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-neutral-50 via-ocean-50/30 to-forest-50/20">
+    <div
+      className="min-h-screen bg-gradient-to-br from-neutral-50 via-ocean-50/30 to-forest-50/20"
+      style={adminThemes.provincial}
+    >
       {/* Transparent provincial seal watermark */}
       <div className="fixed inset-0 pointer-events-none flex items-center justify-center z-0 overflow-hidden">
         <img

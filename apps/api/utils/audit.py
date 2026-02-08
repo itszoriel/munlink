@@ -1,10 +1,11 @@
 """Generic audit logging utilities for admin/system actions."""
 
+from apps.api.utils.time import utc_now
 from datetime import datetime
 from typing import Optional, Any, Dict
 
-from __init__ import db
-from models.audit import AuditLog
+from apps.api import db
+from apps.api.models.audit import AuditLog
 
 
 def log_action(
@@ -29,7 +30,7 @@ def log_action(
         old_values=old_values,
         new_values=new_values,
         notes=notes,
-        created_at=datetime.utcnow(),
+        created_at=utc_now(),
     )
     db.session.add(log)
     return log

@@ -104,7 +104,7 @@ def get_zambales_municipality_filter():
     Use with: query.filter(get_zambales_municipality_filter())
     
     Example:
-        from models.municipality import Municipality
+        from apps.api.models.municipality import Municipality
         municipalities = Municipality.query.filter(
             Municipality.id.in_(ZAMBALES_MUNICIPALITY_IDS)
         ).all()

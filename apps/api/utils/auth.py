@@ -2,8 +2,9 @@
 from functools import wraps
 from flask import jsonify
 from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity, get_jwt
-from models.user import User
-from models.token_blacklist import TokenBlacklist
+from apps.api.models.user import User
+from apps.api.models.token_blacklist import TokenBlacklist
+from apps.api import db
 
 
 def get_current_user():
@@ -14,7 +15,7 @@ def get_current_user():
     if not user_id:
         return None
     
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     return user
 
 
@@ -28,7 +29,7 @@ def admin_required(fn):
         if not user_id:
             return jsonify({'error': 'Authentication required'}), 401
         
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         
         if not user:
             return jsonify({'error': 'User not found'}), 404
@@ -51,7 +52,7 @@ def verified_resident_required(fn):
         if not user_id:
             return jsonify({'error': 'Authentication required'}), 401
         
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         
         if not user:
             return jsonify({'error': 'User not found'}), 404
@@ -78,7 +79,7 @@ def fully_verified_required(fn):
         if not user_id:
             return jsonify({'error': 'Authentication required'}), 401
         
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         
         if not user:
             return jsonify({'error': 'User not found'}), 404
@@ -105,7 +106,7 @@ def permission_required(permission: str):
             if not user_id:
                 return jsonify({'error': 'Authentication required'}), 401
 
-            user = User.query.get(user_id)
+            user = db.session.get(User, user_id)
 
             if not user:
                 return jsonify({'error': 'User not found'}), 404
@@ -132,7 +133,7 @@ def adult_required(fn):
         if not user_id:
             return jsonify({'error': 'Authentication required'}), 401
         
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         
         if not user:
             return jsonify({'error': 'User not found'}), 404
@@ -167,7 +168,7 @@ def municipality_admin_required(municipality_id=None):
             if not user_id:
                 return jsonify({'error': 'Authentication required'}), 401
             
-            user = User.query.get(user_id)
+            user = db.session.get(User, user_id)
             
             if not user:
                 return jsonify({'error': 'User not found'}), 404

@@ -11,6 +11,7 @@ Usage:
     python apps/api/scripts/copy_superadmin_to_prod.py --confirm
 """
 import argparse
+from apps.api.utils.time import utc_now
 import sys
 import json
 from pathlib import Path
@@ -135,7 +136,7 @@ def create_or_update_superadmin_in_prod(superadmin_data):
                     'mobile_number': superadmin_data['mobile_number'],
                     'notify_email_enabled': superadmin_data.get('notify_email_enabled', True),
                     'notify_sms_enabled': superadmin_data.get('notify_sms_enabled', False),
-                    'updated_at': datetime.utcnow(),
+                    'updated_at': utc_now(),
                 })
                 return 'updated', existing[0]
             else:
@@ -171,7 +172,7 @@ def create_or_update_superadmin_in_prod(superadmin_data):
                     'notify_email_enabled': superadmin_data.get('notify_email_enabled', True),
                     'notify_sms_enabled': superadmin_data.get('notify_sms_enabled', False),
                     'created_at': superadmin_data['created_at'],
-                    'updated_at': datetime.utcnow(),
+                    'updated_at': utc_now(),
                 })
                 new_id = result.fetchone()[0]
                 return 'created', new_id

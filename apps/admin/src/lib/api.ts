@@ -4,7 +4,12 @@
  */
 import axios from 'axios'
 import type { AxiosResponse, AxiosError, AxiosInstance } from 'axios'
-import { useAdminStore } from './store'
+type AuthFailureHandler = () => void
+let onAuthFailure: AuthFailureHandler | null = null
+
+export const setAuthFailureHandler = (handler: AuthFailureHandler | null) => {
+  onAuthFailure = handler
+}
 
 // API Configuration
 // Production URL for Railway deployment
@@ -154,10 +159,9 @@ apiClient.interceptors.response.use(
 
       // Refresh failed - if we're bootstrapping, don't redirect (let the store handle it)
       if (!isBootstrapping) {
-        const { logout } = useAdminStore.getState()
-        logout()
+        onAuthFailure?.()
         // Only redirect if we're not already on a public/login page
-        const publicPaths = /^\/(login|register|superadmin\/login|provincial|barangay)?(\/.*)?$/
+        const publicPaths = /^\/(login|register|forgot-password|reset-password|superadmin\/login|provincial|barangay)?(\/.*)?$/
         if (!publicPaths.test(window.location.pathname) && window.location.pathname !== '/') {
           window.location.href = '/'
         }
@@ -170,8 +174,7 @@ apiClient.interceptors.response.use(
       try {
         const data: any = error.response?.data
         if (data?.code === 'ROLE_MISMATCH') {
-          const { logout } = useAdminStore.getState()
-          logout()
+          onAuthFailure?.()
           window.location.href = '/'
           return Promise.reject(error)
         }
@@ -233,6 +236,12 @@ export const authApi = {
     form.append('file', file)
     return apiClient.post('/api/auth/profile/photo', form, { headers: { 'Content-Type': 'multipart/form-data' } }).then(res => res.data)
   },
+  requestPasswordReset: async (email: string): Promise<ApiResponse<any>> =>
+    apiClient.post('/api/auth/password-reset/request', { email }).then(res => res.data),
+  validatePasswordReset: async (token: string): Promise<ApiResponse<{ valid: boolean }>> =>
+    apiClient.post('/api/auth/password-reset/validate', { token }).then(res => res.data),
+  confirmPasswordReset: async (token: string, new_password: string, confirm_password?: string): Promise<ApiResponse<any>> =>
+    apiClient.post('/api/auth/password-reset/confirm', { token, new_password, confirm_password }).then(res => res.data),
 }
 
 // Media helper
@@ -240,6 +249,7 @@ export const mediaUrl = (p?: string): string => {
   if (!p) return ''
   const normalized = p.replace(/\\/g, '/').replace(/^\/+/, '')
   if (/^https?:\/\//i.test(normalized)) return normalized
+  if (normalized.startsWith('api/')) return `${API_BASE_URL}/${normalized}`
   const withUploads = normalized.startsWith('uploads/') ? normalized : `uploads/${normalized}`
   return `${API_BASE_URL}/${withUploads}`
 }
@@ -388,6 +398,8 @@ export const announcementApi = {
     expire_at?: string
     pinned?: boolean
     pinned_until?: string
+    public_viewable?: boolean
+    shared_with_municipalities?: number[]
   } | FormData): Promise<ApiResponse> => {
     const isForm = (typeof FormData !== 'undefined') && (data instanceof FormData)
     return apiClient.post('/api/admin/announcements', data, isForm ? {
@@ -430,6 +442,8 @@ export const announcementApi = {
     pinned_until?: string
     images?: string[]
     external_url?: string
+    public_viewable?: boolean
+    shared_with_municipalities?: number[]
   } | FormData): Promise<ApiResponse> => {
     const isForm = (typeof FormData !== 'undefined') && (data instanceof FormData)
     return apiClient.put(`/api/admin/announcements/${id}`, data, isForm ? {
@@ -623,18 +637,44 @@ export const documentsAdminApi = {
     apiClient.get('/api/admin/documents/requests', { params }).then(res => res.data),
   generatePdf: (id: number): Promise<ApiResponse<{ url: string; request: any }>> =>
     apiClient.post(`/api/admin/documents/requests/${id}/generate-pdf`).then(res => res.data),
-  downloadPdf: (id: number): Promise<ApiResponse<{ url: string }>> =>
-    apiClient.get(`/api/admin/documents/requests/${id}/download`).then(res => res.data),
+  downloadPdfBlob: (id: number) =>
+    apiClient.get(`/api/admin/documents/requests/${id}/download`, { responseType: 'blob' }),
   updateStatus: (id: number, status: string, admin_notes?: string, rejection_reason?: string): Promise<ApiResponse<{ request: any }>> =>
     apiClient.put(`/api/admin/documents/requests/${id}/status`, { status, admin_notes, rejection_reason }).then(res => res.data),
   updateContent: (id: number, data: { purpose?: string; remarks?: string; civil_status?: string; age?: number }): Promise<ApiResponse<{ request: any }>> =>
     apiClient.put(`/api/admin/documents/requests/${id}/content`, data).then(res => res.data),
-  readyForPickup: (id: number, window?: { window_start?: string; window_end?: string }): Promise<ApiResponse<{ claim: { qr_path: string; code_masked: string; window_start?: string; window_end?: string; token: string }, request: any }>> =>
+  readyForPickup: (id: number, window?: { window_start?: string; window_end?: string }): Promise<ApiResponse<{ claim: { qr_available: boolean; code_masked: string; window_start?: string; window_end?: string; token: string }, request: any }>> =>
     apiClient.post(`/api/admin/documents/requests/${id}/ready-for-pickup`, window || {}).then(res => res.data),
-  claimToken: (id: number, window?: { window_start?: string; window_end?: string }): Promise<ApiResponse<{ claim: { qr_path: string; code_masked: string; window_start?: string; window_end?: string; token: string }, request: any }>> =>
+  claimToken: (id: number, window?: { window_start?: string; window_end?: string }): Promise<ApiResponse<{ claim: { qr_available: boolean; code_masked: string; window_start?: string; window_end?: string; token: string }, request: any }>> =>
     apiClient.post(`/api/admin/documents/requests/${id}/claim-token`, window || {}).then(res => res.data),
   verifyClaim: (payload: { token?: string; code?: string; request_id?: number }): Promise<ApiResponse<{ ok: boolean; request?: any }>> =>
     apiClient.post('/api/admin/claim/verify', payload).then(res => res.data),
+  verifyOfficePayment: (id: number, code: string): Promise<ApiResponse<{ request: any }>> =>
+    apiClient.post(`/api/admin/documents/requests/${id}/verify-office-payment`, { code }).then(res => res.data),
+  resendOfficePaymentCode: (id: number): Promise<ApiResponse<{ message: string }>> =>
+    apiClient.post(`/api/admin/documents/requests/${id}/resend-office-code`).then(res => res.data),
+  getManualPaymentProofBlob: (id: number) =>
+    apiClient.get(`/api/admin/documents/requests/${id}/manual-payment/proof`, { responseType: 'blob' }),
+  approveManualPayment: (id: number): Promise<ApiResponse<{ request: any }>> =>
+    apiClient.post(`/api/admin/documents/requests/${id}/manual-payment/approve`).then(res => res.data),
+  rejectManualPayment: (id: number, notes?: string): Promise<ApiResponse<{ request: any }>> =>
+    apiClient.post(`/api/admin/documents/requests/${id}/manual-payment/reject`, { notes }).then(res => res.data),
+}
+
+// Special Status Admin API
+export const specialStatusAdminApi = {
+  listPending: (params: { type?: string } = {}): Promise<ApiResponse<{ statuses: any[]; total: number }>> =>
+    apiClient.get('/api/admin/special-statuses/pending', { params }).then(res => res.data),
+  listAll: (params: { type?: string; status?: string; user_id?: number; page?: number; per_page?: number } = {}): Promise<ApiResponse<{ statuses: any[]; total: number; page?: number; pages?: number }>> =>
+    apiClient.get('/api/admin/special-statuses', { params }).then(res => res.data),
+  getDetail: (id: number): Promise<ApiResponse<any>> =>
+    apiClient.get(`/api/admin/special-statuses/${id}`).then(res => res.data),
+  approve: (id: number): Promise<ApiResponse<any>> =>
+    apiClient.post(`/api/admin/special-statuses/${id}/approve`).then(res => res.data),
+  reject: (id: number, reason: string): Promise<ApiResponse<any>> =>
+    apiClient.post(`/api/admin/special-statuses/${id}/reject`, { reason }).then(res => res.data),
+  revoke: (id: number, reason: string): Promise<ApiResponse<any>> =>
+    apiClient.post(`/api/admin/special-statuses/${id}/revoke`, { reason }).then(res => res.data),
 }
 
 export const municipalitiesAdminApi = {
@@ -670,7 +710,6 @@ export interface SuperAdminLoginResponse {
 export interface SuperAdmin2FAResponse {
   message: string
   access_token: string
-  refresh_token: string
   user: any
 }
 

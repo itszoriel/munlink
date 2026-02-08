@@ -4,15 +4,16 @@ Simple SMTP test script
 Usage:
   python apps/api/scripts/test_email.py recipient@example.com
 """
+__test__ = False
 import sys
-
-try:
-    from apps.api.app import create_app
-except Exception:
-    from app import create_app
 
 
 def main() -> int:
+    try:
+        from apps.api.app import create_app
+    except Exception:
+        from app import create_app
+
     if len(sys.argv) < 2:
         print("Usage: python apps/api/scripts/test_email.py recipient@example.com")
         return 2
@@ -23,7 +24,7 @@ def main() -> int:
         try:
             from apps.api.utils.email_sender import send_generic_email
         except Exception:
-            from utils.email_sender import send_generic_email
+            from apps.api.utils.email_sender import send_generic_email
 
         subj = f"{app.config.get('APP_NAME', 'MunLink Region 3')} SMTP Test"
         body = (

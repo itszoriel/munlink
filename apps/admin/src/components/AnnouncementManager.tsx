@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus } from 'lucide-react'
+import { Plus, ChevronLeft, ChevronRight, Maximize2, X, Megaphone } from 'lucide-react'
 import { announcementApi, handleApiError, mediaUrl } from '../lib/api'
 import { useCachedFetch } from '../lib/useCachedFetch'
 import { CACHE_KEYS } from '../lib/dataStore'
@@ -42,6 +42,21 @@ interface AnnouncementManagerProps {
   onAnnouncementUpdated?: (announcementId: number) => void
 }
 
+const normalizeMunicipalityIds = (values: Array<number | string | null | undefined>, baseId?: number) => {
+  const cleaned: number[] = []
+  const seen = new Set<number>()
+  const base = baseId ? Number(baseId) : undefined
+  for (const raw of values || []) {
+    const next = Number(raw)
+    if (!Number.isFinite(next) || next <= 0) continue
+    if (base && next === base) continue
+    if (seen.has(next)) continue
+    seen.add(next)
+    cleaned.push(next)
+  }
+  return cleaned
+}
+
 export default function AnnouncementManager({ onAnnouncementUpdated }: AnnouncementManagerProps) {
   const [error, setError] = useState<string | null>(null)
   const [selectedAnnouncement, setSelectedAnnouncement] = useState<Announcement | null>(null)
@@ -52,7 +67,7 @@ export default function AnnouncementManager({ onAnnouncementUpdated }: Announcem
   const user = useAdminStore((s) => s.user)
   const staffRole = (user?.role || '').toLowerCase()
   const staffMunicipalityId = user?.admin_municipality_id
-  const staffBarangayId = (user as any)?.barangay_id as number | undefined
+  const staffBarangayId = ((user as any)?.admin_barangay_id ?? (user as any)?.barangay_id) as number | undefined
   const allowedScopes = useMemo(() => {
     if (staffRole === 'barangay_admin') return ['BARANGAY'] as const
     if (staffRole === 'municipal_admin') return ['MUNICIPALITY'] as const
@@ -242,56 +257,79 @@ export default function AnnouncementManager({ onAnnouncementUpdated }: Announcem
 
       {/* Announcements List */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {announcements.map((announcement) => (
-          <div key={announcement.id} className="bg-white rounded-2xl overflow-hidden border border-gray-200 shadow-sm hover:shadow-lg transition-shadow">
-            {/* Image banner with fixed aspect to avoid stretching on wide screens */}
-            {Array.isArray(announcement.images) && announcement.images.length > 0 ? (
+        {announcements.map((announcement) => {
+          const primaryImage = Array.isArray(announcement.images)
+            ? announcement.images.find((img) => typeof img === 'string' && img.trim().length > 0)
+            : undefined
+
+          return (
+            <div key={announcement.id} className="bg-white rounded-2xl overflow-hidden border border-gray-200 shadow-sm hover:shadow-lg transition-shadow h-full flex flex-col">
               <div className="aspect-[16/9] bg-neutral-100">
-                <SafeImage src={mediaUrl(announcement.images[0])} alt="Announcement" className="w-full h-full object-cover" fallbackIcon="image" />
+                {primaryImage ? (
+                  <SafeImage src={mediaUrl(primaryImage)} alt="Announcement" className="w-full h-full object-cover" fallbackIcon="image" />
+                ) : (
+                  <div className="relative h-full w-full overflow-hidden bg-gradient-to-br from-slate-100 via-white to-emerald-50">
+                    <div className="absolute -top-10 -right-12 h-36 w-36 rounded-full bg-sky-100/80 blur-2xl" />
+                    <div className="absolute -bottom-10 -left-10 h-32 w-32 rounded-full bg-emerald-100/80 blur-2xl" />
+                    <div className="relative h-full p-4 sm:p-5 flex flex-col justify-between">
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-700 shadow-sm">
+                          <Megaphone className="w-3.5 h-3.5 text-emerald-700" />
+                          Text bulletin
+                        </span>
+                        <span className="rounded-full bg-slate-100/80 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                          No image
+                        </span>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-white/90 p-3 shadow-sm">
+                        <p className="text-xs font-semibold text-slate-800 line-clamp-2">{announcement.title}</p>
+                        <p className="mt-1 text-[11px] leading-relaxed text-slate-600 line-clamp-3">{announcement.content}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="aspect-[16/9] bg-neutral-100" />
-            )}
-            <div className="p-5">
-              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">{scopeBadgeLabel(announcement)}</span>
-                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(announcement.priority)}`}>{announcement.priority.toUpperCase()}</span>
-                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                    (announcement.status || '').toUpperCase() === 'PUBLISHED' ? 'bg-green-100 text-green-800'
-                      : (announcement.status || '').toUpperCase() === 'ARCHIVED' ? 'bg-gray-100 text-gray-700'
-                      : 'bg-yellow-100 text-yellow-800'
-                  }`}>{(announcement.status || (announcement.is_active ? 'PUBLISHED' : 'DRAFT')).toUpperCase()}</span>
-                  {isPinnedActive(announcement) && (
-                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-ocean-100 text-ocean-800">PINNED</span>
-                  )}
+              <div className="p-5 flex-1 flex flex-col">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">{scopeBadgeLabel(announcement)}</span>
+                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(announcement.priority)}`}>{announcement.priority.toUpperCase()}</span>
+                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                      (announcement.status || '').toUpperCase() === 'PUBLISHED' ? 'bg-green-100 text-green-800'
+                        : (announcement.status || '').toUpperCase() === 'ARCHIVED' ? 'bg-gray-100 text-gray-700'
+                        : 'bg-yellow-100 text-yellow-800'
+                    }`}>{(announcement.status || (announcement.is_active ? 'PUBLISHED' : 'DRAFT')).toUpperCase()}</span>
+                    {isPinnedActive(announcement) && (
+                      <span className="px-2 py-1 text-xs font-medium rounded-full bg-ocean-100 text-ocean-800">PINNED</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 sm:self-start">
+                    <button onClick={() => openAnnouncementModal(announcement)} className="px-3 py-1 text-xs sm:text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors">Edit</button>
+                    <button
+                      onClick={() => {
+                        const isActive = announcement.is_active
+                        const nextStatus = isActive ? 'ARCHIVED' : 'PUBLISHED'
+                        handleUpdateAnnouncement(announcement.id, { status: nextStatus })
+                      }}
+                      disabled={actionLoading === announcement.id}
+                      className={`px-3 py-1 text-xs sm:text-sm font-medium rounded-md transition-colors disabled:opacity-50 ${announcement.is_active ? 'text-orange-700 bg-orange-100 hover:bg-orange-200' : 'text-green-700 bg-green-100 hover:bg-green-200'}`}
+                    >
+                      {actionLoading === announcement.id ? 'Updating...' : (announcement.is_active ? 'Archive' : 'Publish')}
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 sm:self-start">
-                  <button onClick={() => openAnnouncementModal(announcement)} className="px-3 py-1 text-xs sm:text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors">Edit</button>
-                  <button
-                    onClick={() => {
-                      const isActive = announcement.is_active
-                      const nextStatus = isActive ? 'ARCHIVED' : 'PUBLISHED'
-                      handleUpdateAnnouncement(announcement.id, { status: nextStatus })
-                    }}
-                    disabled={actionLoading === announcement.id}
-                    className={`px-3 py-1 text-xs sm:text-sm font-medium rounded-md transition-colors disabled:opacity-50 ${announcement.is_active ? 'text-orange-700 bg-orange-100 hover:bg-orange-200' : 'text-green-700 bg-green-100 hover:bg-green-200'}`}
-                  >
-                    {actionLoading === announcement.id ? 'Updating…' : (announcement.is_active ? 'Archive' : 'Publish')}
-                  </button>
+                <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-1 line-clamp-2">{announcement.title}</h3>
+                <p className="text-sm text-gray-600 line-clamp-3 flex-1">{announcement.content}</p>
+                <div className="mt-3 flex items-center gap-3 text-xs text-gray-500">
+                  {announcement.municipality_name && (<span className="truncate">{announcement.municipality_name}</span>)}
+                  {announcement.creator_name && (<span className="truncate">By: {announcement.creator_name}</span>)}
+                  <span className="hidden sm:inline">|</span>
+                  <span>{new Date(announcement.publish_at || announcement.created_at).toLocaleDateString()}</span>
                 </div>
-              </div>
-              <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-1 line-clamp-2">{announcement.title}</h3>
-              <p className="text-sm text-gray-600 line-clamp-3">{announcement.content}</p>
-              <div className="mt-3 flex items-center gap-3 text-xs text-gray-500">
-                {announcement.municipality_name && (<span className="truncate">{announcement.municipality_name}</span>)}
-                {announcement.creator_name && (<span className="truncate">By: {announcement.creator_name}</span>)}
-                <span className="hidden sm:inline">•</span>
-                <span>{new Date(announcement.publish_at || announcement.created_at).toLocaleDateString()}</span>
               </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {announcements.length === 0 && (
@@ -340,21 +378,22 @@ export default function AnnouncementManager({ onAnnouncementUpdated }: Announcem
       )}
 
       {/* Floating Action Button - positioned above mobile nav, MOBILE ONLY */}
-      {/* HIDDEN when any modal is open (showCreateModal, showModal) or no announcements */}
+      {/* HIDDEN only when a modal is open */}
       {/* Using Portal to render outside parent container */}
       {createPortal(
         <>
           <AnimatePresence>
-            {!showCreateModal && !showModal && announcements.length > 0 && (
+            {!showCreateModal && !showModal && (
               <motion.div
-                className="fixed bottom-20 right-4 z-[9999] sm:hidden"
+                className="fixed bottom-20 right-4 z-[9999] sm:hidden fab-mobile"
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.8 }}
                 transition={{ duration: 0.2 }}
               >
                 <motion.button
-                  className="relative flex items-center justify-center bg-gradient-to-r from-green-600 to-green-700 text-white shadow-lg shadow-green-600/30 hover:shadow-green-600/50 transition-shadow"
+                  className="relative flex items-center justify-center bg-ocean-gradient text-white shadow-lg hover:shadow-xl transition-shadow"
+                  style={{ width: 56, height: 56, borderRadius: 28 }}
                   onClick={() => {
                     if (fabExpanded) {
                       setShowCreateModal(true)
@@ -407,9 +446,9 @@ export default function AnnouncementManager({ onAnnouncementUpdated }: Announcem
 
           {/* Backdrop to close FAB when clicking outside - MOBILE ONLY */}
           <AnimatePresence>
-            {fabExpanded && !showCreateModal && announcements.length > 0 && (
+            {fabExpanded && !showCreateModal && (
               <motion.div
-                className="fixed inset-0 z-[9998] sm:hidden"
+                className="fixed inset-0 z-[9998] sm:hidden fab-mobile-backdrop"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -459,17 +498,23 @@ function AnnouncementDetailModal({
     expire_at: toInputValue(announcement.expire_at),
     pinned: !!announcement.pinned,
     pinned_until: toInputValue(announcement.pinned_until),
-    shared_with_municipalities: announcement.shared_with_municipalities || [],
-    public_viewable: !!announcement.public_viewable,
+    shared_with_municipalities: normalizeMunicipalityIds(
+      announcement.shared_with_municipalities || [],
+      announcement.municipality_id || staffMunicipalityId
+    ),
+    public_viewable: (String(announcement.scope || '').toUpperCase() === 'BARANGAY') ? false : !!announcement.public_viewable,
   })
   const selectedMunicipalityId = formData.scope === 'PROVINCE' ? undefined : (formData.municipality_id || staffMunicipalityId)
   const barangayOptions = selectedMunicipalityId ? getBarangaysByMunicipalityId(selectedMunicipalityId) : []
   const municipalityLocked = allowedScopes.length === 1 && allowedScopes[0] !== 'PROVINCE'
+  const shareDisabled = !selectedMunicipalityId
+  const shareOptions = MUNICIPALITIES.filter(m => m.id !== selectedMunicipalityId)
   const [uploading, setUploading] = useState(false)
   const [images, setImages] = useState<string[]>(announcement.images || [])
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const hasImageChanges = JSON.stringify(images) !== JSON.stringify(announcement.images || [])
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
@@ -480,6 +525,25 @@ function AnnouncementDetailModal({
       return Math.min(Math.max(0, idx), images.length - 1)
     })
   }, [images.length])
+
+  useEffect(() => {
+    if (!lightboxOpen) return
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setLightboxOpen(false)
+        return
+      }
+      if (images.length < 2) return
+      if (event.key === 'ArrowLeft') {
+        setCurrentImageIndex((i) => (i - 1 + images.length) % images.length)
+      }
+      if (event.key === 'ArrowRight') {
+        setCurrentImageIndex((i) => (i + 1) % images.length)
+      }
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [images.length, lightboxOpen])
 
   const handleSave = async () => {
     // Upload any staged files first (respecting 5 images max), then persist fields and order
@@ -524,16 +588,20 @@ function AnnouncementDetailModal({
       }
     }
     // Persist fields and final image order (including removals/reorders)
+    const cleanedShared = normalizeMunicipalityIds(formData.shared_with_municipalities, selectedMunicipalityId)
     const payload: any = {
       ...formData,
       images: current,
+      shared_with_municipalities: cleanedShared,
     }
     if (payload.scope === 'PROVINCE') {
       payload.municipality_id = undefined
       payload.barangay_id = undefined
+      payload.shared_with_municipalities = []
     } else if (payload.scope === 'MUNICIPALITY') {
       payload.barangay_id = undefined
     }
+    payload.public_viewable = payload.scope === 'BARANGAY' ? false : !!payload.public_viewable
     if (!payload.publish_at) delete payload.publish_at
     if (!payload.expire_at) delete payload.expire_at
     if (!payload.pinned_until) delete payload.pinned_until
@@ -557,8 +625,8 @@ function AnnouncementDetailModal({
 
   return createPortal(
     (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[1000]" role="dialog" aria-modal="true">
-        <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto pb-24 sm:pb-0" tabIndex={-1} autoFocus>
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center p-4 pt-20 sm:pt-16 z-[1000]" role="dialog" aria-modal="true">
+        <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto pb-24 sm:pb-4 shadow-2xl" tabIndex={-1} autoFocus>
           <div className="p-6">
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
@@ -581,46 +649,73 @@ function AnnouncementDetailModal({
             <div>
               <label htmlFor="ann-images" className="block text-sm font-medium text-gray-700 mb-1">Images</label>
               {images.length > 0 && (
-                <div className="relative w-full aspect-[16/9] bg-neutral-100 rounded mb-2 overflow-hidden">
-                        <img src={mediaUrl(images[currentImageIndex]) || undefined} alt="Preview" className="w-full h-full object-contain" />
-                  {images.length > 1 && (
-                    <>
-                      <button
-                        type="button"
-                        aria-label="Prev"
-                        className="absolute left-2 top-1/2 -translate-y-1/2 bg-white/80 hover:bg-white rounded-full p-2 z-10"
-                        onClick={() => setCurrentImageIndex((i) => (i - 1 + images.length) % images.length)}
-                      >
-                        ◀
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="Next"
-                        className="absolute right-2 top-1/2 -translate-y-1/2 bg-white/80 hover:bg-white rounded-full p-2 z-10"
-                        onClick={() => setCurrentImageIndex((i) => (i + 1) % images.length)}
-                      >
-                        ▶
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-              {images.length > 0 && (
-                <div className="grid grid-cols-3 gap-2 mb-2">
-                  {images.map((img, idx) => (
-                    <div key={`${img}-${idx}`} className="relative group">
-                      <img src={mediaUrl(img) || undefined} alt="Image" className="w-full h-20 object-cover rounded border" />
-                      <button
-                        type="button"
-                        aria-label="Remove image"
-                        className="absolute -top-1 -right-1 bg-white border rounded-full p-1 shadow hidden group-hover:block"
-                        onClick={() => setImages((prev) => prev.filter((_, i) => i !== idx))}
-                      >
-                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                      </button>
-                      {/* Reorder arrows removed per request */}
+                <div className="space-y-2">
+                  <div className="relative w-full aspect-[16/9] bg-neutral-100 rounded mb-1 overflow-hidden">
+                    <img src={mediaUrl(images[currentImageIndex]) || undefined} alt="Preview" className="w-full h-full object-contain" />
+                    {images.length > 1 && (
+                      <>
+                        <button
+                          type="button"
+                          aria-label="Previous image"
+                          className="absolute left-2 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white rounded-full p-2 z-10 shadow"
+                          onClick={() => setCurrentImageIndex((i) => (i - 1 + images.length) % images.length)}
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Next image"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white rounded-full p-2 z-10 shadow"
+                          onClick={() => setCurrentImageIndex((i) => (i + 1) % images.length)}
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </>
+                    )}
+                    <div className="absolute bottom-2 right-2 px-2 py-1 rounded-full bg-black/60 text-white text-xs">
+                      {currentImageIndex + 1} / {images.length}
                     </div>
-                  ))}
+                    <button
+                      type="button"
+                      aria-label="Open full size"
+                      className="absolute top-2 right-2 bg-white/90 hover:bg-white rounded-full p-2 shadow"
+                      onClick={() => setLightboxOpen(true)}
+                    >
+                      <Maximize2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {images.map((img, idx) => (
+                      <div
+                        key={`${img}-${idx}`}
+                        role="button"
+                        tabIndex={0}
+                        className={`relative h-16 w-20 rounded border overflow-hidden cursor-pointer ${idx === currentImageIndex ? 'ring-2 ring-ocean-500' : 'ring-1 ring-gray-200'}`}
+                        onClick={() => setCurrentImageIndex(idx)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            setCurrentImageIndex(idx)
+                          }
+                        }}
+                      >
+                        <img src={mediaUrl(img) || undefined} alt={`Image ${idx + 1}`} className="w-full h-full object-cover" />
+                        <span className="absolute bottom-1 left-1 rounded bg-black/60 text-white text-[10px] px-1.5 py-0.5">{idx + 1}</span>
+                        <span className="sr-only">Select image {idx + 1}</span>
+                        <button
+                          type="button"
+                          aria-label="Remove image"
+                          className="absolute -top-1 -right-1 bg-white border rounded-full p-1 shadow"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setImages((prev) => prev.filter((_, i) => i !== idx))
+                          }}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
               <input id="ann-images" name="announcement_images" type="file" accept="image/*" multiple onChange={(e) => {
@@ -636,7 +731,9 @@ function AnnouncementDetailModal({
                     {pendingFiles.map((f, i) => (
                       <div key={`${f.name}-${i}`} className="relative">
                         <img src={URL.createObjectURL(f)} alt={f.name} className="w-full h-20 object-cover rounded border" />
-                        <button type="button" className="absolute -top-2 -right-2 bg-white border rounded-full p-1 text-xs" aria-label="Remove pending image" onClick={() => setPendingFiles((prev) => prev.filter((_, idx) => idx !== i))}>✕</button>
+                        <button type="button" className="absolute -top-2 -right-2 bg-white border rounded-full p-1" aria-label="Remove pending image" onClick={() => setPendingFiles((prev) => prev.filter((_, idx) => idx !== i))}>
+                          <X className="w-3 h-3" />
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -689,6 +786,12 @@ function AnnouncementDetailModal({
                       municipality_id: next === 'PROVINCE' ? undefined : (prev.municipality_id || staffMunicipalityId),
                       barangay_id: next === 'BARANGAY' ? (prev.barangay_id || staffBarangayId) : undefined,
                       public_viewable: next === 'BARANGAY' ? false : prev.public_viewable,
+                      shared_with_municipalities: next === 'PROVINCE'
+                        ? []
+                        : normalizeMunicipalityIds(
+                          prev.shared_with_municipalities,
+                          prev.municipality_id || staffMunicipalityId
+                        ),
                     }))
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-zambales-green"
@@ -703,7 +806,14 @@ function AnnouncementDetailModal({
                   <label className="block text-sm font-medium text-gray-700 mb-1">Municipality</label>
                   <select
                     value={selectedMunicipalityId || ''}
-                    onChange={(e) => setFormData(prev => ({ ...prev, municipality_id: Number(e.target.value) || undefined }))}
+                    onChange={(e) => {
+                      const nextId = Number(e.target.value) || undefined
+                      setFormData(prev => ({
+                        ...prev,
+                        municipality_id: nextId,
+                        shared_with_municipalities: normalizeMunicipalityIds(prev.shared_with_municipalities, nextId),
+                      }))
+                    }}
                     disabled={municipalityLocked}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-zambales-green"
                   >
@@ -735,27 +845,62 @@ function AnnouncementDetailModal({
             {/* Share with other municipalities */}
             {(formData.scope === 'MUNICIPALITY' || formData.scope === 'BARANGAY') && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Share with other municipalities (optional)</label>
-                <div className="border border-gray-300 rounded-md p-3 max-h-48 overflow-y-auto">
-                  {MUNICIPALITIES.filter(m => m.id !== selectedMunicipalityId).map((municipality) => (
-                    <label key={municipality.id} className="flex items-center space-x-2 py-1 hover:bg-gray-50 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formData.shared_with_municipalities.includes(municipality.id)}
-                        onChange={(e) => {
-                          const checked = e.target.checked
-                          setFormData(prev => ({
-                            ...prev,
-                            shared_with_municipalities: checked
-                              ? [...prev.shared_with_municipalities, municipality.id]
-                              : prev.shared_with_municipalities.filter(id => id !== municipality.id)
-                          }))
-                        }}
-                        className="h-4 w-4 text-zambales-green border-gray-300 rounded focus:ring-zambales-green"
-                      />
-                      <span className="text-sm text-gray-700">{municipality.name}</span>
-                    </label>
-                  ))}
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-gray-700">Share with other municipalities (optional)</label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={shareDisabled}
+                      className="text-xs text-ocean-700 hover:text-ocean-800 disabled:opacity-50"
+                      onClick={() => {
+                        setFormData(prev => ({
+                          ...prev,
+                          shared_with_municipalities: normalizeMunicipalityIds(
+                            shareOptions.map(m => m.id),
+                            selectedMunicipalityId
+                          ),
+                        }))
+                      }}
+                    >
+                      Select all
+                    </button>
+                    <button
+                      type="button"
+                      disabled={formData.shared_with_municipalities.length === 0}
+                      className="text-xs text-gray-500 hover:text-gray-700 disabled:opacity-50"
+                      onClick={() => setFormData(prev => ({ ...prev, shared_with_municipalities: [] }))}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+                <div className={`border border-gray-300 rounded-md p-3 max-h-48 overflow-y-auto ${shareDisabled ? 'bg-gray-50' : ''}`}>
+                  {shareDisabled ? (
+                    <div className="text-xs text-gray-500">Select a municipality to enable sharing.</div>
+                  ) : (
+                    shareOptions.map((municipality) => (
+                      <label key={municipality.id} className="flex items-center space-x-2 py-1 hover:bg-gray-50 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formData.shared_with_municipalities.includes(municipality.id)}
+                          onChange={(e) => {
+                            const checked = e.target.checked
+                            setFormData(prev => ({
+                              ...prev,
+                              shared_with_municipalities: checked
+                                ? normalizeMunicipalityIds(
+                                  [...prev.shared_with_municipalities, municipality.id],
+                                  selectedMunicipalityId
+                                )
+                                : prev.shared_with_municipalities.filter(id => id !== municipality.id)
+                            }))
+                          }}
+                          className="h-4 w-4 text-zambales-green border-gray-300 rounded focus:ring-zambales-green"
+                        />
+                        <span className="text-sm text-gray-700">{municipality.name}</span>
+                      </label>
+                    ))
+                  )}
                 </div>
                 {formData.shared_with_municipalities.length > 0 && (
                   <p className="text-xs text-gray-500 mt-1">
@@ -900,7 +1045,10 @@ function AnnouncementDetailModal({
                   <>
                     {editMode && (
                       <button
-                        onClick={() => setEditMode(false)}
+                        onClick={() => {
+                          setEditMode(true) // reset in case state was changed elsewhere
+                          onClose()
+                        }}
                         className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
                       >
                         Cancel
@@ -919,6 +1067,53 @@ function AnnouncementDetailModal({
             </div>
           </div>
         </div>
+        {lightboxOpen && images.length > 0 && (
+          <div
+            className="fixed inset-0 z-[1100] bg-black/80 flex items-center justify-center p-4"
+            role="dialog"
+            aria-modal="true"
+            onClick={() => setLightboxOpen(false)}
+          >
+            <div className="relative w-full max-w-5xl aspect-[16/10] bg-black/40 rounded-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              <img
+                src={mediaUrl(images[currentImageIndex]) || undefined}
+                alt={`Announcement image ${currentImageIndex + 1}`}
+                className="w-full h-full object-contain"
+              />
+              {images.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Previous image"
+                    className="absolute left-3 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white rounded-full p-2 shadow"
+                    onClick={() => setCurrentImageIndex((i) => (i - 1 + images.length) % images.length)}
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Next image"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white rounded-full p-2 shadow"
+                    onClick={() => setCurrentImageIndex((i) => (i + 1) % images.length)}
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </button>
+                </>
+              )}
+              <div className="absolute bottom-3 right-3 px-2 py-1 rounded-full bg-black/60 text-white text-xs">
+                {currentImageIndex + 1} / {images.length}
+              </div>
+              <button
+                type="button"
+                aria-label="Close"
+                className="absolute top-3 right-3 bg-white/90 hover:bg-white rounded-full p-2 shadow"
+                onClick={() => setLightboxOpen(false)}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     ),
     document.body
@@ -956,18 +1151,28 @@ function CreateAnnouncementModal({ onClose, onCreate, loading, allowedScopes, de
   const selectedMunicipalityId = formData.scope === 'PROVINCE' ? undefined : (formData.municipality_id || staffMunicipalityId)
   const barangayOptions = selectedMunicipalityId ? getBarangaysByMunicipalityId(selectedMunicipalityId) : []
   const municipalityLocked = allowedScopes.length === 1 && allowedScopes[0] !== 'PROVINCE'
+  const shareDisabled = !selectedMunicipalityId
+  const shareOptions = MUNICIPALITIES.filter(m => m.id !== selectedMunicipalityId)
   const [files, setFiles] = useState<File[]>([])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (formData.title.trim() && formData.content.trim()) {
-      const payload: any = { ...formData }
+      const payload: any = {
+        ...formData,
+        shared_with_municipalities: normalizeMunicipalityIds(
+          formData.shared_with_municipalities,
+          selectedMunicipalityId
+        ),
+      }
       if (payload.scope === 'PROVINCE') {
         payload.municipality_id = undefined
         payload.barangay_id = undefined
+        payload.shared_with_municipalities = []
       } else if (payload.scope === 'MUNICIPALITY') {
         payload.barangay_id = undefined
       }
+      payload.public_viewable = payload.scope === 'BARANGAY' ? false : !!payload.public_viewable
       if (!payload.publish_at) delete payload.publish_at
       if (!payload.expire_at) delete payload.expire_at
       if (!payload.pinned_until) delete payload.pinned_until
@@ -977,8 +1182,8 @@ function CreateAnnouncementModal({ onClose, onCreate, loading, allowedScopes, de
 
   return createPortal(
     (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[1000]" role="dialog" aria-modal="true">
-      <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto pb-24 sm:pb-0" tabIndex={-1} autoFocus>
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center p-4 pt-20 sm:pt-16 z-[1000]" role="dialog" aria-modal="true">
+      <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto pb-24 sm:pb-4 shadow-2xl" tabIndex={-1} autoFocus>
         <div className="p-6">
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
@@ -1032,7 +1237,9 @@ function CreateAnnouncementModal({ onClose, onCreate, loading, allowedScopes, de
                   {files.map((f, i) => (
                     <div key={`${f.name}-${i}`} className="relative">
                       <img src={URL.createObjectURL(f)} alt={f.name} className="w-full h-20 object-cover rounded border" />
-                      <button type="button" className="absolute -top-2 -right-2 bg-white border rounded-full p-1 text-xs" aria-label="Remove image" onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}>✕</button>
+                      <button type="button" className="absolute -top-2 -right-2 bg-white border rounded-full p-1" aria-label="Remove image" onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}>
+                        <X className="w-3 h-3" />
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -1066,6 +1273,12 @@ function CreateAnnouncementModal({ onClose, onCreate, loading, allowedScopes, de
                       municipality_id: next === 'PROVINCE' ? undefined : (prev.municipality_id || staffMunicipalityId),
                       barangay_id: next === 'BARANGAY' ? (prev.barangay_id || staffBarangayId) : undefined,
                       public_viewable: next === 'BARANGAY' ? false : prev.public_viewable,
+                      shared_with_municipalities: next === 'PROVINCE'
+                        ? []
+                        : normalizeMunicipalityIds(
+                          prev.shared_with_municipalities,
+                          prev.municipality_id || staffMunicipalityId
+                        ),
                     }))
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-zambales-green"
@@ -1080,7 +1293,14 @@ function CreateAnnouncementModal({ onClose, onCreate, loading, allowedScopes, de
                   <label className="block text-sm font-medium text-gray-700 mb-1">Municipality</label>
                   <select
                     value={selectedMunicipalityId || ''}
-                    onChange={(e) => setFormData(prev => ({ ...prev, municipality_id: Number(e.target.value) || undefined }))}
+                    onChange={(e) => {
+                      const nextId = Number(e.target.value) || undefined
+                      setFormData(prev => ({
+                        ...prev,
+                        municipality_id: nextId,
+                        shared_with_municipalities: normalizeMunicipalityIds(prev.shared_with_municipalities, nextId),
+                      }))
+                    }}
                     disabled={municipalityLocked}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-zambales-green"
                   >
@@ -1112,27 +1332,62 @@ function CreateAnnouncementModal({ onClose, onCreate, loading, allowedScopes, de
             {/* Share with other municipalities */}
             {(formData.scope === 'MUNICIPALITY' || formData.scope === 'BARANGAY') && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Share with other municipalities (optional)</label>
-                <div className="border border-gray-300 rounded-md p-3 max-h-48 overflow-y-auto">
-                  {MUNICIPALITIES.filter(m => m.id !== selectedMunicipalityId).map((municipality) => (
-                    <label key={municipality.id} className="flex items-center space-x-2 py-1 hover:bg-gray-50 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formData.shared_with_municipalities.includes(municipality.id)}
-                        onChange={(e) => {
-                          const checked = e.target.checked
-                          setFormData(prev => ({
-                            ...prev,
-                            shared_with_municipalities: checked
-                              ? [...prev.shared_with_municipalities, municipality.id]
-                              : prev.shared_with_municipalities.filter(id => id !== municipality.id)
-                          }))
-                        }}
-                        className="h-4 w-4 text-zambales-green border-gray-300 rounded focus:ring-zambales-green"
-                      />
-                      <span className="text-sm text-gray-700">{municipality.name}</span>
-                    </label>
-                  ))}
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-gray-700">Share with other municipalities (optional)</label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={shareDisabled}
+                      className="text-xs text-ocean-700 hover:text-ocean-800 disabled:opacity-50"
+                      onClick={() => {
+                        setFormData(prev => ({
+                          ...prev,
+                          shared_with_municipalities: normalizeMunicipalityIds(
+                            shareOptions.map(m => m.id),
+                            selectedMunicipalityId
+                          ),
+                        }))
+                      }}
+                    >
+                      Select all
+                    </button>
+                    <button
+                      type="button"
+                      disabled={formData.shared_with_municipalities.length === 0}
+                      className="text-xs text-gray-500 hover:text-gray-700 disabled:opacity-50"
+                      onClick={() => setFormData(prev => ({ ...prev, shared_with_municipalities: [] }))}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+                <div className={`border border-gray-300 rounded-md p-3 max-h-48 overflow-y-auto ${shareDisabled ? 'bg-gray-50' : ''}`}>
+                  {shareDisabled ? (
+                    <div className="text-xs text-gray-500">Select a municipality to enable sharing.</div>
+                  ) : (
+                    shareOptions.map((municipality) => (
+                      <label key={municipality.id} className="flex items-center space-x-2 py-1 hover:bg-gray-50 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formData.shared_with_municipalities.includes(municipality.id)}
+                          onChange={(e) => {
+                            const checked = e.target.checked
+                            setFormData(prev => ({
+                              ...prev,
+                              shared_with_municipalities: checked
+                                ? normalizeMunicipalityIds(
+                                  [...prev.shared_with_municipalities, municipality.id],
+                                  selectedMunicipalityId
+                                )
+                                : prev.shared_with_municipalities.filter(id => id !== municipality.id)
+                            }))
+                          }}
+                          className="h-4 w-4 text-zambales-green border-gray-300 rounded focus:ring-zambales-green"
+                        />
+                        <span className="text-sm text-gray-700">{municipality.name}</span>
+                      </label>
+                    ))
+                  )}
                 </div>
                 {formData.shared_with_municipalities.length > 0 && (
                   <p className="text-xs text-gray-500 mt-1">

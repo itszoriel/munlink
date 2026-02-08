@@ -1,9 +1,10 @@
 """Marketplace models for items, transactions, and messages."""
 from datetime import datetime
+from apps.api.utils.time import utc_now
 try:
-    from __init__ import db
+    from apps.api import db
 except ImportError:
-    from __init__ import db
+    from apps.api import db
 from sqlalchemy import Index
 
 class Item(db.Model):
@@ -54,8 +55,8 @@ class Item(db.Model):
     view_count = db.Column(db.Integer, default=0)
     
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
     completed_at = db.Column(db.DateTime, nullable=True)
     
     # Relationships
@@ -155,8 +156,8 @@ class Transaction(db.Model):
     pickup_location = db.Column(db.String(200), nullable=True)
     
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
     completed_at = db.Column(db.DateTime, nullable=True)
     
     # Relationships
@@ -211,7 +212,7 @@ class TransactionAuditLog(db.Model):
     user_agent = db.Column(db.String(255), nullable=True)
     # 'metadata' is reserved by SQLAlchemy's declarative base; use different attribute name
     metadata_json = db.Column('metadata', db.JSON, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
 
     # Relationships
     transaction = db.relationship('Transaction', backref='audit_logs')

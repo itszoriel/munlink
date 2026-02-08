@@ -8,9 +8,9 @@ This utility is specifically for:
 """
 from flask import request, current_app
 
-from __init__ import db
-from models.admin_audit_log import AdminAuditLog, AuditAction
-from models.user import User
+from apps.api import db
+from apps.api.models.admin_audit_log import AdminAuditLog, AuditAction
+from apps.api.models.user import User
 
 
 def log_admin_action(
@@ -19,6 +19,8 @@ def log_admin_action(
     action: str = None,
     resource_type: str = None,
     resource_id: int = None,
+    target_type: str = None,
+    target_id: int = None,
     details: dict = None,
     req=None
 ) -> AdminAuditLog:
@@ -31,6 +33,8 @@ def log_admin_action(
         action: The action being performed (use AuditAction constants)
         resource_type: The type of resource being acted upon (optional)
         resource_id: The ID of the resource (optional)
+        target_type: Backward-compatible alias for resource_type (optional)
+        target_id: Backward-compatible alias for resource_id (optional)
         details: Additional details as a dict (optional)
         req: The Flask request object (optional, uses global request if not provided)
 
@@ -42,7 +46,7 @@ def log_admin_action(
 
     # Get email from admin_id if not provided
     if not admin_email and admin_id:
-        admin = User.query.get(admin_id)
+        admin = db.session.get(User, admin_id)
         if admin:
             admin_email = admin.email
 
@@ -67,12 +71,16 @@ def log_admin_action(
         # Outside request context
         pass
 
+    # Backward compatibility for older call sites still using target_* names.
+    resolved_resource_type = resource_type if resource_type is not None else target_type
+    resolved_resource_id = resource_id if resource_id is not None else target_id
+
     log_entry = AdminAuditLog(
         admin_id=admin_id,
         admin_email=admin_email,
         action=action,
-        resource_type=resource_type,
-        resource_id=resource_id,
+        resource_type=resolved_resource_type,
+        resource_id=resolved_resource_id,
         ip_address=ip_address,
         user_agent=user_agent,
         details=details or {}
@@ -81,7 +89,7 @@ def log_admin_action(
     try:
         db.session.add(log_entry)
         db.session.commit()
-        current_app.logger.info(f"Audit: {action} by {admin_email} on {resource_type}:{resource_id}")
+        current_app.logger.info(f"Audit: {action} by {admin_email} on {resolved_resource_type}:{resolved_resource_id}")
     except Exception as e:
         current_app.logger.error(f"Failed to create audit log: {e}")
         db.session.rollback()
@@ -131,7 +139,7 @@ def log_superadmin_2fa_failed(email: str, reason: str = None):
 
 def log_admin_approved(admin_id: int, target_user_id: int, target_email: str, target_role: str, municipality_id: int = None):
     """Log when an admin approves another admin account."""
-    admin = User.query.get(admin_id)
+    admin = db.session.get(User, admin_id)
     return log_admin_action(
         admin_id=admin_id,
         admin_email=admin.email if admin else 'unknown',
@@ -148,7 +156,7 @@ def log_admin_approved(admin_id: int, target_user_id: int, target_email: str, ta
 
 def log_admin_rejected(admin_id: int, target_user_id: int, target_email: str, reason: str = None):
     """Log when an admin rejects another admin account."""
-    admin = User.query.get(admin_id)
+    admin = db.session.get(User, admin_id)
     return log_admin_action(
         admin_id=admin_id,
         admin_email=admin.email if admin else 'unknown',
@@ -164,7 +172,7 @@ def log_admin_rejected(admin_id: int, target_user_id: int, target_email: str, re
 
 def log_resident_verified(admin_id: int, resident_id: int, resident_name: str, municipality_id: int = None, barangay_id: int = None):
     """Log when an admin verifies a resident."""
-    admin = User.query.get(admin_id)
+    admin = db.session.get(User, admin_id)
     return log_admin_action(
         admin_id=admin_id,
         admin_email=admin.email if admin else 'unknown',
@@ -181,7 +189,7 @@ def log_resident_verified(admin_id: int, resident_id: int, resident_name: str, m
 
 def log_resident_rejected(admin_id: int, resident_id: int, resident_name: str, reason: str = None):
     """Log when an admin rejects a resident."""
-    admin = User.query.get(admin_id)
+    admin = db.session.get(User, admin_id)
     return log_admin_action(
         admin_id=admin_id,
         admin_email=admin.email if admin else 'unknown',
@@ -226,7 +234,7 @@ def log_resident_id_viewed(
 
 def log_announcement_created(admin_id: int, announcement_id: int, title: str, scope: str = None, municipalities: list = None):
     """Log when an admin creates an announcement."""
-    admin = User.query.get(admin_id)
+    admin = db.session.get(User, admin_id)
     return log_admin_action(
         admin_id=admin_id,
         admin_email=admin.email if admin else 'unknown',
@@ -243,7 +251,7 @@ def log_announcement_created(admin_id: int, announcement_id: int, title: str, sc
 
 def log_announcement_deleted(admin_id: int, announcement_id: int, title: str):
     """Log when an admin deletes an announcement."""
-    admin = User.query.get(admin_id)
+    admin = db.session.get(User, admin_id)
     return log_admin_action(
         admin_id=admin_id,
         admin_email=admin.email if admin else 'unknown',
@@ -256,7 +264,7 @@ def log_announcement_deleted(admin_id: int, announcement_id: int, title: str):
 
 def log_marketplace_moderated(admin_id: int, item_id: int, action_taken: str, reason: str = None):
     """Log when an admin moderates a marketplace listing."""
-    admin = User.query.get(admin_id)
+    admin = db.session.get(User, admin_id)
     return log_admin_action(
         admin_id=admin_id,
         admin_email=admin.email if admin else 'unknown',

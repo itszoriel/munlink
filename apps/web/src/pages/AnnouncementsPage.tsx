@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { motion } from 'framer-motion'
 import { announcementsApi } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 import { useCachedFetch } from '@/lib/useCachedFetch'
@@ -23,7 +24,6 @@ export default function AnnouncementsPage() {
   const selectedBarangay = useAppStore((s) => s.selectedBarangay)
   const user = useAppStore((s) => s.user)
   const isAuthenticated = useAppStore((s) => s.isAuthenticated)
-  const isAuthBootstrapped = useAppStore((s) => s.isAuthBootstrapped)
   const [priority, setPriority] = useState<'all' | 'high' | 'medium' | 'low'>('all')
   const [hideRead, setHideReadState] = useState<boolean>(getHideRead())
 
@@ -34,7 +34,9 @@ export default function AnnouncementsPage() {
   const isViewingMismatch = verifiedResident && !!userMunicipalityId && !!selectedMunicipality?.id && userMunicipalityId !== selectedMunicipality.id
   const browseMunicipalityId = !verifiedResident && selectedMunicipality?.id ? selectedMunicipality.id : undefined
   const browseBarangayId = !verifiedResident && selectedBarangay?.id ? selectedBarangay.id : undefined
-  const shouldFetch = verifiedResident || !!browseMunicipalityId || !isAuthenticated
+  // Announcements endpoint is public (province-wide for guests/unverified),
+  // so never block fetch behind verification state.
+  const shouldFetch = true
 
   const params = useMemo(() => {
     const p: any = { active: true, page: 1, per_page: 20 }
@@ -48,14 +50,28 @@ export default function AnnouncementsPage() {
     return p
   }, [browseMunicipalityId, browseBarangayId])
 
+  const detailQuery = useMemo(() => {
+    const qp = new URLSearchParams()
+    if (browseMunicipalityId) {
+      qp.set('municipality_id', String(browseMunicipalityId))
+      qp.set('browse', 'true')
+    }
+    if (browseBarangayId) {
+      qp.set('barangay_id', String(browseBarangayId))
+    }
+    const qs = qp.toString()
+    return qs ? `?${qs}` : ''
+  }, [browseMunicipalityId, browseBarangayId])
+
   // Use cached fetch with filter-specific key
   const { data: announcementsData, loading } = useCachedFetch(
     CACHE_KEYS.ANNOUNCEMENTS,
     () => announcementsApi.getAll(params),
     {
-      dependencies: [browseMunicipalityId, browseBarangayId, userMunicipalityId, userBarangayId, verifiedResident],
+      // Bust stale client cache from older fetch gating behavior
+      dependencies: ['announcements_fetch_fix_v1', browseMunicipalityId, browseBarangayId, userMunicipalityId, userBarangayId, verifiedResident],
       staleTime: 5 * 60 * 1000,
-      enabled: shouldFetch && isAuthBootstrapped  // Wait for auth bootstrap before fetching
+      enabled: shouldFetch
     }
   )
 
@@ -69,32 +85,35 @@ export default function AnnouncementsPage() {
 
   return (
     <div className="container-responsive py-12">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
-        <h1 className="text-fluid-3xl font-serif font-semibold">Updates & Announcements</h1>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
+        <div>
+          <h1 className="text-fluid-3xl font-serif font-semibold text-gray-900">Updates & Announcements</h1>
+          <p className="text-gray-600 text-sm mt-1">Stay updated with the latest news and important information</p>
+        </div>
         <div className="flex items-center gap-2 flex-wrap">
           {/* Priority pills */}
           {(['all','high','medium','low'] as const).map(p => (
             <button
               key={p}
               onClick={() => setPriority(p)}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
                 priority===p
-                  ? 'bg-ocean-600 text-white shadow'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  ? 'bg-ocean-600 text-white shadow-md shadow-ocean-500/30 scale-105'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200 hover:shadow-sm'
               }`}
             >
               {p.charAt(0).toUpperCase()+p.slice(1)}
             </button>
           ))}
           {/* Hide read toggle */}
-          <label className="ml-2 inline-flex items-center gap-2 text-sm text-gray-700 select-none">
+          <label className="ml-2 inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer select-none">
             <input
               type="checkbox"
               checked={hideRead}
               onChange={(e) => { setHideReadState(e.target.checked); setHideRead(e.target.checked) }}
-              className="h-4 w-4 rounded border-gray-300 text-ocean-600 focus:ring-ocean-500"
+              className="h-4 w-4 rounded border-gray-300 text-ocean-600 focus:ring-ocean-500 focus:ring-offset-0 cursor-pointer"
             />
-            Hide read
+            <span className="text-sm font-medium text-gray-700">Hide read</span>
           </label>
         </div>
       </div>
@@ -135,21 +154,28 @@ export default function AnnouncementsPage() {
       ) : (
         <>
           <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {items.map((a) => (
-              <AnnouncementCard
+            {items.map((a, index) => (
+              <motion.div
                 key={a.id}
-                id={a.id}
-                title={a.title}
-                content={a.content}
-                municipality={a.municipality_name || 'Province-wide'}
-                barangay={(a as any).barangay_name}
-                scope={(a as any).scope as any}
-                priority={a.priority}
-                createdAt={a.created_at}
-                images={a.images}
-                pinned={(a as any).pinned}
-                href={`/announcements/${a.id}`}
-              />
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.4, delay: index * 0.05 }}
+              >
+                <AnnouncementCard
+                  id={a.id}
+                  title={a.title}
+                  content={a.content}
+                  municipality={a.municipality_name || 'Province-wide'}
+                  barangay={(a as any).barangay_name}
+                  scope={(a as any).scope as any}
+                  priority={a.priority}
+                  createdAt={a.created_at}
+                  images={a.images}
+                  pinned={(a as any).pinned}
+                  href={`/announcements/${a.id}${detailQuery}`}
+                />
+              </motion.div>
             ))}
           </div>
           {items.length === 0 && (

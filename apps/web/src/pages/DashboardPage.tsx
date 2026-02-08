@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { marketplaceApi, documentsApi, benefitsApi } from '@/lib/api'
 import Modal from '@/components/ui/Modal'
 import { StatusBadge } from '@munlink/ui'
@@ -58,55 +59,87 @@ export default function DashboardPage() {
 
   return (
     <div className="container-responsive py-8 md:py-10">
-      {/* Header */}
-      <div className="relative overflow-hidden rounded-2xl border border-white/60 bg-gradient-to-r from-sky-50 via-blue-50 to-emerald-50 p-6 md:p-8 shadow-sm">
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-          <div>
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-ocean-gradient text-white flex items-center justify-center shadow-md">
-                <User size={20} />
-              </div>
-              <h1 className="text-2xl md:text-3xl font-semibold">Welcome{user?.username ? `, ${user.username}` : ''}</h1>
-            </div>
-            <p className="text-sm md:text-base text-gray-600 mt-2 max-w-2xl">Quickly manage your marketplace items, follow transactions, and track document requests—all in one place.</p>
-          </div>
-
-          {/* Quick actions */}
-          <div className="grid grid-cols-1 xs:grid-cols-3 gap-3 w-full md:w-auto">
-            <Link to="/documents" className="group rounded-xl border bg-white/80 backdrop-blur shadow-sm px-4 py-3 flex items-center gap-2 hover:shadow transition">
-              <div className="h-8 w-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center">
-                <FileText size={16} />
-              </div>
-              <span className="text-sm font-medium">Request Document</span>
-              <ArrowRight size={16} className="ml-auto opacity-0 group-hover:opacity-100 transition" />
-            </Link>
-            <Link to="/marketplace" className="group rounded-xl border bg-white/80 backdrop-blur shadow-sm px-4 py-3 flex items-center gap-2 hover:shadow transition">
-              <div className="h-8 w-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center">
-                <Plus size={16} />
-              </div>
-              <span className="text-sm font-medium">Post Item</span>
-              <ArrowRight size={16} className="ml-auto opacity-0 group-hover:opacity-100 transition" />
-            </Link>
-            <Link to="/problems" className="group rounded-xl border bg-white/80 backdrop-blur shadow-sm px-4 py-3 flex items-center gap-2 hover:shadow transition">
-              <div className="h-8 w-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center">
-                <AlertTriangle size={16} />
-              </div>
-              <span className="text-sm font-medium">Report Problem</span>
-              <ArrowRight size={16} className="ml-auto opacity-0 group-hover:opacity-100 transition" />
-            </Link>
-          </div>
+      {/* Header with background image */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6 }}
+        className="relative overflow-hidden rounded-3xl border border-gray-200 shadow-lg"
+      >
+        {/* Background image */}
+        <div className="absolute inset-0">
+          <img
+            src="/assets/resident_dashboard.jpg"
+            alt="Dashboard background"
+            className="w-full h-full object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/50 to-black/30" />
         </div>
 
-        {/* Decorative blobs */}
-        <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-blue-200/40 blur-3xl" />
-        <div className="pointer-events-none absolute -left-10 -bottom-10 h-40 w-40 rounded-full bg-emerald-200/40 blur-3xl" />
-      </div>
+        <div className="relative z-10 p-6 md:p-10">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+            <div>
+              <div className="flex items-center gap-3 mb-3">
+                <div className="h-12 w-12 rounded-full bg-white/20 backdrop-blur-sm text-white flex items-center justify-center shadow-lg border border-white/30">
+                  <User size={24} />
+                </div>
+                <h1 className="text-3xl md:text-4xl font-bold text-white drop-shadow-lg">
+                  Welcome{user?.username ? `, ${user.username}` : ''}
+                </h1>
+              </div>
+              <p className="text-sm md:text-base text-white/90 max-w-2xl drop-shadow">
+                Manage your marketplace items, track transactions, and handle document requests—all in one place.
+              </p>
+            </div>
+
+            {/* Quick actions */}
+            <div className="grid grid-cols-1 xs:grid-cols-3 gap-3 w-full md:w-auto">
+              <Link
+                to="/documents"
+                className="group rounded-xl bg-white/95 backdrop-blur shadow-lg px-4 py-3 flex items-center gap-2 hover:bg-white hover:shadow-xl transition-all"
+              >
+                <div className="h-8 w-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center">
+                  <FileText size={16} />
+                </div>
+                <span className="text-sm font-semibold text-gray-900">Request Document</span>
+                <ArrowRight size={16} className="ml-auto opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all text-blue-600" />
+              </Link>
+              <Link
+                to="/marketplace"
+                className="group rounded-xl bg-white/95 backdrop-blur shadow-lg px-4 py-3 flex items-center gap-2 hover:bg-white hover:shadow-xl transition-all"
+              >
+                <div className="h-8 w-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                  <Plus size={16} />
+                </div>
+                <span className="text-sm font-semibold text-gray-900">Post Item</span>
+                <ArrowRight size={16} className="ml-auto opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all text-emerald-600" />
+              </Link>
+              <Link
+                to="/problems"
+                className="group rounded-xl bg-white/95 backdrop-blur shadow-lg px-4 py-3 flex items-center gap-2 hover:bg-white hover:shadow-xl transition-all"
+              >
+                <div className="h-8 w-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center">
+                  <AlertTriangle size={16} />
+                </div>
+                <span className="text-sm font-semibold text-gray-900">Report Problem</span>
+                <ArrowRight size={16} className="ml-auto opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all text-amber-600" />
+              </Link>
+            </div>
+          </div>
+        </div>
+      </motion.div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-1 xs:grid-cols-3 gap-4 mt-6">
-        <StatCard icon={<Package size={16} />} label="Items" value={items.length} hint="latest 5 shown" />
-        <StatCard icon={<ShoppingBag size={16} />} label="Transactions" value={txs.length} hint="recent activity" />
-        <StatCard icon={<FileText size={16} />} label="Requests" value={reqs.length} hint="in progress" />
+      <div className="grid grid-cols-1 xs:grid-cols-3 gap-4 mt-8">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.1 }}>
+          <StatCard icon={<Package size={18} />} label="Items" value={items.length} hint="latest 5 shown" />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.2 }}>
+          <StatCard icon={<ShoppingBag size={18} />} label="Transactions" value={txs.length} hint="recent activity" />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.3 }}>
+          <StatCard icon={<FileText size={18} />} label="Requests" value={reqs.length} hint="in progress" />
+        </motion.div>
       </div>
 
       {/* Only show skeleton when loading and no cached data */}
@@ -171,7 +204,7 @@ export default function DashboardPage() {
             title="My Document Requests"
             icon={<FileText size={18} />}
             emptyLabel="No requests yet."
-            footer={<Link to="/documents?tab=requests" className="text-sm text-blue-700 hover:underline inline-flex items-center gap-1">Open documents<ArrowRight size={14} /></Link>}
+            footer={<Link to="/dashboard/requests" className="text-sm text-ocean-600 hover:text-ocean-700 hover:underline inline-flex items-center gap-1 font-semibold transition-colors">View All Requests<ArrowRight size={14} /></Link>}
             entries={reqs.map((r: any) => ({ id: r.id, primary: `${r.document_type?.name || 'Document'} • ${r.request_number || ''}`.trim(), status: r.status, href: `/dashboard/requests/${r.id}`, extra: r }))}
             renderAction={(e) => {
               const extra = (e as any).extra || {}
@@ -254,14 +287,14 @@ type StatCardProps = {
 
 function StatCard({ icon, label, value, hint }: StatCardProps) {
   return (
-    <div className="rounded-xl bg-white shadow-sm border p-4 flex items-center gap-4">
-      <div className="h-10 w-10 rounded-lg bg-ocean-gradient text-white flex items-center justify-center shadow">
+    <div className="group rounded-2xl bg-white shadow-sm border border-gray-100 p-5 flex items-center gap-4 hover:shadow-md hover:border-ocean-200 transition-all duration-300">
+      <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-ocean-500 to-ocean-600 text-white flex items-center justify-center shadow-md group-hover:shadow-lg group-hover:scale-110 transition-all duration-300">
         {icon}
       </div>
       <div className="min-w-0">
-        <div className="text-xs uppercase tracking-wide text-gray-500">{label}</div>
-        <div className="text-2xl font-semibold leading-tight">{value}</div>
-        {hint && <div className="text-xs text-gray-500">{hint}</div>}
+        <div className="text-xs uppercase tracking-wide font-semibold text-gray-500">{label}</div>
+        <div className="text-3xl font-bold leading-tight text-gray-900">{value}</div>
+        {hint && <div className="text-xs text-gray-500 mt-0.5">{hint}</div>}
       </div>
     </div>
   )
@@ -280,27 +313,34 @@ type ListCardProps = {
 
 function ListCard({ title, icon, entries, emptyLabel, footer, renderAction }: ListCardProps) {
   return (
-    <div className="rounded-2xl border bg-white shadow-sm p-5">
-      <div className="flex items-center gap-2 mb-4">
-        {icon && <div className="h-8 w-8 rounded-lg bg-gray-100 text-gray-700 flex items-center justify-center">{icon}</div>}
-        <h3 className="text-base md:text-lg font-semibold">{title}</h3>
+    <div className="rounded-2xl border border-gray-100 bg-white shadow-sm hover:shadow-md transition-shadow duration-300 p-6">
+      <div className="flex items-center gap-3 mb-5">
+        {icon && (
+          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-ocean-500 to-ocean-600 text-white flex items-center justify-center shadow-md">
+            {icon}
+          </div>
+        )}
+        <h3 className="text-lg md:text-xl font-bold text-gray-900">{title}</h3>
       </div>
-      <div className="space-y-2">
+      <div className="space-y-3">
         {entries.map((e, idx) => (
-          <div
+          <motion.div
             key={`${String(e.id)}-${idx}`}
-            className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] gap-1 sm:gap-3 rounded-lg border px-3 py-2 items-center"
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.3, delay: idx * 0.05 }}
+            className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] gap-2 sm:gap-3 rounded-xl border border-gray-100 px-4 py-3 items-center hover:border-ocean-200 hover:shadow-sm transition-all"
           >
             <div className="min-w-0">
               {e.href ? (
                 <Link
                   to={e.href}
-                  className="block font-medium capitalize break-words line-clamp-2 sm:line-clamp-1 text-blue-700 hover:underline"
+                  className="block font-semibold capitalize break-words line-clamp-2 sm:line-clamp-1 text-ocean-600 hover:text-ocean-700 hover:underline transition-colors"
                 >
                   {e.primary}
                 </Link>
               ) : (
-                <div className="block font-medium capitalize break-words line-clamp-2 sm:line-clamp-1">
+                <div className="block font-semibold capitalize break-words line-clamp-2 sm:line-clamp-1 text-gray-900">
                   {e.primary}
                 </div>
               )}
@@ -309,16 +349,16 @@ function ListCard({ title, icon, entries, emptyLabel, footer, renderAction }: Li
               <StatusBadge status={e.status} />
               {renderAction ? renderAction(e) : null}
             </div>
-          </div>
+          </motion.div>
         ))}
         {entries.length === 0 && (
-          <div className="text-sm text-gray-600 flex items-center gap-2">
+          <div className="text-sm text-gray-500 flex items-center gap-2 py-4">
             <span className="h-2 w-2 rounded-full bg-gray-300" />
-            {emptyLabel}
+            <span className="italic">{emptyLabel}</span>
           </div>
         )}
       </div>
-      {footer && <div className="mt-4">{footer}</div>}
+      {footer && <div className="mt-5 pt-4 border-t border-gray-100">{footer}</div>}
     </div>
   )
 }

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { X } from 'lucide-react'
 import { marketplaceApi, mediaUrl, showToast } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 import { useCachedFetch } from '@/lib/useCachedFetch'
-import { CACHE_KEYS } from '@/lib/dataStore'
+import { CACHE_KEYS, invalidateMultiple } from '@/lib/dataStore'
 import Modal from '@/components/ui/Modal'
 import { EmptyState } from '@munlink/ui'
 import SafeImage from '@/components/SafeImage'
@@ -107,11 +108,32 @@ export default function MyMarketplacePage() {
 
   return (
     <div className="container-responsive py-10">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-        <h1 className="text-fluid-3xl font-serif font-semibold">My Marketplace</h1>
-        <div className="inline-flex rounded-lg border overflow-hidden">
-          <button onClick={() => setTab('items')} className={`px-4 py-2 text-sm ${tab==='items'?'bg-ocean-600 text-white':'bg-white hover:bg-neutral-50'}`}>My Items</button>
-          <button onClick={() => setTab('transactions')} className={`px-4 py-2 text-sm ${tab==='transactions'?'bg-ocean-600 text-white':'bg-white hover:bg-neutral-50'}`}>My Transactions</button>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+          <h1 className="text-fluid-3xl font-serif font-semibold text-gray-900">My Marketplace</h1>
+          <p className="text-gray-600 text-sm mt-1">Manage your listings and track your transactions</p>
+        </div>
+        <div className="inline-flex rounded-xl border border-gray-200 overflow-hidden bg-white shadow-sm">
+          <button
+            onClick={() => setTab('items')}
+            className={`px-5 py-2.5 text-sm font-semibold transition-all ${
+              tab==='items'
+                ? 'bg-ocean-600 text-white shadow-sm'
+                : 'bg-white text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            My Items
+          </button>
+          <button
+            onClick={() => setTab('transactions')}
+            className={`px-5 py-2.5 text-sm font-semibold transition-all ${
+              tab==='transactions'
+                ? 'bg-ocean-600 text-white shadow-sm'
+                : 'bg-white text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            My Transactions
+          </button>
         </div>
       </div>
 
@@ -129,60 +151,105 @@ export default function MyMarketplacePage() {
         </div>
       ) : tab === 'items' ? (
         <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-3 gap-6">
-          {items.map((it) => (
-            <div key={it.id} className="card">
-              <div className="w-full aspect-[4/3] bg-gray-100 rounded-lg mb-3 overflow-hidden">
-                {it.images?.[0] && (
-                  <img src={mediaUrl(it.images[0])} alt={it.title} loading="lazy" className="w-full h-full object-cover" />
+          {items.map((it, index) => (
+            <motion.div
+              key={it.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: index * 0.05 }}
+              className="group bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-lg hover:border-ocean-200 transition-all duration-300"
+            >
+              {/* Image */}
+              <div className="w-full aspect-[4/3] bg-gray-100 overflow-hidden relative">
+                {it.images?.[0] ? (
+                  <img
+                    src={mediaUrl(it.images[0])}
+                    alt={it.title}
+                    loading="lazy"
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+                    <svg className="w-16 h-16 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
                 )}
+
+                {/* Status badge */}
+                <div className="absolute top-3 left-3">
+                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wide shadow-sm backdrop-blur-sm ${
+                    it.status==='available'
+                      ? 'bg-emerald-500 text-white'
+                      : 'bg-amber-500 text-white'
+                  }`}>
+                    {it.status}
+                  </span>
+                </div>
               </div>
-              <h3 className="font-semibold mb-1 truncate">{it.title}</h3>
-              <div className="text-xs text-gray-600 mb-2 capitalize">{it.transaction_type}{it.transaction_type==='sell'&& it.price?` • ₱${Number(it.price).toLocaleString()}`:''}</div>
-              <div className="flex items-center justify-between text-xs mb-3">
-                <span className={`px-2 py-0.5 rounded-full ${it.status==='available'?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-700'}`}>{it.status}</span>
-                <span className="text-gray-500">{(it.created_at || '').slice(0,10)}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  className="btn btn-secondary flex-1"
-                  onClick={() => {
-                    setEditItem(it)
-                    setEditForm({
-                      title: it.title,
-                      description: '',
-                      price: it.price !== undefined ? String(it.price) : '',
-                      images: Array.isArray(it.images) ? [...it.images] : [],
-                    })
-                    setUploadFiles([])
-                  }}
-                >
-                  Edit
-                </button>
-                <button
-                  className="btn btn-danger flex-1"
-                  disabled={deletingId === it.id}
-                  onClick={async () => {
-                    if (!window.confirm('Delete this item? This cannot be undone.')) return
-                    setDeletingId(it.id)
-                    try {
-                      await marketplaceApi.deleteItem(it.id)
-                      updateItems((prev: any) => {
-                        const items = (prev?.data?.items || []).filter((p: any) => p.id !== it.id)
-                        return { ...prev, data: { ...prev?.data, items } }
+
+              {/* Content */}
+              <div className="p-4 space-y-3">
+                <h3 className="font-bold text-gray-900 truncate">{it.title}</h3>
+
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-600 capitalize font-medium">
+                    {it.transaction_type}
+                  </span>
+                  <span className="text-gray-500">
+                    {new Date(it.created_at || '').toLocaleDateString()}
+                  </span>
+                </div>
+
+                {it.transaction_type === 'sell' && it.price && (
+                  <div className="text-lg font-bold text-ocean-600">
+                    ₱{Number(it.price).toLocaleString()}
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    className="flex-1 px-4 py-2 text-sm font-semibold text-ocean-600 bg-ocean-50 hover:bg-ocean-100 rounded-xl transition-colors"
+                    onClick={() => {
+                      setEditItem(it)
+                      setEditForm({
+                        title: it.title,
+                        description: '',
+                        price: it.price !== undefined ? String(it.price) : '',
+                        images: Array.isArray(it.images) ? [...it.images] : [],
                       })
-                      showToast('Item deleted', 'success')
-                    } catch (e: any) {
-                      const msg = e?.response?.data?.error || 'Failed to delete item'
-                      showToast(msg, 'error')
-                    } finally {
-                      setDeletingId(null)
-                    }
-                  }}
-                >
-                  {deletingId === it.id ? 'Deleting…' : 'Delete'}
-                </button>
+                      setUploadFiles([])
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="flex-1 px-4 py-2 text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors disabled:opacity-50"
+                    disabled={deletingId === it.id}
+                    onClick={async () => {
+                      if (!window.confirm('Delete this item? This cannot be undone.')) return
+                      setDeletingId(it.id)
+                      try {
+                        await marketplaceApi.deleteItem(it.id)
+                        updateItems((prev: any) => {
+                          const items = (prev?.data?.items || []).filter((p: any) => p.id !== it.id)
+                          return { ...prev, data: { ...prev?.data, items } }
+                        })
+                        showToast('Item deleted', 'success')
+                      } catch (e: any) {
+                        const msg = e?.response?.data?.error || 'Failed to delete item'
+                        showToast(msg, 'error')
+                      } finally {
+                        setDeletingId(null)
+                      }
+                    }}
+                  >
+                    {deletingId === it.id ? 'Deleting…' : 'Delete'}
+                  </button>
+                </div>
               </div>
-            </div>
+            </motion.div>
           ))}
           {items.length === 0 && (
             <div className="col-span-full">
@@ -196,25 +263,54 @@ export default function MyMarketplacePage() {
           )}
         </div>
       ) : (
-        <div className="space-y-3">
-          {txs.map((t) => (
-            <div key={`${t.id}-${t.as || 'role'}`} className="flex items-center justify-between rounded-lg border p-3">
-              <div className="min-w-0">
-                <div className="font-medium capitalize truncate">{t.transaction_type}</div>
-                <div className="text-xs text-gray-600">{(t.created_at || '').slice(0,10)} • {t.as === 'seller' ? 'You are the seller' : 'You are the buyer'}</div>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`px-2 py-1 text-xs rounded-full ${t.status==='accepted'?'bg-emerald-50 text-emerald-700': (t.status==='awaiting_buyer'?'bg-blue-50 text-blue-700':'bg-amber-50 text-amber-700')}`}>{t.status}</span>
-                {(t.status === 'accepted' || t.status === 'awaiting_buyer') && t.pickup_at && (
-                  <span className="text-xs text-gray-600">Pickup: {new Date(t.pickup_at).toLocaleString()}</span>
-                )}
-                {(t.status === 'accepted' || t.status === 'awaiting_buyer') && (t as any).pickup_location && (
-                  <span className="text-xs text-gray-600">Location: {(t as any).pickup_location}</span>
-                )}
+        <div className="space-y-4">
+          {txs.map((t, index) => (
+            <motion.div
+              key={`${t.id}-${t.as || 'role'}`}
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.4, delay: index * 0.05 }}
+              className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm hover:shadow-md hover:border-ocean-200 transition-all duration-300"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-3 mb-2">
+                    <h3 className="font-bold text-gray-900 capitalize truncate">{t.transaction_type}</h3>
+                    <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${
+                      t.status==='accepted'
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : t.status==='awaiting_buyer'
+                          ? 'bg-blue-100 text-blue-700'
+                          : t.status==='completed'
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-amber-100 text-amber-700'
+                    }`}>
+                      {t.status.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
+                    <span>{new Date(t.created_at || '').toLocaleDateString()}</span>
+                    <span>•</span>
+                    <span className="font-medium">{t.as === 'seller' ? '🏷️ You are selling' : '🛒 You are buying'}</span>
+                    {(t.status === 'accepted' || t.status === 'awaiting_buyer') && t.pickup_at && (
+                      <>
+                        <span>•</span>
+                        <span>📅 Pickup: {new Date(t.pickup_at).toLocaleString()}</span>
+                      </>
+                    )}
+                    {(t.status === 'accepted' || t.status === 'awaiting_buyer') && (t as any).pickup_location && (
+                      <>
+                        <span>•</span>
+                        <span>📍 {(t as any).pickup_location}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
                 {t.as === 'seller' && t.status === 'pending' && (
                   <>
                     <button
-                      className="text-xs px-2 py-1 rounded border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                      className="px-4 py-2 text-sm font-semibold rounded-xl border-2 border-emerald-500 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors disabled:opacity-50"
                       disabled={acceptingId === t.id}
                       onClick={() => {
                         setAcceptingId(t.id)
@@ -226,12 +322,14 @@ export default function MyMarketplacePage() {
                       {acceptingId === t.id ? 'Accepting…' : 'Accept'}
                     </button>
                     <button
-                      className="text-xs px-2 py-1 rounded border border-rose-200 text-rose-700 hover:bg-rose-50"
+                      className="px-4 py-2 text-sm font-semibold rounded-xl border-2 border-rose-500 text-rose-700 bg-rose-50 hover:bg-rose-100 transition-colors"
                       onClick={async () => {
                         try {
                           await marketplaceApi.rejectTransaction(t.id)
                           updateTxStatus(t.id, 'rejected')
                           showToast('Transaction rejected. Others can now request this item.', 'success')
+                          // Invalidate marketplace items cache since item is available again
+                          invalidateMultiple([CACHE_KEYS.MARKETPLACE_ITEMS])
                         } catch (e: any) {
                           const msg = e?.response?.data?.error || 'Failed to reject transaction'
                           showToast(msg, 'error')
@@ -245,7 +343,7 @@ export default function MyMarketplacePage() {
                 {t.as === 'buyer' && t.status === 'awaiting_buyer' && (
                   <>
                     <button
-                      className="text-xs px-2 py-1 rounded border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-emerald-500 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors"
                       onClick={async () => {
                         try {
                           await marketplaceApi.confirmTransaction(t.id)
@@ -260,7 +358,7 @@ export default function MyMarketplacePage() {
                       Confirm
                     </button>
                     <button
-                      className="text-xs px-2 py-1 rounded border border-rose-200 text-rose-700 hover:bg-rose-50"
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-rose-500 text-rose-700 bg-rose-50 hover:bg-rose-100 transition-colors"
                       onClick={async () => {
                         try {
                           await marketplaceApi.buyerRejectProposal(t.id)
@@ -318,6 +416,8 @@ export default function MyMarketplacePage() {
                         await marketplaceApi.complete(t.id)
                         updateTxStatus(t.id, 'completed')
                         showToast('Transaction completed', 'success')
+                        // Invalidate marketplace items cache to reflect item status change
+                        invalidateMultiple([CACHE_KEYS.MARKETPLACE_ITEMS])
                       } catch (e: any) {
                         const msg = e?.response?.data?.error || 'Failed'
                         showToast(msg, 'error')
@@ -352,6 +452,8 @@ export default function MyMarketplacePage() {
                         await marketplaceApi.returnSeller(t.id)
                         updateTxStatus(t.id, 'completed')
                         showToast('Return confirmed', 'success')
+                        // Invalidate marketplace items cache to reflect item status change
+                        invalidateMultiple([CACHE_KEYS.MARKETPLACE_ITEMS])
                       } catch (e: any) {
                         const msg = e?.response?.data?.error || 'Failed'
                         showToast(msg, 'error')
@@ -393,7 +495,8 @@ export default function MyMarketplacePage() {
                   </button>
                 )}
               </div>
-            </div>
+              </div>
+            </motion.div>
           ))}
           {txs.length === 0 && (
             <EmptyState

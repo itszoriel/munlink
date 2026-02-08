@@ -205,7 +205,7 @@ def process_environment(env_key: str, args) -> dict:
             
             # Regenerate PDF
             if needs_pdf:
-                user = User.query.get(req.user_id)
+                user = db.session.get(User, req.user_id)
                 document_type = req.document_type
                 admin_user = None
                 
