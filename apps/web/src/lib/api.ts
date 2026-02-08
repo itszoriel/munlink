@@ -18,6 +18,10 @@ let accessToken: string | null = null
 let refreshPromise: Promise<string | null> | null = null
 let refreshTimer: ReturnType<typeof setTimeout> | null = null
 
+// Callback for when auth expires (wired up by App.tsx to trigger Zustand logout)
+let onAuthExpired: (() => void) | null = null
+export const setOnAuthExpired = (cb: (() => void) | null) => { onAuthExpired = cb }
+
 /**
  * Get CSRF token from cookies (for CSRF-protected endpoints)
  * Flask-JWT-Extended sets csrf_refresh_token cookie when CSRF protection is enabled
@@ -128,7 +132,7 @@ function scheduleRefresh(token: string) {
   }, delayMs)
 }
 
-async function doRefresh(): Promise<string | null> {
+async function doRefreshInternal(): Promise<string | null> {
   try {
     // Include CSRF token if available (for CSRF-protected backends)
     const csrfToken = getCsrfToken()
@@ -143,7 +147,8 @@ async function doRefresh(): Promise<string | null> {
       {
         withCredentials: true,
         validateStatus: () => true,
-        headers
+        headers,
+        timeout: 5000
       }
     )
     if (resp.status !== 200) return null
@@ -159,15 +164,32 @@ async function doRefresh(): Promise<string | null> {
   return null
 }
 
+function doRefresh(): Promise<string | null> {
+  if (!refreshPromise) {
+    refreshPromise = doRefreshInternal().finally(() => { refreshPromise = null })
+  }
+  return refreshPromise
+}
+
 export async function bootstrapAuth(): Promise<boolean> {
   // First, hydrate from sessionStorage if present for immediate UX
   try {
     const saved = sessionStorage.getItem('access_token')
     if (saved) {
       setAccessToken(saved)
-      scheduleRefresh(saved)
-      // Attempt background refresh to extend session
-      void doRefresh()
+      // Check if token is expired or near-expiry (within 60s buffer)
+      const payload = decodeJwt(saved)
+      const expSec = payload?.exp
+      const nowSec = Math.floor(Date.now() / 1000)
+      const isExpiredOrNearExpiry = !expSec || (expSec - nowSec) < 60
+
+      if (isExpiredOrNearExpiry) {
+        // Token expired/near-expiry: await refresh to get fresh token before profile call
+        await doRefresh()
+      } else {
+        // Token still valid: schedule future refresh and proceed immediately
+        scheduleRefresh(saved)
+      }
       return true
     }
   } catch { }
@@ -205,8 +227,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true
       try {
-        refreshPromise = refreshPromise || doRefresh()
-        const newToken = await refreshPromise.finally(() => { refreshPromise = null })
+        const newToken = await doRefresh()
         if (newToken) {
           originalRequest.headers = originalRequest.headers || {}
           try {
@@ -217,9 +238,10 @@ api.interceptors.response.use(
           return api(originalRequest)
         }
       } catch { }
-      // If refresh failed, clear and redirect to login
+      // If refresh failed, clear tokens and notify React (no hard redirect)
       clearAccessToken()
-      window.location.href = '/login'
+      if (onAuthExpired) onAuthExpired()
+      return Promise.reject(error)
     }
 
     // Handle role mismatch: clear tokens and redirect to login

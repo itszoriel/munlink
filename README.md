@@ -103,10 +103,12 @@ npm run dev
 - **Resident preferences**: Email ON by default, **SMS OFF by default** - users must enable SMS in Profile page. Both email and SMS require valid contact information.
 - **Cross-municipality sharing**: When announcements are shared with other municipalities (via `shared_with_municipalities`), residents from ALL shared municipalities receive notifications.
 
-### Notification Worker
-- **Queue system**: Notification outbox queues announcement publishes (province/municipality/barangay), benefit program creation, document request submissions, and document status changes
-- **Worker process**: Run as long-running process (`python scripts/notification_worker.py`) or single batch (`--once`)
-- **Deployment**: Deploy as Render/Railway worker using the same command with retry/backoff logic
+### Notification Delivery
+- **Queue system**: Notification outbox queues announcement publishes (province/municipality/barangay), benefit program creation/activation, document request submissions, and document status changes
+- **Inline delivery**: Notifications are delivered immediately after actions that queue them (announcements, document requests/status changes, benefit programs) via an inline flush, covering both admin and resident routes
+- **Concurrency safety**: Delivery uses a claim+lease pattern with `FOR UPDATE SKIP LOCKED` (Postgres) so the inline flush and background worker never double-deliver the same notification
+- **Worker process (optional)**: Run as long-running retry process (`python scripts/notification_worker.py`) or single batch (`--once`) to pick up any rows that failed inline delivery
+- **Deployment**: Deploy worker as Render/Railway background service for automatic retries with exponential backoff
 - **Setup guide**: See `SMS_NOTIFICATION_GUIDE.md` for comprehensive setup, testing, and troubleshooting steps
 
 ## ID/Selfie Security & Privacy

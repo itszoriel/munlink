@@ -403,3 +403,21 @@ def queue_benefit_program_notifications(program) -> Dict[str, int]:
             results['skipped'] += 1
 
     return results
+
+
+def flush_pending_notifications(max_items: int = 50):
+    """Best-effort inline delivery of queued notifications.
+
+    Called after admin actions that queue notifications so that
+    delivery happens immediately without waiting for the background
+    worker.  Failures are silently swallowed -- the worker will
+    retry any remaining rows on its next pass.
+    """
+    try:
+        from apps.api.utils.notification_delivery import process_batch
+        process_batch(max_items=max_items, newest_first=True)
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass

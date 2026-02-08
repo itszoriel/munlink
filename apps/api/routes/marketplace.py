@@ -7,6 +7,7 @@ from apps.api.utils.time import utc_now
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime, timezone, timedelta
 import sqlite3
+from sqlalchemy import func
 from sqlalchemy.exc import OperationalError as SAOperationalError, ProgrammingError as SAProgrammingError
 from apps.api import db
 from apps.api.models.user import User
@@ -34,6 +35,17 @@ from apps.api.utils.zambales_scope import (
 
 marketplace_bp = Blueprint('marketplace', __name__, url_prefix='/api/marketplace')
 
+STANDARD_MARKETPLACE_CATEGORIES = (
+    'Electronics',
+    'Furniture',
+    'Clothing',
+    'Home & Garden',
+    'Vehicles',
+    'Services',
+)
+STANDARD_MARKETPLACE_CATEGORIES_LOWER = tuple(c.lower() for c in STANDARD_MARKETPLACE_CATEGORIES)
+OTHER_CATEGORY_FILTER = '__other__'
+
 
 @marketplace_bp.route('/items', methods=['GET'])
 def list_items():
@@ -41,7 +53,7 @@ def list_items():
     
     Query params:
       - municipality_id: int (REQUIRED for guests; authenticated users auto-scoped)
-      - category: string (optional filter)
+      - category: string (optional filter; use "__other__" for non-standard categories)
       - transaction_type: string (optional filter)
       - status: string (default 'available')
       - page: int (default 1)
@@ -58,7 +70,7 @@ def list_items():
     try:
         # Get query parameters
         municipality_id = request.args.get('municipality_id', type=int)
-        category = request.args.get('category')
+        category = (request.args.get('category') or '').strip()
         transaction_type = request.args.get('transaction_type')
         status = request.args.get('status', 'available')
         page = request.args.get('page', 1, type=int)
@@ -113,7 +125,10 @@ def list_items():
         query = Item.query.filter_by(is_active=True, municipality_id=effective_municipality_id)
         
         if category:
-            query = query.filter_by(category=category)
+            if category == OTHER_CATEGORY_FILTER:
+                query = query.filter(func.lower(Item.category).notin_(STANDARD_MARKETPLACE_CATEGORIES_LOWER))
+            else:
+                query = query.filter_by(category=category)
         
         if transaction_type:
             query = query.filter_by(transaction_type=transaction_type)

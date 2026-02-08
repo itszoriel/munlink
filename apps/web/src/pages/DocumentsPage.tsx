@@ -28,6 +28,7 @@ const CIVIL_STATUS_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'widowed', label: 'Widowed' },
   { value: 'separated', label: 'Separated' },
   { value: 'divorced', label: 'Divorced' },
+  { value: 'other', label: 'Other' },
 ]
 
 const BUSINESS_TYPE_LABELS: Record<string, string> = {
@@ -53,6 +54,7 @@ export default function DocumentsPage() {
   const [purposeOther, setPurposeOther] = useState('')
   const [remarks, setRemarks] = useState('')
   const [civilStatus, setCivilStatus] = useState('')
+  const [civilStatusOther, setCivilStatusOther] = useState('')
   const [businessType, setBusinessType] = useState('')
   const [age, setAge] = useState<string>('')
   // const [uploadForm, setUploadForm] = useState<FormData | null>(null)
@@ -182,9 +184,10 @@ export default function DocumentsPage() {
   }, [purposeType, purposeOther])
   const civilStatusLabel = useMemo(() => {
     if (!civilStatus) return ''
+    if (civilStatus === 'other') return civilStatusOther.trim() || 'Other'
     const match = CIVIL_STATUS_OPTIONS.find((opt) => opt.value === civilStatus)
     return match?.label || civilStatus
-  }, [civilStatus])
+  }, [civilStatus, civilStatusOther])
 
   useEffect(() => {
     let cancelled = false
@@ -222,12 +225,13 @@ export default function DocumentsPage() {
   const canSubmit = useMemo(() => {
     if (!selectedTypeId || !(user as any)?.municipality_id || !purposeText) return false
     if (!civilStatus) return false
+    if (civilStatus === 'other' && !civilStatusOther.trim()) return false
     if (businessTypeRequired && !businessType) return false
     if (!requirementsReady) return false
     if (deliveryMethod === 'digital') return true
     // pickup requires barangay on profile
     return !!(user as any)?.barangay_id
-  }, [selectedTypeId, (user as any)?.municipality_id, purposeText, civilStatus, businessTypeRequired, businessType, requirementsReady, deliveryMethod, (user as any)?.barangay_id])
+  }, [selectedTypeId, (user as any)?.municipality_id, purposeText, civilStatus, civilStatusOther, businessTypeRequired, businessType, requirementsReady, deliveryMethod, (user as any)?.barangay_id])
 
   return (
     <div className="container-responsive py-12">
@@ -523,7 +527,10 @@ export default function DocumentsPage() {
                     <select
                       className="input-field"
                       value={civilStatus}
-                      onChange={(e) => setCivilStatus(e.target.value)}
+                      onChange={(e) => {
+                        setCivilStatus(e.target.value)
+                        if (e.target.value !== 'other') setCivilStatusOther('')
+                      }}
                     >
                       <option value="">Select civil status</option>
                       {CIVIL_STATUS_OPTIONS.map((opt) => (
@@ -531,6 +538,18 @@ export default function DocumentsPage() {
                       ))}
                     </select>
                   </div>
+                  {civilStatus === 'other' && (
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Specify Civil Status</label>
+                      <input
+                        className="input-field"
+                        value={civilStatusOther}
+                        onChange={(e) => setCivilStatusOther(e.target.value)}
+                        maxLength={30}
+                        placeholder="Specify civil status"
+                      />
+                    </div>
+                  )}
                   <div>
                     <label className="block text-sm font-medium mb-1">Age (optional)</label>
                     <input className="input-field" type="number" min={0} value={age} onChange={(e) => setAge(e.target.value)} placeholder="e.g., 22" />
@@ -673,7 +692,7 @@ export default function DocumentsPage() {
                           purpose_type: purposeType || undefined,
                           purpose_other: purposeType === 'other' ? (purposeOther || undefined) : undefined,
                           business_type: businessType || undefined,
-                          civil_status: civilStatus || undefined,
+                          civil_status: civilStatus === 'other' ? civilStatusOther.trim() : (civilStatus || undefined),
                           age: (age && !Number.isNaN(Number(age))) ? Number(age) : undefined,
                           remarks: remarks || undefined,
                           requirements_submitted: requirementsReady,

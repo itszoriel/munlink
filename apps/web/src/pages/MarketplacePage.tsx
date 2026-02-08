@@ -22,6 +22,7 @@ type Item = {
 
 const CATEGORIES = ['All', 'Electronics','Furniture','Clothing','Home & Garden','Vehicles','Services','Other']
 const UPLOAD_CATEGORIES = ['Electronics','Furniture','Clothing','Home & Garden','Vehicles','Services','Other']
+const OTHER_CATEGORY_FILTER = '__other__'
 const TYPES = ['All', 'donate', 'lend', 'sell'] as const
 
 export default function MarketplacePage() {
@@ -51,7 +52,7 @@ export default function MarketplacePage() {
     () => {
       const params: any = { status: 'available', page: 1, per_page: 24 }
       if (effectiveMunicipalityId) params.municipality_id = effectiveMunicipalityId
-      if (category !== 'All') params.category = category
+      if (category !== 'All') params.category = category === 'Other' ? OTHER_CATEGORY_FILTER : category
       if (type !== 'All') params.transaction_type = type
       return marketplaceApi.getItems(params)
     },
@@ -89,7 +90,7 @@ export default function MarketplacePage() {
 
   const [open, setOpen] = useState(false)
   const [creating, setCreating] = useState(false)
-  const [form, setForm] = useState<any>({ title: '', description: '', category: '', condition: 'good', transaction_type: 'sell', price: '' })
+  const [form, setForm] = useState<any>({ title: '', description: '', category: '', categoryOther: '', condition: 'good', transaction_type: 'sell', price: '' })
   const [files, setFiles] = useState<File[]>([])
   const [fabExpanded, setFabExpanded] = useState(false)
 
@@ -389,13 +390,28 @@ export default function MarketplacePage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1.5">Category <span className="text-red-500">*</span></label>
-                  <select className="input-field" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+                  <select className="input-field" value={form.category} onChange={(e) => {
+                    const val = e.target.value
+                    setForm((prev: any) => ({ ...prev, category: val, categoryOther: val === 'Other' ? prev.categoryOther : '' }))
+                  }}>
                     <option value="">Select category</option>
                     {UPLOAD_CATEGORIES.map((c) => (
                       <option key={c} value={c}>{c}</option>
                     ))}
                   </select>
                 </div>
+                {form.category === 'Other' && (
+                  <div>
+                    <label className="block text-sm font-medium mb-1.5">Specify Category <span className="text-red-500">*</span></label>
+                    <input
+                      className="input-field"
+                      value={form.categoryOther}
+                      onChange={(e) => setForm((prev: any) => ({ ...prev, categoryOther: e.target.value }))}
+                      maxLength={50}
+                      placeholder="Specify category"
+                    />
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium mb-1.5">Condition</label>
                   <select className="input-field" value={form.condition} onChange={(e) => setForm({ ...form, condition: e.target.value })}>
@@ -448,14 +464,14 @@ export default function MarketplacePage() {
               <button className="btn btn-secondary w-full sm:w-auto" onClick={() => setOpen(false)}>Cancel</button>
               <button 
                 className="btn btn-primary w-full sm:w-auto" 
-                disabled={creating || !form.title || !form.category || !form.description}
+                disabled={creating || !form.title || !form.category || !form.description || (form.category === 'Other' && !form.categoryOther.trim())}
                 onClick={async () => {
                   setCreating(true)
                   try {
                     const payload: any = {
                       title: form.title,
                       description: form.description,
-                      category: form.category,
+                      category: form.category === 'Other' ? form.categoryOther.trim() : form.category,
                       condition: form.condition,
                       transaction_type: form.transaction_type,
                     }
@@ -472,7 +488,7 @@ export default function MarketplacePage() {
                     invalidate()
                     refetch()
                     setFiles([])
-                    setForm({ title: '', description: '', category: '', condition: 'good', transaction_type: 'sell', price: '' })
+                    setForm({ title: '', description: '', category: '', categoryOther: '', condition: 'good', transaction_type: 'sell', price: '' })
                   } finally {
                     setCreating(false)
                   }

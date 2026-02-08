@@ -16,7 +16,7 @@ class NotificationOutbox(db.Model):
     event_type = db.Column(db.String(100), nullable=False)
     entity_id = db.Column(db.Integer, nullable=True)
     payload = db.Column(db.JSON, nullable=True)
-    status = db.Column(db.String(20), nullable=False, default='pending')  # pending, sent, failed, skipped
+    status = db.Column(db.String(20), nullable=False, default='pending')  # pending, processing, sent, failed, skipped
     attempts = db.Column(db.Integer, nullable=False, default=0)
     next_attempt_at = db.Column(db.DateTime, default=utc_now, nullable=True)
     last_error = db.Column(db.Text, nullable=True)

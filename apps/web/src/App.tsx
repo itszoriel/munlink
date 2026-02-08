@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useEffect } from 'react'
-import { bootstrapAuth, getAccessToken, authApi, startKeepAlive } from '@/lib/api'
+import { bootstrapAuth, getAccessToken, authApi, startKeepAlive, setOnAuthExpired } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 
 let hasBootstrappedAuth = false
@@ -38,13 +38,14 @@ function App() {
   const logout = useAppStore((s) => s.logout)
   useEffect(() => {
     let cancelled = false
+    setOnAuthExpired(() => { if (!cancelled) logout() })
     const init = async () => {
       // Start keep-alive ping to prevent cold starts
       if (!hasStartedKeepAlive) {
         startKeepAlive()
         hasStartedKeepAlive = true
       }
-      
+
       if (hasBootstrappedAuth) { setAuthBootstrapped(true); return }
       try {
         await bootstrapAuth()
@@ -72,8 +73,11 @@ function App() {
       if (!cancelled) setAuthBootstrapped(true)
     }
     void init()
-    return () => { cancelled = true }
-  }, [setAuth])
+    return () => {
+      cancelled = true
+      setOnAuthExpired(null)
+    }
+  }, [setAuth, setAuthBootstrapped, logout])
   return (
     <BrowserRouter>
       <Routes>

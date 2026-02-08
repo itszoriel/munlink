@@ -42,7 +42,7 @@ from apps.api.utils.admin_audit import (
     log_resident_verified,
     log_resident_rejected,
 )
-from apps.api.utils.notifications import queue_document_status_change, queue_announcement_notifications, queue_benefit_program_notifications
+from apps.api.utils.notifications import queue_document_status_change, queue_announcement_notifications, queue_benefit_program_notifications, flush_pending_notifications
 from apps.api.utils.qr_utils import (
     generate_pickup_code,
     hash_code,
@@ -1615,6 +1615,7 @@ def create_announcement():
             if status == 'PUBLISHED':
                 queue_announcement_notifications(announcement)
                 db.session.commit()
+                flush_pending_notifications()
         except Exception as notify_exc:
             db.session.rollback()
             current_app.logger.warning("Failed to queue announcement notifications: %s", notify_exc)
@@ -1751,6 +1752,7 @@ def update_announcement(announcement_id):
                 if became_live:
                     queue_announcement_notifications(announcement)
                     db.session.commit()
+                    flush_pending_notifications()
         except Exception as notify_exc:
             db.session.rollback()
             current_app.logger.warning("Failed to queue announcement notifications on update: %s", notify_exc)
@@ -2485,6 +2487,7 @@ def admin_create_benefit_program():
             if program.is_active and program.is_accepting_applications:
                 queue_benefit_program_notifications(program)
                 db.session.commit()
+                flush_pending_notifications()
         except Exception as notify_exc:
             db.session.rollback()
             current_app.logger.warning("Failed to queue benefit program notifications: %s", notify_exc)
@@ -2532,6 +2535,10 @@ def admin_update_benefit_program(program_id: int):
                 return v
             return str(v).strip().lower() in ('1', 'true', 'yes', 'y', 'on')
 
+        # Capture pre-update state for notification trigger
+        was_active = bool(program.is_active)
+        was_accepting = bool(program.is_accepting_applications)
+
         # Support multipart/form-data (optional image) and JSON (legacy)
         if request.files:
             data = dict(request.form or {})
@@ -2565,6 +2572,20 @@ def admin_update_benefit_program(program_id: int):
             program.image_path = rel_path
 
         db.session.commit()
+
+        # Notify residents if program just became active+accepting
+        now_active = bool(program.is_active)
+        now_accepting = bool(program.is_accepting_applications)
+        became_live = now_active and now_accepting and not (was_active and was_accepting)
+        if became_live:
+            try:
+                queue_benefit_program_notifications(program)
+                db.session.commit()
+                flush_pending_notifications()
+            except Exception as notify_exc:
+                db.session.rollback()
+                current_app.logger.warning("Failed to queue benefit program update notifications: %s", notify_exc)
+
         return jsonify({'message': 'Program updated', 'program': program.to_dict()}), 200
     except Exception as e:
         db.session.rollback()
@@ -2969,6 +2990,7 @@ def generate_document_request_pdf(request_id: int):
                 None
             )
             db.session.commit()
+            flush_pending_notifications()
         except Exception as notify_exc:
             db.session.rollback()
             current_app.logger.warning("Failed to queue document ready notification: %s", notify_exc)
@@ -3421,6 +3443,7 @@ def update_document_request_status(request_id: int):
                     req.rejection_reason or notes or ''
                 )
                 db.session.commit()
+                flush_pending_notifications()
         except Exception as notify_exc:
             db.session.rollback()
             current_app.logger.warning("Failed to queue document status notification: %s", notify_exc)
@@ -3690,6 +3713,7 @@ def admin_ready_for_pickup(request_id: int):
                     None
                 )
                 db.session.commit()
+                flush_pending_notifications()
         except Exception as notify_exc:
             db.session.rollback()
             current_app.logger.warning("Failed to queue ready-for-pickup notification: %s", notify_exc)

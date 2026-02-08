@@ -27,7 +27,7 @@ from apps.api.utils import (
     save_document_request_file,
     fully_verified_required,
 )
-from apps.api.utils.notifications import queue_document_request_created
+from apps.api.utils.notifications import queue_document_request_created, flush_pending_notifications
 from apps.api.utils.zambales_scope import (
     ZAMBALES_MUNICIPALITY_IDS,
     is_valid_zambales_municipality,
@@ -466,6 +466,7 @@ def create_document_request():
         try:
             queue_document_request_created(user, req, dt.name if dt else 'Document')
             db.session.commit()
+            flush_pending_notifications()
         except Exception as notify_exc:
             db.session.rollback()
             try:
