@@ -56,6 +56,8 @@ uploads/**/*
 coverage/
 .pytest_cache/
 .coverage
+tmp_pytest_run/
+tmp-tests/
 
 # Turborepo
 .turbo/
@@ -75,3 +77,7 @@ docs/
 
 # Terminal Paste Image folder
 .cp-images/
+
+# Tool artifacts
+.playwright-cli/
+output/
