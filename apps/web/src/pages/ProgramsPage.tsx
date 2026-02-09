@@ -37,6 +37,12 @@ export default function ProgramsPage() {
   const [tab, setTab] = useState<'programs'|'applications'>('programs')
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
   const [uploadingDocs, setUploadingDocs] = useState(false)
+  const [pendingApplicationId, setPendingApplicationId] = useState<number | null>(null)
+  const [retryTarget, setRetryTarget] = useState<any | null>(null)
+  const [retryFiles, setRetryFiles] = useState<File[]>([])
+  const [retrySubmitting, setRetrySubmitting] = useState(false)
+  const [retryError, setRetryError] = useState<string | null>(null)
+  const [applicationsNotice, setApplicationsNotice] = useState<string | null>(null)
   const [searchParams] = useSearchParams()
   const [openId, setOpenId] = useState<string | number | null>(null)
   
@@ -111,9 +117,17 @@ export default function ProgramsPage() {
   const { data: applicationsData, loading: applicationsLoading, refetch: refetchApplications } = useCachedFetch(
     CACHE_KEYS.MY_APPLICATIONS,
     () => benefitsApi.getMyApplications(),
-    { enabled: isAuthenticated && tab === 'applications', staleTime: 2 * 60 * 1000 }
+    { enabled: isAuthenticated, staleTime: 2 * 60 * 1000 }
   )
   const applications = (applicationsData as any)?.data?.applications || []
+  const appliedProgramIds = useMemo(() => {
+    const ids = new Set<number>()
+    applications.forEach((application: any) => {
+      const value = Number(application?.program_id ?? application?.program?.id)
+      if (Number.isFinite(value) && value > 0) ids.add(value)
+    })
+    return ids
+  }, [applications])
 
   const loading = tab === 'programs' ? programsLoading : applicationsLoading
 
@@ -123,13 +137,45 @@ export default function ProgramsPage() {
     if (t === 'applications') setTab('applications')
   }, [searchParams])
 
+  const toStringArray = (value: any): string[] => {
+    if (Array.isArray(value)) {
+      return value.map((item) => String(item || '').trim()).filter(Boolean)
+    }
+    if (typeof value === 'string') {
+      const raw = value.trim()
+      if (!raw) return []
+      try {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) {
+          return parsed.map((item) => String(item || '').trim()).filter(Boolean)
+        }
+      } catch {
+        // keep raw value fallback
+      }
+      return [raw]
+    }
+    return []
+  }
+
   // Helper function to safely get requirements array
   const getRequirementsArray = (program: Program | null): string[] => {
     if (!program) return []
-    const requirements = (program as any).requirements || (program as any).required_documents
-    if (Array.isArray(requirements)) return requirements
-    return []
+    const requirements = (program as any).requirements ?? (program as any).required_documents
+    return toStringArray(requirements)
   }
+
+  const getSupportingDocumentsArray = (application: any): string[] =>
+    toStringArray(application?.supporting_documents)
+
+  const getMissingRequiredDocumentsCount = (application: any): number => {
+    const required = getRequirementsArray((application?.program || null) as Program | null)
+    const uploaded = getSupportingDocumentsArray(application)
+    return Math.max(0, required.length - uploaded.length)
+  }
+
+  const selectedRequiredDocuments = useMemo(() => getRequirementsArray(selected), [selected])
+  const selectedMissingRequiredCount = Math.max(0, selectedRequiredDocuments.length - uploadedFiles.length)
+  const selectedHasIncompleteRequiredDocs = selectedRequiredDocuments.length > 0 && selectedMissingRequiredCount > 0
 
   // Check eligibility automatically when modal opens - using tag-based system
   const checkEligibility = useMemo(() => {
@@ -236,9 +282,50 @@ export default function ProgramsPage() {
       setStep(1)
       setAdditionalEligibilityData({})
       setUploadedFiles([])
+      setPendingApplicationId(null)
       setResult(null)
     }
   }, [open, selected, checkEligibility])
+
+  const closeRetryModal = () => {
+    setRetryTarget(null)
+    setRetryFiles([])
+    setRetryError(null)
+    setRetrySubmitting(false)
+  }
+
+  const submitRetryDocuments = async () => {
+    if (!retryTarget) return
+    if (retryFiles.length === 0) {
+      setRetryError('Please upload at least one document before submitting.')
+      return
+    }
+
+    setRetrySubmitting(true)
+    setRetryError(null)
+    try {
+      const formData = new FormData()
+      retryFiles.forEach((file) => formData.append('file', file))
+      await benefitsApi.uploadDocs(Number(retryTarget.id), formData)
+
+      const currentStatus = String(retryTarget.status || '').toLowerCase()
+      if (currentStatus === 'rejected') {
+        await benefitsApi.resubmitApplication(Number(retryTarget.id))
+        setApplicationsNotice('Documents uploaded. Your application was resubmitted for review.')
+      } else {
+        setApplicationsNotice('Documents uploaded successfully.')
+      }
+
+      closeRetryModal()
+      await refetchApplications()
+      invalidateMultiple([CACHE_KEYS.MY_APPLICATIONS])
+    } catch (e: any) {
+      const errorMsg = e?.response?.data?.error || e?.message || 'Failed to upload required documents'
+      setRetryError(errorMsg)
+    } finally {
+      setRetrySubmitting(false)
+    }
+  }
 
   return (
     <div className="container-responsive py-12">
@@ -324,7 +411,8 @@ export default function ProgramsPage() {
             {programs.map((p: Program) => {
               const desc = (p as any).description || p.summary || ''
               const eligibility = (p.eligibility || (p as any).eligibility_criteria || []) as string[]
-              const requirements = (p.requirements || (p as any).required_documents || []) as string[]
+              const requirements = getRequirementsArray(p)
+              const alreadyApplied = appliedProgramIds.has(Number(p.id))
               const img = (p as any).image_path ? mediaUrl((p as any).image_path) : ((p as any).image_url ? mediaUrl((p as any).image_url) : undefined)
               return (
               <Card key={p.id} className="flex flex-col">
@@ -381,17 +469,23 @@ export default function ProgramsPage() {
                   </div>
                 )}
                 <div className="mt-4">
-                  <GatedAction
-                    required="fullyVerified"
-                    onAllowed={() => {
-                      setSelected(p)
-                      setOpen(true)
-                      setStep(1)
-                    }}
-                    featureDescription={`Apply for ${p.name}`}
-                  >
-                    <button className="btn btn-primary w-full">Apply Now</button>
-                  </GatedAction>
+                  {alreadyApplied ? (
+                    <button type="button" className="btn btn-secondary w-full cursor-not-allowed opacity-80" disabled>
+                      Already Applied
+                    </button>
+                  ) : (
+                    <GatedAction
+                      required="fullyVerified"
+                      onAllowed={() => {
+                        setSelected(p)
+                        setOpen(true)
+                        setStep(1)
+                      }}
+                      featureDescription={`Apply for ${p.name}`}
+                    >
+                      <button className="btn btn-primary w-full">Apply Now</button>
+                    </GatedAction>
+                  )}
                 </div>
               </Card>
               )
@@ -402,31 +496,63 @@ export default function ProgramsPage() {
         applications.length === 0 ? (
           <EmptyState title="No applications yet" description="Submit an application to see it here." />
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {applications.map((a: any) => (
-              <Card key={a.id}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-semibold">{a.program?.name || 'Application'}</div>
-                    <div className="text-xs text-gray-600">{a.application_number}</div>
-                  </div>
-                  <StatusBadge status={a.status} />
-                </div>
-                {a.status === 'rejected' && a.rejection_reason && (
-                  <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
-                    <span className="font-medium">Reason:</span> {a.rejection_reason}
-                  </div>
-                )}
-                {a.disbursement_status && <div className="text-xs text-gray-600 mt-2">Disbursement: {a.disbursement_status}</div>}
-              </Card>
-            ))}
-          </div>
+          <>
+            {applicationsNotice && (
+              <div className="mb-3 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+                {applicationsNotice}
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {applications.map((a: any) => {
+                const missingRequiredCount = getMissingRequiredDocumentsCount(a)
+                const canRetryRequiredDocs = missingRequiredCount > 0 && a.status !== 'approved'
+                return (
+                  <Card key={a.id}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-semibold">{a.program?.name || 'Application'}</div>
+                        <div className="text-xs text-gray-600">{a.application_number}</div>
+                      </div>
+                      <StatusBadge status={a.status} />
+                    </div>
+                    {a.status === 'rejected' && a.rejection_reason && (
+                      <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+                        <span className="font-medium">Reason:</span> {a.rejection_reason}
+                      </div>
+                    )}
+                    {canRetryRequiredDocs && (
+                      <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+                        Missing required documents: upload {missingRequiredCount} more document{missingRequiredCount === 1 ? '' : 's'} to continue.
+                      </div>
+                    )}
+                    {canRetryRequiredDocs && (
+                      <div className="mt-2">
+                        <button
+                          type="button"
+                          className="btn btn-secondary w-full"
+                          onClick={() => {
+                            setRetryTarget(a)
+                            setRetryFiles([])
+                            setRetryError(null)
+                            setApplicationsNotice(null)
+                          }}
+                        >
+                          Add the required document(s)
+                        </button>
+                      </div>
+                    )}
+                    {a.disbursement_status && <div className="text-xs text-gray-600 mt-2">Disbursement: {a.disbursement_status}</div>}
+                  </Card>
+                )
+              })}
+            </div>
+          </>
         )
       )}
         </>
       )}
 
-      <Modal isOpen={open} onClose={() => { setOpen(false); setSelected(null); setResult(null); setStep(1); setUploadedFiles([]); setEligibilityCheck(null) }} title={selected ? `Apply: ${selected.name}` : 'Apply'}>
+      <Modal isOpen={open} onClose={() => { setOpen(false); setSelected(null); setResult(null); setStep(1); setUploadedFiles([]); setEligibilityCheck(null); setPendingApplicationId(null) }} title={selected ? `Apply: ${selected.name}` : 'Apply'}>
         <Stepper steps={["Eligibility Check","Additional Info","Documents & Submit"]} current={step} />
         {step === 1 && (
           <div className="space-y-4">
@@ -591,13 +717,13 @@ export default function ProgramsPage() {
               <h3 className="text-sm font-semibold mb-3">Documents & Submission</h3>
               
               {/* Required Documents */}
-              {getRequirementsArray(selected).length > 0 && (
+              {selectedRequiredDocuments.length > 0 && (
                 <div className="mb-4">
                   <label className="block text-sm font-medium mb-2">Required Documents <span className="text-red-500">*</span></label>
                   <div className="bg-gray-50 rounded-lg p-3 mb-3">
                     <p className="text-xs text-gray-600 mb-2">Please upload the following documents:</p>
                     <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
-                      {getRequirementsArray(selected).map((req: string, i: number) => (
+                      {selectedRequiredDocuments.map((req: string, i: number) => (
                         <li key={i}>{req}</li>
                       ))}
                     </ul>
@@ -606,7 +732,21 @@ export default function ProgramsPage() {
                     accept="image/*,.pdf"
                     multiple={true}
                     maxSizeMb={10}
-                    onFiles={(files) => setUploadedFiles(files)}
+                    onFiles={(files) => {
+                      setUploadedFiles((previous) => {
+                        const merged = [...previous]
+                        files.forEach((file) => {
+                          const exists = merged.some(
+                            (item) =>
+                              item.name === file.name &&
+                              item.size === file.size &&
+                              item.lastModified === file.lastModified
+                          )
+                          if (!exists) merged.push(file)
+                        })
+                        return merged
+                      })
+                    }}
                     label="Upload Documents"
                   />
                   {uploadedFiles.length > 0 && (
@@ -617,10 +757,19 @@ export default function ProgramsPage() {
                           <li key={i} className="text-xs">{file.name}</li>
                         ))}
                       </ul>
+                      <button
+                        type="button"
+                        className="mt-2 text-xs text-ocean-700 underline"
+                        onClick={() => setUploadedFiles([])}
+                      >
+                        Clear selected files
+                      </button>
                     </div>
                   )}
-                  {getRequirementsArray(selected).length > 0 && uploadedFiles.length === 0 && (
-                    <p className="text-xs text-rose-600 mt-2">Please upload at least one document to submit.</p>
+                  {selectedHasIncompleteRequiredDocs && pendingApplicationId === null && (
+                    <p className="text-xs text-rose-600 mt-2">
+                      Please upload {selectedMissingRequiredCount} more required document{selectedMissingRequiredCount === 1 ? '' : 's'} before submitting.
+                    </p>
                   )}
                 </div>
               )}
@@ -638,6 +787,11 @@ export default function ProgramsPage() {
                   </div>
                 )}
               </div>
+              {pendingApplicationId !== null && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                  Your application was created, but document upload did not complete. Re-upload your documents and submit again to finish.
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-between pt-2">
@@ -647,35 +801,55 @@ export default function ProgramsPage() {
               </button>
               <button 
                 className="btn btn-primary" 
-                disabled={applying || (getRequirementsArray(selected).length > 0 && uploadedFiles.length === 0) || !eligibilityCheck?.overall} 
+                disabled={
+                  applying ||
+                  (pendingApplicationId === null && selectedHasIncompleteRequiredDocs) ||
+                  (pendingApplicationId !== null && uploadedFiles.length === 0) ||
+                  !eligibilityCheck?.overall
+                }
                 onClick={async () => {
                   setApplying(true)
                   try {
-                    // Create application with eligibility data (API will validate eligibility)
-                    const res = await benefitsApi.createApplication({ 
-                      program_id: selected!.id, 
-                      application_data: {
-                        ...additionalEligibilityData,
-                        eligibility_verified: true
-                      } 
-                    })
-                    const app = res?.data?.application
-                    
+                    if (pendingApplicationId === null && selectedHasIncompleteRequiredDocs) {
+                      throw new Error(`Please upload all required documents before submitting. Missing ${selectedMissingRequiredCount} document${selectedMissingRequiredCount === 1 ? '' : 's'}.`)
+                    }
+
+                    let app: any = null
+                    if (pendingApplicationId) {
+                      app = { id: pendingApplicationId }
+                    } else {
+                      // Create application with eligibility data (API will validate eligibility)
+                      const res = await benefitsApi.createApplication({
+                        program_id: selected!.id,
+                        application_data: {
+                          ...additionalEligibilityData,
+                          eligibility_verified: true
+                        }
+                      })
+                      app = res?.data?.application
+                    }
+                     
                     // Upload documents if any
                     if (uploadedFiles.length > 0 && app?.id) {
+                      const appId = Number(app.id)
+                      if (!appId) {
+                        throw new Error('Application was created but missing ID for document upload.')
+                      }
                       setUploadingDocs(true)
                       try {
                         const formData = new FormData()
                         uploadedFiles.forEach(file => formData.append('file', file))
-                        await benefitsApi.uploadDocs(app.id, formData)
+                        await benefitsApi.uploadDocs(appId, formData)
                       } catch (e: any) {
-                        console.error('Document upload failed:', e)
-                        // Continue even if upload fails - documents can be uploaded later
+                        setPendingApplicationId(appId)
+                        const uploadErr = e?.response?.data?.error || e?.message || 'Document upload failed'
+                        throw new Error(`Application created, but document upload failed. Please retry upload now. ${uploadErr}`)
                       } finally {
                         setUploadingDocs(false)
                       }
                     }
-                    
+
+                    setPendingApplicationId(null)
                     setResult(app)
                     // Refresh applications list after successful submission
                     refetchApplications()
@@ -709,6 +883,94 @@ export default function ProgramsPage() {
             )}
           </div>
         )}
+      </Modal>
+
+      <Modal
+        isOpen={!!retryTarget}
+        onClose={closeRetryModal}
+        title="Complete Required Documents"
+      >
+        <div className="space-y-4">
+          <div className="text-sm">
+            <div><span className="font-medium">Program:</span> {retryTarget?.program?.name || 'Application'}</div>
+            <div className="text-xs text-gray-600 mt-1">Application No.: {retryTarget?.application_number}</div>
+          </div>
+
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+            <div className="text-xs text-gray-700 mb-2">
+              Required documents ({getRequirementsArray((retryTarget?.program || null) as Program | null).length})
+            </div>
+            <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
+              {getRequirementsArray((retryTarget?.program || null) as Program | null).map((item, idx) => (
+                <li key={idx}>{item}</li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+            Currently uploaded: {getSupportingDocumentsArray(retryTarget).length} • Missing: {getMissingRequiredDocumentsCount(retryTarget)}
+          </div>
+
+          <FileUploader
+            accept="image/*,.pdf"
+            multiple={true}
+            maxSizeMb={10}
+            onFiles={(files) => {
+              setRetryFiles((previous) => {
+                const merged = [...previous]
+                files.forEach((file) => {
+                  const exists = merged.some(
+                    (item) =>
+                      item.name === file.name &&
+                      item.size === file.size &&
+                      item.lastModified === file.lastModified
+                  )
+                  if (!exists) merged.push(file)
+                })
+                return merged
+              })
+            }}
+            label="Upload Additional Documents"
+          />
+
+          {retryFiles.length > 0 && (
+            <div className="text-sm text-gray-700">
+              <p className="font-medium mb-1">Selected for upload ({retryFiles.length}):</p>
+              <ul className="list-disc list-inside space-y-1">
+                {retryFiles.map((file, i) => (
+                  <li key={i} className="text-xs">{file.name}</li>
+                ))}
+              </ul>
+              <button
+                type="button"
+                className="mt-2 text-xs text-ocean-700 underline"
+                onClick={() => setRetryFiles([])}
+              >
+                Clear selected files
+              </button>
+            </div>
+          )}
+
+          {retryError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+              {retryError}
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2">
+            <button type="button" className="btn btn-secondary" onClick={closeRetryModal} disabled={retrySubmitting}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={retrySubmitting || retryFiles.length === 0}
+              onClick={submitRetryDocuments}
+            >
+              {retrySubmitting ? 'Submitting...' : (String(retryTarget?.status || '').toLowerCase() === 'rejected' ? 'Upload and Resubmit' : 'Upload Documents')}
+            </button>
+          </div>
+        </div>
       </Modal>
     </div>
   )

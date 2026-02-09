@@ -15,6 +15,7 @@ interface AdminLayoutProps {
 
 export default function AdminLayout({ children }: AdminLayoutProps) {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
   const user = useAdminStore((s) => s.user)
@@ -95,6 +96,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
       label: 'Barangay Management',
       items: [
         { icon: 'dashboard', label: 'Dashboard', path: '/barangay/dashboard', badge: null },
+        { icon: 'programs', label: 'Programs', path: '/barangay/programs', badge: null },
         { icon: 'announcements', label: 'Announcements', path: '/barangay/announcements', badge: null },
         { icon: 'reports', label: 'Reports', path: '/barangay/reports', badge: null },
       ],
@@ -146,7 +148,9 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
       {/* Top header */}
       <TopHeader
         sidebarCollapsed={!sidebarOpen}
-        onOpenMobile={() => setIsMobileSidebarOpen(true)}
+        onOpenMobile={() => { setIsProfileMenuOpen(false); setIsMobileSidebarOpen(true); }}
+        onProfileMenuChange={setIsProfileMenuOpen}
+        onCloseMobileSidebar={() => setIsMobileSidebarOpen(false)}
       />
 
       {/* Main content - auto-expand sidebar so use minimum collapsed width */}
@@ -160,8 +164,8 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
         </div>
       </main>
 
-      {/* Mobile bottom nav */}
-      {!isMobileSidebarOpen && <MobileNav />}
+      {/* Mobile bottom nav - hidden when sidebar or profile menu is open */}
+      {!isMobileSidebarOpen && !isProfileMenuOpen && <MobileNav />}
     </div>
   )
 }

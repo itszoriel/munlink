@@ -6,10 +6,17 @@ import { useAdminStore } from '../../lib/store'
 interface TopHeaderProps {
   sidebarCollapsed: boolean
   onOpenMobile: () => void
+  onProfileMenuChange?: (open: boolean) => void
+  onCloseMobileSidebar?: () => void
 }
 
-export default function TopHeader({ sidebarCollapsed, onOpenMobile }: TopHeaderProps) {
+export default function TopHeader({ sidebarCollapsed, onOpenMobile, onProfileMenuChange, onCloseMobileSidebar }: TopHeaderProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  const setMenuOpen = (open: boolean) => {
+    setMobileMenuOpen(open)
+    onProfileMenuChange?.(open)
+  }
   const location = useLocation()
   const navigate = useNavigate()
   const user = useAdminStore((s) => s.user)
@@ -86,7 +93,14 @@ export default function TopHeader({ sidebarCollapsed, onOpenMobile }: TopHeaderP
   }
   // Align header to sidebar width (collapsed=84px, expanded=288px) on md+.
   const leftOffset = sidebarCollapsed ? 'md:left-[84px]' : 'md:left-[288px]'
-  const portalTitle = `${user?.admin_municipality_name || 'Municipality'} Admin Portal`
+  const role = (user as any)?.role
+  const portalTitle = role === 'superadmin'
+    ? 'Super Admin Portal'
+    : role === 'provincial_admin'
+      ? 'Provincial Admin Portal'
+      : role === 'barangay_admin'
+        ? `${(user as any)?.admin_barangay_name || 'Barangay'} Admin Portal`
+        : `${user?.admin_municipality_name || 'Municipality'} Admin Portal`
   return (
     <header className={`fixed top-0 right-0 left-0 ${leftOffset} h-16 bg-white md:bg-white/90 md:backdrop-blur-xl border-b border-neutral-200 z-40 transition-all duration-300`}>
       <div className="h-full px-4 md:px-6 flex items-center justify-between">
@@ -107,7 +121,7 @@ export default function TopHeader({ sidebarCollapsed, onOpenMobile }: TopHeaderP
           {/* Mobile avatar button opens quick actions */}
           <button
             className="md:hidden flex items-center gap-2 px-3 py-2 bg-neutral-50 hover:bg-neutral-100 rounded-xl transition-colors"
-            onClick={() => setMobileMenuOpen(true)}
+            onClick={() => { onCloseMobileSidebar?.(); setMenuOpen(true); }}
             aria-label="Open account menu"
           >
             {user?.profile_picture ? (
@@ -158,9 +172,10 @@ export default function TopHeader({ sidebarCollapsed, onOpenMobile }: TopHeaderP
       </div>
       {/* Mobile slide-over for account actions */}
       <div className={`fixed inset-0 z-[90] md:hidden ${mobileMenuOpen ? '' : 'hidden'}`}>
-        <div className="absolute inset-0 bg-black/40" onClick={() => setMobileMenuOpen(false)} />
-        <aside className="absolute right-0 top-0 h-full w-[85%] xxs:w-[80%] xs:w-[70%] bg-white p-4 pb-24 flex flex-col shadow-2xl border-l border-neutral-200">
-          <div className="flex items-center gap-3 p-3 border-b border-neutral-200">
+        <div className="absolute inset-0 bg-black/40" onClick={() => setMenuOpen(false)} />
+        <aside className="absolute right-0 top-0 bottom-0 w-[85%] xxs:w-[80%] xs:w-[70%] bg-white flex flex-col shadow-2xl border-l border-neutral-200">
+          {/* User info header */}
+          <div className="flex items-center gap-3 p-4 border-b border-neutral-200 flex-shrink-0">
             {user?.profile_picture ? (
               <img src={resolveImageUrl(user.profile_picture)} alt="Profile" className="w-10 h-10 rounded-full object-cover" />
             ) : (
@@ -173,12 +188,16 @@ export default function TopHeader({ sidebarCollapsed, onOpenMobile }: TopHeaderP
               <p className="text-xs text-neutral-600 truncate">{user?.email}</p>
             </div>
           </div>
-          <div className="py-2 flex-1">
-            <button onClick={() => { setMobileMenuOpen(false); goToProfile(); }} className="w-full text-left flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-neutral-50 transition-colors"><User className="w-4 h-4" aria-hidden="true" /><span className="text-sm font-medium text-neutral-700">My Profile</span></button>
+
+          {/* Menu items */}
+          <div className="py-2 px-2 flex-1 overflow-y-auto">
+            <button onClick={() => { setMenuOpen(false); goToProfile(); }} className="w-full text-left flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-neutral-50 transition-colors"><User className="w-4 h-4" aria-hidden="true" /><span className="text-sm font-medium text-neutral-700">My Profile</span></button>
             <a href={PUBLIC_SITE_URL} target="_blank" rel="noreferrer" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-neutral-50 transition-colors"><Globe className="w-4 h-4" aria-hidden="true" /><span className="text-sm font-medium text-neutral-700">View Public Site</span></a>
           </div>
-          <div className="p-4 border-t border-neutral-200">
-            <button onClick={() => { setMobileMenuOpen(false); handleLogout(); }} className="w-full btn bg-red-50 hover:bg-red-100 text-red-600 rounded-xl font-medium">Logout</button>
+
+          {/* Logout pinned to bottom */}
+          <div className="p-4 border-t border-neutral-200 flex-shrink-0">
+            <button onClick={() => { setMenuOpen(false); handleLogout(); }} className="w-full btn bg-red-50 hover:bg-red-100 text-red-600 rounded-xl font-medium">Logout</button>
           </div>
         </aside>
       </div>

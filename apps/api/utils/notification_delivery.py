@@ -22,6 +22,10 @@ from apps.api.utils.time import utc_now
 MAX_ATTEMPTS_DEFAULT = 5
 
 
+def _sms_target_number(user: User) -> str | None:
+    return getattr(user, 'mobile_number', None) or getattr(user, 'phone_number', None)
+
+
 def _backoff_minutes(attempts: int) -> int:
     return min(60, 2 ** max(attempts, 1))
 
@@ -93,10 +97,11 @@ def _prepare_sms_items(
         if getattr(user, 'notify_sms_enabled', False) is False:
             _mark_skipped(item, 'sms_disabled')
             continue
-        if not getattr(user, 'mobile_number', None):
+        raw_number = _sms_target_number(user)
+        if not raw_number:
             _mark_skipped(item, 'missing_mobile')
             continue
-        normalized = normalize_sms_number(user.mobile_number)
+        normalized = normalize_sms_number(raw_number)
         if not normalized:
             _mark_skipped(item, 'invalid_mobile')
             continue

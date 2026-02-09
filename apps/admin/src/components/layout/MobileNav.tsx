@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Users, FileText, ShoppingBag, User as UserIcon, Megaphone, BarChart3, Shield } from 'lucide-react'
+import { LayoutDashboard, Users, FileText, ShoppingBag, User as UserIcon, Megaphone, BarChart3, Shield, Gift } from 'lucide-react'
 import { useAdminStore } from '../../lib/store'
 
 function IconFor(code: string, className = 'w-5 h-5') {
@@ -8,6 +8,7 @@ function IconFor(code: string, className = 'w-5 h-5') {
     case 'residents': return <Users className={className} aria-hidden="true" />
     case 'requests': return <FileText className={className} aria-hidden="true" />
     case 'market': return <ShoppingBag className={className} aria-hidden="true" />
+    case 'programs': return <Gift className={className} aria-hidden="true" />
     case 'announcements': return <Megaphone className={className} aria-hidden="true" />
     case 'reports': return <BarChart3 className={className} aria-hidden="true" />
     case 'audit': return <Shield className={className} aria-hidden="true" />
@@ -36,9 +37,9 @@ export default function MobileNav() {
 
   const barangayItems = [
     { icon: 'dashboard', label: 'Dashboard', path: '/barangay/dashboard' },
+    { icon: 'programs', label: 'Programs', path: '/barangay/programs' },
     { icon: 'announcements', label: 'News', path: '/barangay/announcements' },
     { icon: 'reports', label: 'Reports', path: '/barangay/reports' },
-    { icon: 'profile', label: 'Profile', path: '/profile' },
   ]
 
   const superItems = [

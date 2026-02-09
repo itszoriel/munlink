@@ -199,6 +199,20 @@ export default function Programs() {
     )
   }
 
+  const rejectForMissingDocuments = async (app: any) => {
+    const reason = 'Missing required documents'
+    try {
+      setActionLoading({ appId: app.id, action: 'reject' })
+      await benefitsAdminApi.updateApplicationStatus(app.id, { status: 'rejected', rejection_reason: reason })
+      updateApplication(app.id, { status: 'rejected', rejection_reason: reason })
+      showToast('Application rejected: missing documents', 'success')
+    } catch (error: any) {
+      showToast(handleApiError(error), 'error')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
   function IconFromCode({ code, className }: { code: string; className?: string }) {
     if (code === '📋') return <ClipboardList className={className || 'w-6 h-6'} aria-hidden="true" />
     if (code === '👥') return <Users className={className || 'w-6 h-6'} aria-hidden="true" />
@@ -333,7 +347,23 @@ export default function Programs() {
                       try{ setActionLoading({ appId: app.id, action: 'review' }); await benefitsAdminApi.updateApplicationStatus(app.id, { status:'under_review' }); updateApplication(app.id, { status: 'under_review' }); showToast('Application marked under review', 'success') } catch(e:any){ showToast(handleApiError(e), 'error') } finally { setActionLoading(null) }}}>{typeof actionLoading === 'object' && actionLoading !== null && actionLoading.appId === app.id && actionLoading.action === 'review' ? 'Processing...' : 'Mark Under Review'}</button>
                   )}
                   <button className="px-3 py-1.5 rounded-lg bg-forest-100 hover:bg-forest-200 text-forest-700 text-sm" disabled={actionLoading !== null} onClick={async()=>{
-                    try{ setActionLoading({ appId: app.id, action: 'approve' }); await benefitsAdminApi.updateApplicationStatus(app.id, { status:'approved' }); updateApplication(app.id, { status: 'approved' }); showToast('Application approved', 'success') } catch(e:any){ showToast(handleApiError(e), 'error') } finally { setActionLoading(null) }}}>{typeof actionLoading === 'object' && actionLoading !== null && actionLoading.appId === app.id && actionLoading.action === 'approve' ? 'Processing...' : 'Approve'}</button>
+                    try{
+                      setActionLoading({ appId: app.id, action: 'approve' })
+                      await benefitsAdminApi.updateApplicationStatus(app.id, { status:'approved' })
+                      updateApplication(app.id, { status: 'approved' })
+                      showToast('Application approved', 'success')
+                    } catch(e:any){
+                      const message = handleApiError(e)
+                      showToast(message, 'error')
+                      if (message.toLowerCase().includes('required document')) {
+                        const shouldReject = window.confirm('Required documents are missing. Reject this application as "Missing required documents"?')
+                        if (shouldReject) {
+                          await rejectForMissingDocuments(app)
+                        }
+                      }
+                    } finally {
+                      setActionLoading(null)
+                    }}}>{typeof actionLoading === 'object' && actionLoading !== null && actionLoading.appId === app.id && actionLoading.action === 'approve' ? 'Processing...' : 'Approve'}</button>
                   <button className="px-3 py-1.5 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-700 text-sm" disabled={actionLoading !== null} onClick={async()=>{
                     const reason = window.prompt('Enter reason for rejection','Incomplete requirements') || 'Incomplete requirements'
                     try{ setActionLoading({ appId: app.id, action: 'reject' }); await benefitsAdminApi.updateApplicationStatus(app.id, { status:'rejected', rejection_reason: reason }); updateApplication(app.id, { status: 'rejected', rejection_reason: reason }); showToast('Application rejected', 'success') } catch(e:any){ showToast(handleApiError(e), 'error') } finally { setActionLoading(null) }}}>{typeof actionLoading === 'object' && actionLoading !== null && actionLoading.appId === app.id && actionLoading.action === 'reject' ? 'Processing...' : 'Reject'}</button>

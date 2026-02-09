@@ -25,7 +25,8 @@
       "Bash(else echo \"venv not found\")",
       "Bash(fi)",
       "Bash(source venv/Scripts/activate)",
-      "Bash(export PYTHONPATH=\".\":*)"
+      "Bash(export PYTHONPATH=\".\":*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

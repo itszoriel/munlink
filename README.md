@@ -77,7 +77,9 @@ npm run dev
 - **Cache Invalidation**: Frontend uses Zustand-based data cache (`apps/web/src/lib/dataStore.ts`) with 5-minute stale time. After mutations (create/update/delete operations), always call `invalidateMultiple([CACHE_KEY1, CACHE_KEY2, ...])` to ensure UI reflects changes immediately without requiring page refresh. Pattern: `await api.create(data) → invalidateMultiple([...relevant cache keys]) → showToast(message)`. See examples in MarketplacePage, DocumentsPage, ProgramsPage, ProblemsPage.
 - **Frontend UI Guide**: See `docs/frontend-ui-guide/` for responsive design patterns, mobile FAB implementation, table-to-card conversion, and reusable component snippets.
 - **Benefit Program Images**: Program images are stored via Supabase Storage in production (using `storage_handler.save_benefit_program_image`). Old images are automatically cleaned up on update or delete. Legacy images from ephemeral local storage cannot be recovered -- admins must re-upload.
-- **Program Application Actions**: Admin approval/rejection of benefit program applications uses the shared Axios client (with token refresh interceptor), ensuring errors are properly surfaced and auth tokens are refreshed automatically.
+- **Program Application Actions**: Admin benefit application actions use the shared Axios client (with token refresh interceptor), ensuring errors are properly surfaced and auth tokens are refreshed automatically. Approval is blocked when required documents are missing.
+- **Benefit Document Retry/Resubmit**: Residents must upload the full required document count before initial submission, and incomplete existing applications show an "Add the required document(s)" retry action. Rejected applications can be resubmitted after missing files are uploaded.
+- **Program Card State**: In the resident Programs list, cards with an existing application now show `Already Applied` instead of `Apply Now`.
 - **Manual QR Payment**: The fallback QR image (`public/payment/paymentQR_fallback.jpg`) is duplicated into `apps/api/public/payment/` so it is available in Docker containers. The payment config endpoint validates file existence before reporting manual QR as available. Set `MANUAL_QR_IMAGE_PATH` env var to override (relative to API root or absolute path).
 
 ## Super Admin Setup
@@ -107,7 +109,7 @@ npm run dev
 - **Cross-municipality sharing**: When announcements are shared with other municipalities (via `shared_with_municipalities`), residents from ALL shared municipalities receive notifications.
 
 ### Notification Delivery
-- **Queue system**: Notification outbox queues announcement publishes (province/municipality/barangay), benefit program creation/activation, document request submissions, and document status changes
+- **Queue system**: Notification outbox queues announcement publishes (province/municipality/barangay), benefit program creation/activation, benefit application status transitions (pending/under_review/approved/rejected/cancelled), document request submissions, and document status changes
 - **Inline delivery**: Notifications are delivered immediately after actions that queue them (announcements, document requests/status changes, benefit programs) via an inline flush, covering both admin and resident routes
 - **Concurrency safety**: Delivery uses a claim+lease pattern with `FOR UPDATE SKIP LOCKED` (Postgres) so the inline flush and background worker never double-deliver the same notification
 - **Worker process (optional)**: Run as long-running retry process (`python scripts/notification_worker.py`) or single batch (`--once`) to pick up any rows that failed inline delivery
@@ -154,7 +156,7 @@ npm run dev
 - **Filtered Sections**: Announcements and Problems pages support location-based filtering:
   - **Announcements**: Filters by province, municipality, and barangay. Province-wide announcements are always visible to all users (including guests). Municipality and barangay announcements require verified residency.
   - **Problems**: Filters by province and municipality. Barangay-level filtering is planned for future development.
-  - **Programs**: Filters by municipality only (programs are municipality-scoped, not barangay-scoped).
+  - **Programs**: Resident program visibility is municipality-scoped, and barangay-specific programs are visible only to residents assigned to that barangay.
   - **Documents**: Shows public document types catalog (no location filtering); "My Requests" tab shows only the authenticated user's private requests (no location browsing for privacy).
 - **Privacy Boundary**: Document requests are private and resident-scoped. Location selection does not enable browsing other residents' document requests.
 
@@ -235,7 +237,7 @@ The project is configured for Railway deployment with three services:
 - **Payment verification**: Review manual QR proofs for digital requests and verify office payment codes for pickup requests before release
 - **Marketplace moderation**: Monitor and moderate live marketplace listings (resident posts publish immediately)
 - **Problem triage**: Review and categorize problem reports, update status and resolution
-- **Benefit program management**: Create and manage municipal benefit programs with image uploads
+- **Benefit program management**: Municipal admins manage municipality-wide programs in their assigned municipality; barangay admins manage barangay-scoped programs in their assigned barangay, with image uploads and scoped approvals
 - **Announcements**: Create scoped announcements (municipality or barangay) with multiple image uploads, pinning, publish/expire scheduling, and cross-municipality sharing
 - **Reports and analytics**: View transaction history, resident statistics, and activity reports
 

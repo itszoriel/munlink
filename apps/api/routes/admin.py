@@ -42,7 +42,13 @@ from apps.api.utils.admin_audit import (
     log_resident_verified,
     log_resident_rejected,
 )
-from apps.api.utils.notifications import queue_document_status_change, queue_announcement_notifications, queue_benefit_program_notifications, flush_pending_notifications
+from apps.api.utils.notifications import (
+    queue_document_status_change,
+    queue_announcement_notifications,
+    queue_benefit_program_notifications,
+    queue_benefit_application_status_change,
+    flush_pending_notifications,
+)
 from apps.api.utils.qr_utils import (
     generate_pickup_code,
     hash_code,
@@ -93,6 +99,55 @@ def _cleanup_old_image(path):
             delete_file(normalized)
     except Exception:
         current_app.logger.warning("Old image cleanup failed for: %s", path)
+
+
+def _get_benefit_scope():
+    """Return scoped benefit context for municipal/barangay admins only."""
+    ctx = _get_staff_context()
+    if not ctx:
+        return None, (jsonify({'error': 'Admin access required'}), 403)
+
+    role = (ctx.get('role_lower') or '').lower()
+    if role not in ('municipal_admin', 'barangay_admin'):
+        return None, (jsonify({'error': 'Only municipal and barangay admins can manage benefit programs'}), 403)
+
+    municipality_id = ctx.get('municipality_id')
+    if not municipality_id:
+        return None, (jsonify({'error': 'Admin municipality scope is required'}), 403)
+
+    barangay_id = None
+    if role == 'barangay_admin':
+        barangay_id = ctx.get('barangay_id')
+        if not barangay_id:
+            return None, (jsonify({'error': 'Barangay assignment is required for this action'}), 403)
+
+    return {
+        'ctx': ctx,
+        'role': role,
+        'municipality_id': municipality_id,
+        'barangay_id': barangay_id,
+    }, None
+
+
+def _benefit_program_query_for_scope(scope: dict):
+    """Return BenefitProgram query constrained to municipal/barangay admin scope."""
+    query = BenefitProgram.query.filter(BenefitProgram.municipality_id == scope['municipality_id'])
+    if scope['role'] == 'barangay_admin':
+        return query.filter(BenefitProgram.barangay_id == scope['barangay_id'])
+    return query.filter(BenefitProgram.barangay_id.is_(None))
+
+
+def _benefit_program_in_scope(program: BenefitProgram, scope: dict) -> bool:
+    """Check whether a benefit program belongs to the admin scope."""
+    if not program:
+        return False
+    if program.municipality_id != scope['municipality_id']:
+        return False
+    if scope['role'] == 'barangay_admin':
+        return program.barangay_id == scope['barangay_id']
+    return program.barangay_id is None
+
+
 ADMIN_ROLES = ('superadmin', 'provincial_admin', 'municipal_admin', 'barangay_admin')
 ANNOUNCEMENT_SCOPES = {'PROVINCE', 'MUNICIPALITY', 'BARANGAY'}
 ANNOUNCEMENT_STATUSES = {'DRAFT', 'PUBLISHED', 'ARCHIVED'}
@@ -2049,22 +2104,13 @@ def get_dashboard_stats():
 @admin_bp.route('/benefits/programs', methods=['GET'])
 @jwt_required()
 def admin_list_benefit_programs():
-    """List benefit programs for the admin's municipality (include province-wide/None)."""
+    """List benefit programs visible to municipal/barangay admins."""
     try:
-        municipality_id = require_admin_municipality()
-        if isinstance(municipality_id, tuple):
-            return municipality_id
+        scope, denial = _get_benefit_scope()
+        if denial:
+            return denial
 
-        q = BenefitProgram.query
-        # Show province-wide (NULL) and this municipality
-        programs = (
-            q.filter(
-                (_scope_filter(BenefitProgram.municipality_id, municipality_id)) |
-                (BenefitProgram.municipality_id.is_(None))
-            )
-            .order_by(BenefitProgram.created_at.desc())
-            .all()
-        )
+        programs = _benefit_program_query_for_scope(scope).order_by(BenefitProgram.created_at.desc()).all()
         # Auto-complete expired programs
         now = utc_now()
         changed = False
@@ -2119,11 +2165,11 @@ def admin_list_benefit_programs():
 @admin_bp.route('/benefits/applications', methods=['GET'])
 @jwt_required()
 def admin_list_benefit_applications():
-    """List benefit applications scoped to admin municipality (include province-wide programs)."""
+    """List benefit applications within municipal/barangay admin scope."""
     try:
-        municipality_id = require_admin_municipality()
-        if isinstance(municipality_id, tuple):
-            return municipality_id
+        scope, denial = _get_benefit_scope()
+        if denial:
+            return denial
 
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 20, type=int)
@@ -2131,7 +2177,11 @@ def admin_list_benefit_applications():
         active_only = request.args.get('active_only', 'true').lower() != 'false'
 
         q = BenefitApplication.query.join(BenefitProgram, BenefitApplication.program_id == BenefitProgram.id)
-        q = q.filter((_scope_filter(BenefitProgram.municipality_id, municipality_id)) | (BenefitProgram.municipality_id.is_(None)))
+        q = q.filter(BenefitProgram.municipality_id == scope['municipality_id'])
+        if scope['role'] == 'barangay_admin':
+            q = q.filter(BenefitProgram.barangay_id == scope['barangay_id'])
+        else:
+            q = q.filter(BenefitProgram.barangay_id.is_(None))
         if status:
             q = q.filter(BenefitApplication.status == status)
         if active_only:
@@ -2158,17 +2208,17 @@ def admin_list_benefit_applications():
 @admin_bp.route('/benefits/programs/<int:program_id>/applications', methods=['GET'])
 @jwt_required()
 def admin_list_program_applicants(program_id: int):
-    """List applicants for a specific program scoped to admin municipality."""
+    """List applicants for a program in the caller's benefit scope."""
     try:
-        municipality_id = require_admin_municipality()
-        if isinstance(municipality_id, tuple):
-            return municipality_id
+        scope, denial = _get_benefit_scope()
+        if denial:
+            return denial
 
         program = db.session.get(BenefitProgram, program_id)
         if not program:
             return jsonify({'error': 'Program not found'}), 404
-        if municipality_id not in ('ALL', None) and program.municipality_id and program.municipality_id != municipality_id:
-            return jsonify({'error': 'Program not in your municipality'}), 403
+        if not _benefit_program_in_scope(program, scope):
+            return jsonify({'error': 'Program is outside your admin scope'}), 403
 
         apps = BenefitApplication.query.filter(BenefitApplication.program_id == program_id).order_by(BenefitApplication.created_at.desc()).all()
         data = [a.to_dict(include_user=True) for a in apps]
@@ -2312,9 +2362,9 @@ def admin_update_transfer(transfer_id: int):
 def admin_update_benefit_application_status(application_id: int):
     """Update benefit application status and send notifications."""
     try:
-        municipality_id = require_admin_municipality()
-        if isinstance(municipality_id, tuple):
-            return municipality_id
+        scope, denial = _get_benefit_scope()
+        if denial:
+            return denial
 
         data = request.get_json() or {}
         new_status = (data.get('status') or '').lower()
@@ -2332,32 +2382,54 @@ def admin_update_benefit_application_status(application_id: int):
         if not program:
             return jsonify({'error': 'Program not found'}), 404
 
-        if program.municipality_id and program.municipality_id != municipality_id:
-            return jsonify({'error': 'Application not in your municipality'}), 403
+        if not _benefit_program_in_scope(program, scope):
+            return jsonify({'error': 'Application is outside your admin scope'}), 403
 
-        # Prevent status changes after approval or rejection (status is final)
         prev = (app.status or 'pending').lower()
-        if prev == 'approved' and new_status != 'approved':
-            return jsonify({'error': 'Cannot change status from approved. Approval is final.'}), 400
-        if prev == 'rejected' and new_status != 'rejected':
-            return jsonify({'error': 'Cannot change status from rejected. Rejection is final.'}), 400
-        
+        allowed_transitions = {
+            'pending': {'pending', 'under_review', 'approved', 'rejected', 'cancelled'},
+            'under_review': {'under_review', 'approved', 'rejected', 'cancelled'},
+            'approved': {'approved'},
+            'rejected': {'rejected'},
+            'cancelled': {'cancelled'},
+        }
+        if new_status not in allowed_transitions.get(prev, {prev}):
+            return jsonify({'error': f'Cannot change status from {prev} to {new_status}'}), 400
+
         # Check for required documents before approval
         if new_status == 'approved':
             required_docs = program.required_documents or []
+            if isinstance(required_docs, str):
+                try:
+                    required_docs = json.loads(required_docs)
+                except Exception:
+                    required_docs = []
             if isinstance(required_docs, list) and len(required_docs) > 0:
                 app_docs = app.supporting_documents or []
-                if not app_docs or len(app_docs) == 0:
+                if isinstance(app_docs, str):
+                    try:
+                        app_docs = json.loads(app_docs)
+                    except Exception:
+                        app_docs = []
+                if not isinstance(app_docs, list):
+                    app_docs = []
+                if len(app_docs) < len(required_docs):
                     return jsonify({'error': 'Cannot approve application without required documents. Please ensure applicant has uploaded all required documents.'}), 400
+
+        if new_status == 'rejected':
+            rejection_reason = (rejection_reason or notes or '').strip()
+            if not rejection_reason:
+                return jsonify({'error': 'rejection_reason is required when rejecting an application'}), 400
 
         app.status = new_status
         if notes is not None:
             app.admin_notes = notes
-        if new_status == 'rejected' and rejection_reason:
+        if new_status == 'rejected':
             app.rejection_reason = rejection_reason
         now = utc_now()
         app.updated_at = now
-        if new_status == 'under_review':
+        if new_status in {'under_review', 'approved', 'rejected'}:
+            app.reviewed_by_id = int(get_jwt_identity())
             app.reviewed_at = now
         if new_status == 'approved':
             app.approved_at = now
@@ -2376,7 +2448,7 @@ def admin_update_benefit_application_status(application_id: int):
         try:
             log_generic_action(
                 user_id=get_jwt_identity(),
-                municipality_id=getattr(program, 'municipality_id', None) or get_admin_municipality_id() or 0,
+                municipality_id=scope['municipality_id'],
                 entity_type='benefit_application',
                 entity_id=getattr(app, 'id', None),
                 action=f'status_{new_status}',
@@ -2389,18 +2461,22 @@ def admin_update_benefit_application_status(application_id: int):
         except Exception:
             db.session.rollback()
 
-        # Email notifications (best-effort)
+        # Resident notifications (best-effort)
         try:
             user = db.session.get(User, app.user_id)
-            if user and user.email:
-                if new_status == 'approved':
-                    send_generic = send_user_status_email  # reuse helper for simple message
-                    send_generic(user.email, approved=True)
-                if new_status == 'rejected':
-                    send_generic = send_user_status_email
-                    send_generic(user.email, approved=False, reason=(app.rejection_reason or notes or ''))
-        except Exception:
-            pass
+            if user and new_status in {'pending', 'under_review', 'approved', 'rejected', 'cancelled'}:
+                queue_benefit_application_status_change(
+                    user=user,
+                    app=app,
+                    program=program,
+                    new_status=new_status,
+                    reason=(app.rejection_reason or notes or None),
+                )
+                db.session.commit()
+                flush_pending_notifications()
+        except Exception as notify_exc:
+            db.session.rollback()
+            current_app.logger.warning("Failed to queue benefit application notification: %s", notify_exc)
 
         return jsonify({'message': 'Status updated', 'application': app.to_dict(include_user=True)}), 200
     except Exception as e:
@@ -2410,32 +2486,13 @@ def admin_update_benefit_application_status(application_id: int):
 @admin_bp.route('/benefits/programs', methods=['POST'])
 @jwt_required()
 def admin_create_benefit_program():
-    """Create a new benefit program scoped to the admin municipality by default."""
+    """Create a municipal/barangay benefit program within admin scope."""
     try:
-        ctx = _get_staff_context()
-        if not ctx:
-             return jsonify({'error': 'Admin access required'}), 403
-
-        # Permissions scoping
-        program_municipality_id = None
-        program_barangay_id = None
-
-        if ctx['role_lower'] == 'municipal_admin':
-            if not ctx['municipality_id']:
-                return jsonify({'error': 'Admin municipality scope is required'}), 403
-            program_municipality_id = ctx['municipality_id']
-        elif ctx['role_lower'] == 'barangay_admin':
-            if not ctx['barangay_id']:
-                return jsonify({'error': 'Barangay assignment is required'}), 403
-            program_municipality_id = ctx['municipality_id']
-            program_barangay_id = ctx['barangay_id']
-        else:
-            # Fallback for other roles (e.g. Prov/Super) - enforce existing behaviors or deny
-            # For now, replicate require_admin_municipality behavior for safety
-            municipality_id = require_admin_municipality()
-            if isinstance(municipality_id, tuple):
-                return municipality_id
-            program_municipality_id = municipality_id
+        scope, denial = _get_benefit_scope()
+        if denial:
+            return denial
+        program_municipality_id = scope['municipality_id']
+        program_barangay_id = scope['barangay_id']
 
         import json as _json
         from apps.api.models.municipality import Municipality
@@ -2469,8 +2526,24 @@ def admin_create_benefit_program():
 
         # Validation: Verify municipality matches context
         req_muni_id = data.get('municipality_id')
-        if req_muni_id and int(req_muni_id) != program_municipality_id:
-             return jsonify({'error': 'Cannot create programs for other municipalities'}), 403
+        if req_muni_id:
+            try:
+                if int(req_muni_id) != program_municipality_id:
+                    return jsonify({'error': 'Cannot create programs for other municipalities'}), 403
+            except (TypeError, ValueError):
+                return jsonify({'error': 'Invalid municipality_id'}), 400
+
+        req_barangay_id = data.get('barangay_id')
+        if scope['role'] == 'municipal_admin':
+            if req_barangay_id not in (None, '', 0, '0'):
+                return jsonify({'error': 'Municipal admins can only create municipality-scoped programs'}), 403
+        else:
+            if req_barangay_id:
+                try:
+                    if int(req_barangay_id) != program_barangay_id:
+                        return jsonify({'error': 'Cannot create programs for other barangays'}), 403
+                except (TypeError, ValueError):
+                    return jsonify({'error': 'Invalid barangay_id'}), 400
 
         if not name or not code:
             return jsonify({'error': 'name and code are required'}), 400
@@ -2534,16 +2607,16 @@ def admin_create_benefit_program():
 @jwt_required()
 def admin_update_benefit_program(program_id: int):
     try:
-        municipality_id = require_admin_municipality()
-        if isinstance(municipality_id, tuple):
-            return municipality_id
+        scope, denial = _get_benefit_scope()
+        if denial:
+            return denial
 
         program = db.session.get(BenefitProgram, program_id)
         if not program:
             return jsonify({'error': 'Program not found'}), 404
 
-        if program.municipality_id and program.municipality_id != municipality_id:
-            return jsonify({'error': 'Program not in your municipality'}), 403
+        if not _benefit_program_in_scope(program, scope):
+            return jsonify({'error': 'Program is outside your admin scope'}), 403
 
         import json as _json
         from apps.api.models.municipality import Municipality
@@ -2601,7 +2674,7 @@ def admin_update_benefit_program(program_id: int):
         new_image_path = None
         if file:
             old_image_path = program.image_path
-            municipality = db.session.get(Municipality, program.municipality_id or municipality_id)
+            municipality = db.session.get(Municipality, program.municipality_id or scope['municipality_id'])
             municipality_slug = (municipality.slug if municipality else 'unknown')
             new_image_path = save_benefit_program_image(file, program.id, municipality_slug, user_type='admins')
             program.image_path = new_image_path
@@ -2641,16 +2714,16 @@ def admin_update_benefit_program(program_id: int):
 @jwt_required()
 def admin_delete_benefit_program(program_id: int):
     try:
-        municipality_id = require_admin_municipality()
-        if isinstance(municipality_id, tuple):
-            return municipality_id
+        scope, denial = _get_benefit_scope()
+        if denial:
+            return denial
 
         program = db.session.get(BenefitProgram, program_id)
         if not program:
             return jsonify({'error': 'Program not found'}), 404
 
-        if program.municipality_id and program.municipality_id != municipality_id:
-            return jsonify({'error': 'Program not in your municipality'}), 403
+        if not _benefit_program_in_scope(program, scope):
+            return jsonify({'error': 'Program is outside your admin scope'}), 403
 
         old_image_path = program.image_path
         db.session.delete(program)
@@ -2670,15 +2743,15 @@ def admin_delete_benefit_program(program_id: int):
 def admin_complete_benefit_program(program_id: int):
     """Mark a benefit program as completed (manual Done action)."""
     try:
-        municipality_id = require_admin_municipality()
-        if isinstance(municipality_id, tuple):
-            return municipality_id
+        scope, denial = _get_benefit_scope()
+        if denial:
+            return denial
 
         program = db.session.get(BenefitProgram, program_id)
         if not program:
             return jsonify({'error': 'Program not found'}), 404
-        if program.municipality_id and program.municipality_id != municipality_id:
-            return jsonify({'error': 'Program not in your municipality'}), 403
+        if not _benefit_program_in_scope(program, scope):
+            return jsonify({'error': 'Program is outside your admin scope'}), 403
 
         now = utc_now()
         program.is_active = False

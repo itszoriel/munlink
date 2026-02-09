@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import { useAdminStore } from '../../lib/store'
-import { LayoutDashboard, Users, Gift, FileText, AlertTriangle, ShoppingBag, Megaphone, BarChart3, Shield, X } from 'lucide-react'
+import { LayoutDashboard, Users, Gift, FileText, AlertTriangle, ShoppingBag, Megaphone, BarChart3, Shield, X, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import { getBestRegion3Seal } from '@munlink/ui'
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -109,6 +109,7 @@ export default function Sidebar({
   // If `collapsed` is true, we allow hover-to-expand; otherwise keep it open.
   const hoverCollapse = collapsed
   const [open, setOpen] = useState(!hoverCollapse)
+  const [pinned, setPinned] = useState(false)
   const user = useAdminStore((s) => s.user)
   const userRole = (user as any)?.role || ''
   const canManageAnnouncements = !!user && ['municipal_admin', 'superadmin', 'provincial_admin', 'barangay_admin', 'admin'].includes(userRole)
@@ -153,14 +154,28 @@ export default function Sidebar({
     municipality: (user as any)?.admin_municipality_slug || (user as any)?.admin_municipality_name || (user as any)?.municipality_slug || (user as any)?.municipality_name,
   })
 
+  const handleTogglePin = () => {
+    const next = !pinned
+    setPinned(next)
+    setOpen(next)
+  }
+
   return (
     <SidebarContext.Provider value={{ open, setOpen, animate: true }}>
       {/* Desktop Sidebar */}
-      <DesktopSidebar className={className} hoverCollapse={hoverCollapse}>
+      <DesktopSidebar className={className} hoverCollapse={hoverCollapse && !pinned}>
         <SidebarBody>
-          {/* Logo/Header */}
-          <div className="flex flex-col gap-2">
+          {/* Logo/Header + Toggle */}
+          <div className="flex items-center justify-between gap-2">
             <Logo seal={seal} title={sidebarTitle} subtitle={sidebarSubtitle} textReveal={textReveal} />
+            <button
+              onClick={handleTogglePin}
+              className="flex-shrink-0 p-1.5 rounded-lg hover:bg-neutral-100 text-neutral-400 hover:text-neutral-600 transition-colors hidden md:flex lg:hidden items-center justify-center"
+              aria-label={pinned ? 'Collapse sidebar' : 'Expand sidebar'}
+              title={pinned ? 'Collapse sidebar' : 'Pin sidebar open'}
+            >
+              {open ? <ChevronsLeft className="w-4 h-4" /> : <ChevronsRight className="w-4 h-4" />}
+            </button>
           </div>
 
           {/* Navigation Sections */}
@@ -177,7 +192,6 @@ export default function Sidebar({
             ))}
           </div>
 
-          {/* User Profile & Logout */}
           <div className="mt-auto" />
         </SidebarBody>
       </DesktopSidebar>
@@ -204,7 +218,6 @@ export default function Sidebar({
             ))}
           </div>
 
-          {/* User Profile & Logout */}
           <div className="mt-auto" />
         </SidebarBody>
       </MobileSidebar>

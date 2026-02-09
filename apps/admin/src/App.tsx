@@ -37,6 +37,16 @@ import BarangayAdminReports from './pages/BarangayAdminReports'
 // Role Selector
 import RoleSelector from './pages/RoleSelector'
 
+const isPublicPath = (pathname: string) => {
+  return pathname === '/' ||
+    pathname === '/login' ||
+    pathname === '/forgot-password' ||
+    pathname === '/reset-password' ||
+    pathname === '/superadmin/login' ||
+    pathname === '/provincial/login' ||
+    pathname === '/barangay/login'
+}
+
 export default function App() {
   const isAuthBootstrapped = useAdminStore((s) => s.isAuthBootstrapped)
   const bootstrapAuth = useAdminStore((s) => s.bootstrapAuth)
@@ -50,8 +60,10 @@ export default function App() {
   // Prevent accessing private routes after logout via back button/history cache
   useEffect(() => {
     const recheckAuth = () => {
-      const { isAuthenticated: auth, user } = useAdminStore.getState()
+      const { isAuthenticated: auth, user, isAuthBootstrapped: bootstrapped } = useAdminStore.getState()
+      if (!bootstrapped) return
       if (!auth || !user) {
+        if (isPublicPath(window.location.pathname)) return
         navigate('/', { replace: true })
       }
     }

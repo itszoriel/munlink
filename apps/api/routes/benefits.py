@@ -2,6 +2,7 @@
 
 SCOPE: Zambales province only, excluding Olongapo City.
 """
+import json
 from flask import Blueprint, jsonify, request
 from apps.api.utils.time import utc_now, utc_today
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -25,6 +26,26 @@ from apps.api.utils.zambales_scope import (
 
 
 benefits_bp = Blueprint('benefits', __name__, url_prefix='/api/benefits')
+
+
+def _as_list(value):
+    """Normalize JSON/list/string values into a list."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            pass
+        return [raw]
+    return []
 
 
 @benefits_bp.route('/programs', methods=['GET'])
@@ -61,38 +82,30 @@ def list_programs():
         program_type = request.args.get('type')
 
         query = BenefitProgram.query.filter_by(is_active=True)
-        
-        # ZAMBALES SCOPE: Always filter to Zambales municipalities only (excluding Olongapo)
-        query = query.filter(
-            (BenefitProgram.municipality_id.in_(ZAMBALES_MUNICIPALITY_IDS)) |
-            (BenefitProgram.municipality_id.is_(None))  # Include province-wide programs
-        )
+
+        # ZAMBALES SCOPE: programs must belong to a Zambales municipality.
+        query = query.filter(BenefitProgram.municipality_id.in_(ZAMBALES_MUNICIPALITY_IDS))
         
         # Apply municipality/province filtering based on authentication
         if is_authenticated:
-            # LOGGED-IN USER: Only show programs from their registered municipality and restricted by barangay
-            # Verify user is in Zambales first
+            # LOGGED-IN USER: only programs from their municipality and barangay scope.
             if user_municipality_id and is_valid_zambales_municipality(user_municipality_id):
                 query = query.filter(
-                    or_(
-                        BenefitProgram.municipality_id.is_(None),  # Province-wide
-                        and_(
-                            BenefitProgram.municipality_id == user_municipality_id,
-                            or_(
-                                BenefitProgram.barangay_id.is_(None),  # Municipality-wide
-                                BenefitProgram.barangay_id == user_barangay_id  # Barangay-specific
-                            )
+                    and_(
+                        BenefitProgram.municipality_id == user_municipality_id,
+                        or_(
+                            BenefitProgram.barangay_id.is_(None),  # Municipality-wide
+                            BenefitProgram.barangay_id == user_barangay_id  # Barangay-specific
                         )
                     )
                 )
+            else:
+                query = query.filter(BenefitProgram.id == -1)
         else:
             # GUEST: Allow municipality filtering for discovery (Zambales only)
             if requested_municipality_id and is_valid_zambales_municipality(requested_municipality_id):
                 # Filter by specific municipality (guest browsing)
-                query = query.filter(
-                    (BenefitProgram.municipality_id == requested_municipality_id) | 
-                    (BenefitProgram.municipality_id.is_(None))
-                )
+                query = query.filter(BenefitProgram.municipality_id == requested_municipality_id)
         
         if program_type:
             query = query.filter(BenefitProgram.program_type == program_type)
@@ -161,6 +174,8 @@ def get_program(program_id: int):
         program = db.session.get(BenefitProgram, program_id)
         if not program or not program.is_active:
             return jsonify({'error': 'Program not found'}), 404
+        if not is_valid_zambales_municipality(program.municipality_id):
+            return jsonify({'error': 'Program not found'}), 404
         
         # Check if user is authenticated
         try:
@@ -169,10 +184,11 @@ def get_program(program_id: int):
             if user_id:
                 user = db.session.get(User, user_id)
                 if user and user.municipality_id:
-                    # LOGGED-IN USER: Check municipality match
-                    # Allow if program is province-wide (None) or matches user's municipality
-                    if program.municipality_id is not None and program.municipality_id != user.municipality_id:
+                    # LOGGED-IN USER: program must match user municipality and barangay scope.
+                    if program.municipality_id != user.municipality_id:
                         return jsonify({'error': 'Program not available in your municipality'}), 403
+                    if program.barangay_id and program.barangay_id != user.barangay_id:
+                        return jsonify({'error': 'Program not available in your barangay'}), 403
         except Exception:
             pass
         
@@ -187,7 +203,10 @@ def get_program(program_id: int):
 def create_application():
     """Create a benefit application for the current user."""
     try:
-        user_id = get_jwt_identity()
+        try:
+            user_id = int(get_jwt_identity())
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Authentication required'}), 401
         user = db.session.get(User, user_id)
         if not user:
             return jsonify({'error': 'User not found'}), 404
@@ -199,14 +218,19 @@ def create_application():
         program = db.session.get(BenefitProgram, int(data['program_id']))
         if not program or not program.is_active:
             return jsonify({'error': 'Invalid program'}), 400
-
-        # Municipality scoping: allow province-wide (None) or user's municipality
-        if program.municipality_id and user.municipality_id != program.municipality_id:
+        if not program.is_accepting_applications:
+            return jsonify({'error': 'This program is not accepting applications right now'}), 400
+        if not is_valid_zambales_municipality(program.municipality_id):
             return jsonify({'error': 'Program not available for your municipality'}), 403
+
+        # Municipality scoping
+        if user.municipality_id != program.municipality_id:
+            return jsonify({'error': 'Program not available for your municipality'}), 403
+        if program.barangay_id and user.barangay_id != program.barangay_id:
+            return jsonify({'error': 'Program not available for your barangay'}), 403
 
         # Tag-based eligibility validation
         if program.eligibility_criteria:
-            import json
             criteria = program.eligibility_criteria
             if isinstance(criteria, str):
                 try:
@@ -277,7 +301,10 @@ def create_application():
 @jwt_required()
 def my_applications():
     try:
-        user_id = get_jwt_identity()
+        try:
+            user_id = int(get_jwt_identity())
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Authentication required'}), 401
         apps = BenefitApplication.query.filter_by(user_id=user_id).order_by(BenefitApplication.created_at.desc()).all()
         return jsonify({'applications': [a.to_dict() for a in apps], 'count': len(apps)}), 200
     except Exception as e:
@@ -289,7 +316,10 @@ def my_applications():
 @fully_verified_required
 def upload_application_doc(application_id: int):
     try:
-        user_id = get_jwt_identity()
+        try:
+            user_id = int(get_jwt_identity())
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Authentication required'}), 401
         user = db.session.get(User, user_id)
         app = db.session.get(BenefitApplication, application_id)
         if not app:
@@ -305,16 +335,17 @@ def upload_application_doc(application_id: int):
         municipality = db.session.get(Municipality, user.municipality_id)
         municipality_slug = municipality.slug if municipality else 'unknown'
 
-        existing = app.supporting_documents or []
+        existing = list(app.supporting_documents or [])
+        updated_documents = list(existing)
         uploaded_paths = []
         
         for file in files:
             if file.filename:
                 rel_path = save_benefit_document(file, app.id, municipality_slug)
-                existing.append(rel_path)
+                updated_documents.append(rel_path)
                 uploaded_paths.append(rel_path)
         
-        app.supporting_documents = existing
+        app.supporting_documents = updated_documents
         db.session.commit()
 
         return jsonify({'message': f'{len(uploaded_paths)} file(s) uploaded', 'paths': uploaded_paths, 'application': app.to_dict()}), 200
@@ -324,4 +355,55 @@ def upload_application_doc(application_id: int):
         db.session.rollback()
         return jsonify({'error': 'Failed to upload file', 'details': str(e)}), 500
 
+
+@benefits_bp.route('/applications/<int:application_id>/resubmit', methods=['POST'])
+@jwt_required()
+@fully_verified_required
+def resubmit_application(application_id: int):
+    """Allow residents to resubmit incomplete/rejected applications after uploading missing docs."""
+    try:
+        try:
+            user_id = int(get_jwt_identity())
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Authentication required'}), 401
+
+        app = db.session.get(BenefitApplication, application_id)
+        if not app:
+            return jsonify({'error': 'Application not found'}), 404
+        if app.user_id != user_id:
+            return jsonify({'error': 'Forbidden'}), 403
+
+        program = db.session.get(BenefitProgram, app.program_id)
+        if not program:
+            return jsonify({'error': 'Program not found'}), 404
+        if not program.is_active or not program.is_accepting_applications:
+            return jsonify({'error': 'This program is not accepting resubmissions right now'}), 400
+
+        required_documents = _as_list(program.required_documents)
+        supporting_documents = _as_list(app.supporting_documents)
+        missing_required = max(0, len(required_documents) - len(supporting_documents))
+        if missing_required > 0:
+            suffix = '' if missing_required == 1 else 's'
+            return jsonify({
+                'error': f'Please upload {missing_required} more required document{suffix} before resubmitting.',
+                'missing_required_documents': missing_required,
+            }), 400
+
+        current_status = (app.status or 'pending').lower()
+        if current_status == 'approved':
+            return jsonify({'error': 'Approved applications cannot be resubmitted'}), 400
+
+        app.status = 'pending'
+        app.rejection_reason = None
+        app.admin_notes = None
+        app.reviewed_by_id = None
+        app.reviewed_at = None
+        app.approved_at = None
+        app.updated_at = utc_now()
+        db.session.commit()
+
+        return jsonify({'message': 'Application resubmitted successfully', 'application': app.to_dict()}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Failed to resubmit application', 'details': str(e)}), 500
 

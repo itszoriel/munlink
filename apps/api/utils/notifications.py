@@ -29,6 +29,16 @@ def _prefers_sms(user: User) -> bool:
     return DEFAULT_SMS_PREF if val is None else bool(val)
 
 
+def _sms_number(user: User) -> str | None:
+    primary = getattr(user, 'mobile_number', None)
+    fallback = getattr(user, 'phone_number', None)
+    number = primary or fallback
+    if number is None:
+        return None
+    normalized = str(number).strip()
+    return normalized or None
+
+
 def _build_dedupe_key(event_type: str, entity_id: int | None, resident_id: int, channel: str, extra: str | None = None) -> str:
     base = f"{event_type}:{entity_id}:{resident_id}:{channel}"
     return f"{base}:{extra}" if extra else base
@@ -55,7 +65,7 @@ def queue_notification_for_user(
     elif channel == 'sms':
         if not _prefers_sms(user):
             return 'skipped_sms_disabled'
-        if not getattr(user, 'mobile_number', None):
+        if not _sms_number(user):
             return 'skipped_no_mobile'
     else:
         return 'skipped_unknown_channel'
@@ -301,7 +311,7 @@ def queue_announcement_notifications(announcement) -> Dict[str, int]:
 
 
 def _benefit_program_recipients(program) -> List[User]:
-    """Return verified residents in the program's municipality."""
+    """Return verified residents in the program's municipality/barangay scope."""
     if not getattr(program, 'municipality_id', None):
         return []
 
@@ -314,7 +324,77 @@ def _benefit_program_recipients(program) -> List[User]:
         or_(User.is_active == True, User.is_active.is_(None)),
         User.municipality_id == program.municipality_id,
     )
+    if getattr(program, 'barangay_id', None):
+        query = query.filter(User.barangay_id == program.barangay_id)
     return query.all()
+
+
+def _benefit_application_status_templates(program_name: str, app_number: str, new_status: str, reason: str | None = None) -> Tuple[str, str, str]:
+    status_label = new_status.replace('_', ' ').title()
+    subject = f"MunLink: {program_name} application {status_label}"
+    lines = [
+        f"Program: {program_name}",
+        f"Application number: {app_number}",
+        f"Decision: {status_label}",
+    ]
+    if new_status == 'pending':
+        lines.append("Your application status was updated to pending.")
+    if new_status == 'under_review':
+        lines.append("Your application is now under review by your local admin.")
+    if new_status == 'approved':
+        lines.append("Your application was approved. Please check your MunLink account for next steps.")
+    if new_status == 'rejected':
+        if reason:
+            lines.append(f"Reason: {reason}")
+        lines.append("You may review the requirements and apply again when eligible.")
+    if new_status == 'cancelled':
+        lines.append("Your application was cancelled by the admin.")
+    body = "\n".join(lines)
+    sms_message = f"{program_name}: application {status_label.lower()}. Ref: {app_number}"
+    if new_status == 'rejected' and reason:
+        sms_message = f"{program_name}: application rejected. {reason}"
+    return subject, body, sms_message
+
+
+def queue_benefit_application_status_change(user: User, app, program, new_status: str, reason: str | None = None) -> Dict[str, int]:
+    """Queue resident notifications for benefit application status transitions."""
+    results = {'queued': 0, 'skipped': 0}
+    status_normalized = (new_status or '').lower()
+    if status_normalized not in {'pending', 'under_review', 'approved', 'rejected', 'cancelled'}:
+        return results
+
+    program_name = getattr(program, 'name', None) or 'Benefit Program'
+    app_number = getattr(app, 'application_number', None) or ''
+    subject, body, sms_message = _benefit_application_status_templates(
+        program_name=program_name,
+        app_number=app_number,
+        new_status=status_normalized,
+        reason=reason,
+    )
+
+    event_type = 'benefit_application_status'
+    entity_id = getattr(app, 'id', None)
+
+    email_state = queue_notification_for_user(
+        user,
+        'email',
+        event_type,
+        entity_id,
+        {'subject': subject, 'body': body},
+        dedupe_extra=status_normalized,
+    )
+    results['queued' if email_state == 'queued' else 'skipped'] += 1
+
+    sms_state = queue_notification_for_user(
+        user,
+        'sms',
+        event_type,
+        entity_id,
+        {'message': sms_message},
+        dedupe_extra=status_normalized,
+    )
+    results['queued' if sms_state == 'queued' else 'skipped'] += 1
+    return results
 
 
 def queue_benefit_program_notifications(program) -> Dict[str, int]:
