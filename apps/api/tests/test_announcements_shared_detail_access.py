@@ -18,15 +18,11 @@ class SharedAnnouncementConfig(Config):
     RATELIMIT_ENABLED = False
 
 
-def test_shared_barangay_announcement_detail_matches_feed_for_shared_muni_resident():
+def test_shared_municipality_setting_does_not_override_scope():
     """
-    Regression for: shared announcement appears in feed but detail returns not found.
-
-    Scenario:
-    - BARANGAY announcement created in Municipality A and shared to Municipality B
-    - Verified resident of Municipality B (with no barangay_id set) should:
-      - see it in /api/announcements
-      - open it via /api/announcements/<id>
+    Scope-only behavior:
+    - BARANGAY announcement in Municipality A remains visible only to its exact barangay.
+    - shared_with_municipalities metadata must not widen visibility.
     """
     app = create_app(SharedAnnouncementConfig)
     client = app.test_client()
@@ -85,18 +81,16 @@ def test_shared_barangay_announcement_detail_matches_feed_for_shared_muni_reside
 
         token = create_access_token(identity=str(resident_b.id), additional_claims={'role': 'resident'})
 
-    # Feed includes shared announcements for the resident's municipality
+    # Feed stays scope-only; resident from other municipality should not see it
     resp = client.get('/api/announcements', headers={'Authorization': f'Bearer {token}'})
     assert resp.status_code == 200
     data = resp.get_json() or {}
     ids = [a.get('id') for a in data.get('announcements', [])]
-    assert ann_id in ids
+    assert ann_id not in ids
 
-    # Detail must be accessible (matches feed rules)
+    # Detail remains inaccessible outside exact barangay scope
     resp = client.get(f'/api/announcements/{ann_id}', headers={'Authorization': f'Bearer {token}'})
-    assert resp.status_code == 200
-    detail = resp.get_json() or {}
-    assert detail.get('id') == ann_id
+    assert resp.status_code == 404
 
 
 def test_unshared_resident_cannot_open_shared_barangay_announcement_detail():

@@ -78,6 +78,7 @@ npm run dev
 - **Frontend UI Guide**: See `docs/frontend-ui-guide/` for responsive design patterns, mobile FAB implementation, table-to-card conversion, and reusable component snippets.
 - **Benefit Program Images**: Program images are stored via Supabase Storage in production (using `storage_handler.save_benefit_program_image`). Old images are automatically cleaned up on update or delete. Legacy images from ephemeral local storage cannot be recovered -- admins must re-upload.
 - **Program Application Actions**: Admin benefit application actions use the shared Axios client (with token refresh interceptor), ensuring errors are properly surfaced and auth tokens are refreshed automatically. Approval is blocked when required documents are missing.
+- **Admin Application Document Review**: In Admin `Programs -> Applications`, each application now shows required vs uploaded document counts, quick file links, and a `Review Documents` checklist modal to verify each required upload before approval.
 - **Benefit Document Retry/Resubmit**: Residents must upload the full required document count before initial submission, and incomplete existing applications show an "Add the required document(s)" retry action. Rejected applications can be resubmitted after missing files are uploaded.
 - **Program Card State**: In the resident Programs list, cards with an existing application now show `Already Applied` instead of `Apply Now`.
 - **Manual QR Payment**: The fallback QR image (`public/payment/paymentQR_fallback.jpg`) is duplicated into `apps/api/public/payment/` so it is available in Docker containers. The payment config endpoint validates file existence before reporting manual QR as available. Set `MANUAL_QR_IMAGE_PATH` env var to override (relative to API root or absolute path).
@@ -154,7 +155,7 @@ npm run dev
 ### Location Filtering
 - **Header Location Selector**: Municipality and Barangay dropdowns in the header allow users to filter content by location (available to all users including guests). Province is auto-selected to Zambales and hidden from the UI.
 - **Filtered Sections**: Announcements and Problems pages support location-based filtering:
-  - **Announcements**: Filters by province, municipality, and barangay. Province-wide announcements are always visible to all users (including guests). Municipality and barangay announcements require verified residency.
+  - **Announcements**: Filters by province, municipality, and barangay. Province-wide announcements are always visible; municipality/barangay announcements follow selected header scope for guests and logged-in residents (read-only browsing).
   - **Problems**: Filters by province and municipality. Barangay-level filtering is planned for future development.
   - **Programs**: Resident program visibility is municipality-scoped, and barangay-specific programs are visible only to residents assigned to that barangay.
   - **Documents**: Shows public document types catalog (no location filtering); "My Requests" tab shows only the authenticated user's private requests (no location browsing for privacy).
@@ -162,9 +163,9 @@ npm run dev
 
 ## Announcements
 - **Scoped audiences**: province-wide (Zambales), municipality, or barangay; Olongapo and non-Zambales locations remain excluded.
-- **Cross-municipality sharing**: municipality and barangay announcements can be shared with other Zambales municipalities, allowing residents of shared municipalities to view them alongside their own local announcements.
+- **Scope-only visibility**: announcement visibility is driven strictly by scope and location matching (no cross-municipality sharing and no per-post public toggle).
 - **Image uploads**: Announcements support multiple image uploads via FormData (multipart/form-data); images are stored in municipality-scoped directories and displayed in announcement feeds.
-- **Resident feed**: relies on verified residency (province + their municipality + their barangay); guests only see province-wide posts; verified residents see their own municipality's announcements plus any shared with them.
+- **Resident feed**: verified residents default to their registered municipality/barangay and can browse other municipality/barangay announcement feeds via header filters (read-only). Guests can also browse via the same filters.
 - **Roles**: `superadmin` (platform-level, can create all announcement types); `provincial_admin` (province-wide announcements only); `municipal_admin` (municipality announcements only); `barangay_admin` (barangay announcements only).
 - **Pinned announcements**: stay at the top of feeds (until `pinned_until` if set) and respect publish/expire windows.
 - **Migrations**: Run `flask db upgrade` to apply announcements migrations including scoped announcements (`20260306_scoped_announcements`) and cross-municipality sharing (`20260117_add_announcement_sharing`) after pulling new changes.

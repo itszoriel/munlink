@@ -66,7 +66,6 @@ def build_app_with_announcements():
       status='PUBLISHED',
       publish_at=now,
       is_active=True,
-      public_viewable=True,
     )
     ann_other_muni = Announcement(
       title='Other Municipality',
@@ -90,7 +89,6 @@ def build_app_with_announcements():
       status='PUBLISHED',
       publish_at=now,
       is_active=True,
-      public_viewable=False,
     )
     ann_other_brgy = Announcement(
       title='Other Barangay',
@@ -137,6 +135,55 @@ def test_verified_resident_scoping():
   assert data.get('announcements', [])[0].get('pinned') is True
 
 
+def test_verified_resident_can_browse_other_municipality_scope():
+  app, user_id, ids = build_app_with_announcements()
+  client = app.test_client()
+  with app.app_context():
+    token = create_access_token(identity=str(user_id), additional_claims={'role': 'resident'})
+  resp = client.get('/api/announcements', headers={'Authorization': f'Bearer {token}'}, query_string={
+    'browse': 'true',
+    'municipality_id': ids['other_municipality_id'],
+  })
+  assert resp.status_code == 200
+  data = resp.get_json()
+  returned_ids = {a['id'] for a in data.get('announcements', [])}
+  # Province + selected municipality should be visible
+  assert ids['province'] in returned_ids
+  assert ids['other_municipality'] in returned_ids
+  # Home municipality/barangay scoped posts are not mixed in
+  assert ids['municipality'] not in returned_ids
+  assert ids['barangay'] not in returned_ids
+  assert ids['other_barangay'] not in returned_ids
+
+
+def test_verified_resident_can_open_other_scope_details_when_browsing():
+  app, user_id, ids = build_app_with_announcements()
+  client = app.test_client()
+  with app.app_context():
+    token = create_access_token(identity=str(user_id), additional_claims={'role': 'resident'})
+
+  muni_detail = client.get(
+    f"/api/announcements/{ids['other_municipality']}",
+    headers={'Authorization': f'Bearer {token}'},
+    query_string={
+      'browse': 'true',
+      'municipality_id': ids['other_municipality_id'],
+    },
+  )
+  assert muni_detail.status_code == 200
+
+  barangay_detail = client.get(
+    f"/api/announcements/{ids['other_barangay']}",
+    headers={'Authorization': f'Bearer {token}'},
+    query_string={
+      'browse': 'true',
+      'municipality_id': ids['other_municipality_id'],
+      'barangay_id': ids['other_barangay_id'],
+    },
+  )
+  assert barangay_detail.status_code == 200
+
+
 def test_guest_only_sees_province_announcements():
   app, _user_id, ids = build_app_with_announcements()
   client = app.test_client()
@@ -147,7 +194,7 @@ def test_guest_only_sees_province_announcements():
   assert returned_ids == [ids['province']]
 
 
-def test_guest_can_browse_public_municipality_only():
+def test_guest_can_browse_municipality_scope():
   app, _user_id, ids = build_app_with_announcements()
   client = app.test_client()
   resp = client.get('/api/announcements', query_string={
@@ -157,17 +204,17 @@ def test_guest_can_browse_public_municipality_only():
   assert resp.status_code == 200
   data = resp.get_json()
   returned_ids = {a['id'] for a in data.get('announcements', [])}
-  # Province + public municipality visible
+  # Province + municipality visible
   assert ids['province'] in returned_ids
   assert ids['municipality'] in returned_ids
-  # Barangay (resident-only) is not shown to guests
+  # Barangay requires exact barangay filter
   assert ids['barangay'] not in returned_ids
   # Other municipality/barangay are not shown
   assert ids['other_municipality'] not in returned_ids
   assert ids['other_barangay'] not in returned_ids
 
 
-def test_guest_cannot_open_barangay_detail_even_with_browse():
+def test_guest_can_open_barangay_detail_with_exact_filter():
   app, _user_id, ids = build_app_with_announcements()
   client = app.test_client()
   resp = client.get(f"/api/announcements/{ids['barangay']}", query_string={
@@ -175,10 +222,10 @@ def test_guest_cannot_open_barangay_detail_even_with_browse():
     'municipality_id': ids['municipality_id'],
     'barangay_id': ids['barangay_id'],
   })
-  assert resp.status_code == 404
+  assert resp.status_code == 200
 
 
-def test_guest_browse_non_public_municipality_returns_only_province():
+def test_guest_browse_other_municipality_returns_that_scope():
   app, _user_id, ids = build_app_with_announcements()
   client = app.test_client()
   resp = client.get('/api/announcements', query_string={
@@ -188,4 +235,4 @@ def test_guest_browse_non_public_municipality_returns_only_province():
   assert resp.status_code == 200
   data = resp.get_json()
   returned_ids = {a['id'] for a in data.get('announcements', [])}
-  assert returned_ids == {ids['province']}
+  assert returned_ids == {ids['province'], ids['other_municipality']}

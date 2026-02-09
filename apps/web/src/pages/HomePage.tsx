@@ -11,6 +11,7 @@ import { useScrollAnimation } from '@/hooks/useScrollAnimation'
 
 export default function HomePage() {
   const selectedMunicipality = useAppStore((s) => s.selectedMunicipality)
+  const selectedBarangay = useAppStore((s) => s.selectedBarangay)
   const user = useAppStore((s) => s.user)
   const isAuthenticated = useAppStore((s) => s.isAuthenticated)
 
@@ -23,18 +24,37 @@ export default function HomePage() {
   const userMunicipalityId = (user as any)?.municipality_id
   const userBarangayId = (user as any)?.barangay_id
   const verifiedResident = isAuthenticated && (user as any)?.admin_verified && (user as any)?.role === 'resident'
-  const browseMunicipalityId = !verifiedResident && selectedMunicipality?.id ? selectedMunicipality.id : undefined
+  const browseMunicipalityId = selectedMunicipality?.id
+  const browseBarangayId = selectedBarangay?.id
   // Keep home feeds available for all users; backend enforces visibility rules.
   const shouldFetchHomeData = true
   const effectiveMunicipalityId = verifiedResident ? userMunicipalityId : browseMunicipalityId
+  const announcementDetailQuery = (() => {
+    const qp = new URLSearchParams()
+    if (browseMunicipalityId) {
+      qp.set('municipality_id', String(browseMunicipalityId))
+      qp.set('browse', 'true')
+    }
+    if (browseBarangayId) {
+      qp.set('barangay_id', String(browseBarangayId))
+    }
+    const qs = qp.toString()
+    return qs ? `?${qs}` : ''
+  })()
 
   // Use cached fetch hooks
   const { data: announcementsData, loading: announcementsLoading } = useCachedFetch(
     CACHE_KEYS.HOME_ANNOUNCEMENTS,
-    () => announcementsApi.getAll({ active: true, page: 1, per_page: 4, ...(browseMunicipalityId ? { municipality_id: browseMunicipalityId, browse: true } : {}) }),
+    () => announcementsApi.getAll({
+      active: true,
+      page: 1,
+      per_page: 4,
+      ...(browseMunicipalityId ? { municipality_id: browseMunicipalityId, browse: true } : {}),
+      ...(browseBarangayId ? { barangay_id: browseBarangayId } : {}),
+    }),
     {
       // Bust stale client cache from older fetch gating behavior
-      dependencies: ['home_announcements_fetch_fix_v1', browseMunicipalityId, userMunicipalityId, userBarangayId, verifiedResident],
+      dependencies: ['home_announcements_fetch_fix_v2', browseMunicipalityId, browseBarangayId, userMunicipalityId, userBarangayId, verifiedResident],
       staleTime: 3 * 60 * 1000,
       enabled: shouldFetchHomeData
     }
@@ -270,7 +290,12 @@ export default function HomePage() {
             ) : (
               <div className="space-y-3">
                 {recentAnnouncements.slice(0, 3).map((a: any, index: number) => (
-                  <AnnouncementListItem key={a.id} announcement={a} index={index} />
+                  <AnnouncementListItem
+                    key={a.id}
+                    announcement={a}
+                    index={index}
+                    detailQuery={announcementDetailQuery}
+                  />
                 ))}
               </div>
             )}
@@ -363,7 +388,15 @@ function ServiceCard({ service, index }: { service: Feature; index: number }) {
   )
 }
 
-function AnnouncementListItem({ announcement, index }: { announcement: any; index: number }) {
+function AnnouncementListItem({
+  announcement,
+  index,
+  detailQuery,
+}: {
+  announcement: any
+  index: number
+  detailQuery?: string
+}) {
   const getTimeAgo = (dateString: string) => {
     const date = new Date(dateString)
     const now = new Date()
@@ -399,7 +432,7 @@ function AnnouncementListItem({ announcement, index }: { announcement: any; inde
       transition={{ duration: 0.4, delay: index * 0.1 }}
     >
       <Link
-        to={`/announcements/${announcement.id}`}
+        to={`/announcements/${announcement.id}${detailQuery || ''}`}
         className="group flex items-start gap-4 p-4 bg-white rounded-2xl shadow-sm border border-gray-100 hover:shadow-md hover:border-ocean-200 transition-all duration-300"
       >
         <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center overflow-hidden">

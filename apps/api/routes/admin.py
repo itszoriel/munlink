@@ -68,7 +68,6 @@ from apps.api.utils.zambales_scope import (
     ZAMBALES_MUNICIPALITY_IDS,
     is_valid_zambales_municipality,
     validate_municipality_in_zambales,
-    validate_shared_municipalities,
 )
 from apps.api.utils.fee_calculator import calculate_document_fee, are_requirements_submitted
 from apps.api.utils.supabase_storage import get_signed_url
@@ -380,39 +379,6 @@ def _parse_datetime(value, field_name):
         return datetime.fromisoformat(value)
     except Exception:
         raise ValidationError(f'Invalid {field_name} datetime format')
-
-
-def _normalize_shared_municipality_ids(raw_values):
-    """Normalize shared municipality payload from JSON or multipart form inputs."""
-    if raw_values in (None, '', False):
-        return []
-
-    values = raw_values
-    if isinstance(values, str):
-        text = values.strip()
-        if not text:
-            return []
-        try:
-            parsed = json.loads(text)
-            values = parsed
-        except Exception:
-            values = [part.strip() for part in text.split(',')] if ',' in text else [text]
-
-    if not isinstance(values, (list, tuple, set)):
-        values = [values]
-
-    cleaned = []
-    seen = set()
-    for raw in values:
-        try:
-            muni_id = int(raw)
-        except (TypeError, ValueError):
-            continue
-        if muni_id <= 0 or muni_id in seen:
-            continue
-        seen.add(muni_id)
-        cleaned.append(muni_id)
-    return cleaned
 
 
 def _normalize_scope(scope_value: str) -> str:
@@ -1587,15 +1553,9 @@ def create_announcement():
         is_multipart = request.content_type and 'multipart/form-data' in request.content_type
         if is_multipart:
             data = request.form.to_dict()
-            if 'shared_with_municipalities' in request.form:
-                shared_values = request.form.getlist('shared_with_municipalities')
-                if shared_values:
-                    data['shared_with_municipalities'] = shared_values
             # Convert string booleans to actual booleans for FormData
             if 'pinned' in data:
                 data['pinned'] = data['pinned'].lower() in ('true', '1', 'yes')
-            if 'public_viewable' in data:
-                data['public_viewable'] = data['public_viewable'].lower() in ('true', '1', 'yes')
         else:
             data = request.get_json() or {}
 
@@ -1611,21 +1571,12 @@ def create_announcement():
         expire_at = _parse_datetime(data.get('expire_at'), 'expire_at')
         pinned = bool(data.get('pinned', False))
         pinned_until = _parse_datetime(data.get('pinned_until'), 'pinned_until')
-        shared_with_municipalities = _normalize_shared_municipality_ids(data.get('shared_with_municipalities', []))
-        public_viewable = str(data.get('public_viewable')).lower() in ('true', '1', 'yes', 'on') if data.get('public_viewable') is not None else False
 
         if not title or not content:
             return jsonify({'error': 'Title and content are required'}), 400
 
         if priority not in ['high', 'medium', 'low']:
             return jsonify({'error': 'Invalid priority level'}), 400
-
-        # Validate shared municipalities (Zambales-only enforcement)
-        if shared_with_municipalities:
-            try:
-                validate_shared_municipalities(shared_with_municipalities, raise_error=True)
-            except ValueError as e:
-                return jsonify({'error': str(e)}), 400
 
         if scope == 'MUNICIPALITY' and not municipality_id:
             municipality_id = ctx.get('municipality_id')
@@ -1667,8 +1618,8 @@ def create_announcement():
             status=status,
             publish_at=publish_at,
             expire_at=expire_at,
-            shared_with_municipalities=shared_with_municipalities if shared_with_municipalities else None,
-            public_viewable=public_viewable,
+            shared_with_municipalities=None,
+            public_viewable=False,
             is_active=is_active_flag,
         )
 
@@ -1725,15 +1676,9 @@ def update_announcement(announcement_id):
         is_multipart = request.content_type and 'multipart/form-data' in request.content_type
         if is_multipart:
             data = request.form.to_dict()
-            if 'shared_with_municipalities' in request.form:
-                shared_values = request.form.getlist('shared_with_municipalities')
-                if shared_values:
-                    data['shared_with_municipalities'] = shared_values
             # Convert string booleans to actual booleans for FormData
             if 'pinned' in data:
                 data['pinned'] = data['pinned'].lower() in ('true', '1', 'yes')
-            if 'public_viewable' in data:
-                data['public_viewable'] = data['public_viewable'].lower() in ('true', '1', 'yes')
         else:
             data = request.get_json(silent=True) or {}
 
@@ -1765,22 +1710,12 @@ def update_announcement(announcement_id):
                 return jsonify({'error': 'Invalid priority level'}), 400
         if 'external_url' in data:
             announcement.external_url = data['external_url']
-        if 'public_viewable' in data:
-            announcement.public_viewable = str(data.get('public_viewable')).lower() in ('true', '1', 'yes', 'on')
         if 'images' in data and isinstance(data['images'], list):
             announcement.images = data['images']
         if 'pinned' in data:
             announcement.pinned = bool(data['pinned'])
         if 'pinned_until' in data:
             announcement.pinned_until = _parse_datetime(data.get('pinned_until'), 'pinned_until')
-        if 'shared_with_municipalities' in data:
-            shared_with_municipalities = _normalize_shared_municipality_ids(data.get('shared_with_municipalities', []))
-            # Validate shared municipalities (Zambales-only enforcement)
-            try:
-                validate_shared_municipalities(shared_with_municipalities, raise_error=True)
-                announcement.shared_with_municipalities = shared_with_municipalities if shared_with_municipalities else None
-            except ValueError as e:
-                return jsonify({'error': str(e)}), 400
 
         publish_at = announcement.publish_at
         expire_at = announcement.expire_at
@@ -1805,6 +1740,8 @@ def update_announcement(announcement_id):
         announcement.publish_at = publish_at
         announcement.expire_at = expire_at
         announcement.is_active = is_active_flag
+        announcement.public_viewable = False
+        announcement.shared_with_municipalities = None
         announcement.created_by_staff_id = announcement.created_by_staff_id or ctx['user'].id
         announcement.updated_at = utc_now()
 

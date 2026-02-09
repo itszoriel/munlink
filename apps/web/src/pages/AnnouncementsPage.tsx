@@ -31,9 +31,12 @@ export default function AnnouncementsPage() {
   const userMunicipalityId = (user as any)?.municipality_id
   const userBarangayId = (user as any)?.barangay_id
   const verifiedResident = isAuthenticated && (user as any)?.admin_verified && (user as any)?.role === 'resident'
-  const isViewingMismatch = verifiedResident && !!userMunicipalityId && !!selectedMunicipality?.id && userMunicipalityId !== selectedMunicipality.id
-  const browseMunicipalityId = !verifiedResident && selectedMunicipality?.id ? selectedMunicipality.id : undefined
-  const browseBarangayId = !verifiedResident && selectedBarangay?.id ? selectedBarangay.id : undefined
+  const isViewingMismatch = verifiedResident && (
+    (!!userMunicipalityId && !!selectedMunicipality?.id && userMunicipalityId !== selectedMunicipality.id) ||
+    (!!userBarangayId && !!selectedBarangay?.id && userBarangayId !== selectedBarangay.id)
+  )
+  const browseMunicipalityId = selectedMunicipality?.id
+  const browseBarangayId = selectedBarangay?.id
   // Announcements endpoint is public (province-wide for guests/unverified),
   // so never block fetch behind verification state.
   const shouldFetch = true
@@ -121,7 +124,7 @@ export default function AnnouncementsPage() {
       {/* Cross-Municipality Discovery Notice */}
       {isViewingMismatch && (
         <div className="mb-4 p-3 rounded-lg border border-yellow-300 bg-yellow-50 text-sm text-yellow-900">
-          <strong>Viewing {selectedMunicipality?.name}</strong>. Announcements are shown for this municipality.
+          <strong>You are viewing another location's announcements.</strong> This feed is view-only for your account.
         </div>
       )}
 
@@ -134,7 +137,7 @@ export default function AnnouncementsPage() {
 
       {!verifiedResident && (
         <div className="mb-4 p-4 rounded-lg border border-blue-200 bg-blue-50 text-sm text-blue-900">
-          <p><strong>Login and verify your residency</strong> to see municipality and barangay announcements. Province-wide updates are always visible.</p>
+          <p><strong>Tip:</strong> Use the header municipality/barangay filters to browse local announcements.</p>
         </div>
       )}
 

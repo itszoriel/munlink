@@ -398,8 +398,6 @@ export const announcementApi = {
     expire_at?: string
     pinned?: boolean
     pinned_until?: string
-    public_viewable?: boolean
-    shared_with_municipalities?: number[]
   } | FormData): Promise<ApiResponse> => {
     const isForm = (typeof FormData !== 'undefined') && (data instanceof FormData)
     return apiClient.post('/api/admin/announcements', data, isForm ? {
@@ -442,8 +440,6 @@ export const announcementApi = {
     pinned_until?: string
     images?: string[]
     external_url?: string
-    public_viewable?: boolean
-    shared_with_municipalities?: number[]
   } | FormData): Promise<ApiResponse> => {
     const isForm = (typeof FormData !== 'undefined') && (data instanceof FormData)
     return apiClient.put(`/api/admin/announcements/${id}`, data, isForm ? {

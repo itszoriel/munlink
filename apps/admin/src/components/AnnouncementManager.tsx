@@ -34,27 +34,10 @@ interface Announcement {
   expire_at?: string
   creator_name?: string
   images?: string[]
-  shared_with_municipalities?: number[]
-  public_viewable?: boolean
 }
 
 interface AnnouncementManagerProps {
   onAnnouncementUpdated?: (announcementId: number) => void
-}
-
-const normalizeMunicipalityIds = (values: Array<number | string | null | undefined>, baseId?: number) => {
-  const cleaned: number[] = []
-  const seen = new Set<number>()
-  const base = baseId ? Number(baseId) : undefined
-  for (const raw of values || []) {
-    const next = Number(raw)
-    if (!Number.isFinite(next) || next <= 0) continue
-    if (base && next === base) continue
-    if (seen.has(next)) continue
-    seen.add(next)
-    cleaned.push(next)
-  }
-  return cleaned
 }
 
 export default function AnnouncementManager({ onAnnouncementUpdated }: AnnouncementManagerProps) {
@@ -498,17 +481,10 @@ function AnnouncementDetailModal({
     expire_at: toInputValue(announcement.expire_at),
     pinned: !!announcement.pinned,
     pinned_until: toInputValue(announcement.pinned_until),
-    shared_with_municipalities: normalizeMunicipalityIds(
-      announcement.shared_with_municipalities || [],
-      announcement.municipality_id || staffMunicipalityId
-    ),
-    public_viewable: (String(announcement.scope || '').toUpperCase() === 'BARANGAY') ? false : !!announcement.public_viewable,
   })
   const selectedMunicipalityId = formData.scope === 'PROVINCE' ? undefined : (formData.municipality_id || staffMunicipalityId)
   const barangayOptions = selectedMunicipalityId ? getBarangaysByMunicipalityId(selectedMunicipalityId) : []
   const municipalityLocked = allowedScopes.length === 1 && allowedScopes[0] !== 'PROVINCE'
-  const shareDisabled = !selectedMunicipalityId
-  const shareOptions = MUNICIPALITIES.filter(m => m.id !== selectedMunicipalityId)
   const [uploading, setUploading] = useState(false)
   const [images, setImages] = useState<string[]>(announcement.images || [])
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
@@ -588,20 +564,16 @@ function AnnouncementDetailModal({
       }
     }
     // Persist fields and final image order (including removals/reorders)
-    const cleanedShared = normalizeMunicipalityIds(formData.shared_with_municipalities, selectedMunicipalityId)
     const payload: any = {
       ...formData,
       images: current,
-      shared_with_municipalities: cleanedShared,
     }
     if (payload.scope === 'PROVINCE') {
       payload.municipality_id = undefined
       payload.barangay_id = undefined
-      payload.shared_with_municipalities = []
     } else if (payload.scope === 'MUNICIPALITY') {
       payload.barangay_id = undefined
     }
-    payload.public_viewable = payload.scope === 'BARANGAY' ? false : !!payload.public_viewable
     if (!payload.publish_at) delete payload.publish_at
     if (!payload.expire_at) delete payload.expire_at
     if (!payload.pinned_until) delete payload.pinned_until
@@ -785,13 +757,6 @@ function AnnouncementDetailModal({
                       scope: next,
                       municipality_id: next === 'PROVINCE' ? undefined : (prev.municipality_id || staffMunicipalityId),
                       barangay_id: next === 'BARANGAY' ? (prev.barangay_id || staffBarangayId) : undefined,
-                      public_viewable: next === 'BARANGAY' ? false : prev.public_viewable,
-                      shared_with_municipalities: next === 'PROVINCE'
-                        ? []
-                        : normalizeMunicipalityIds(
-                          prev.shared_with_municipalities,
-                          prev.municipality_id || staffMunicipalityId
-                        ),
                     }))
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-zambales-green"
@@ -808,11 +773,7 @@ function AnnouncementDetailModal({
                     value={selectedMunicipalityId || ''}
                     onChange={(e) => {
                       const nextId = Number(e.target.value) || undefined
-                      setFormData(prev => ({
-                        ...prev,
-                        municipality_id: nextId,
-                        shared_with_municipalities: normalizeMunicipalityIds(prev.shared_with_municipalities, nextId),
-                      }))
+                      setFormData(prev => ({ ...prev, municipality_id: nextId }))
                     }}
                     disabled={municipalityLocked}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-zambales-green"
@@ -841,74 +802,6 @@ function AnnouncementDetailModal({
                 </div>
               )}
             </div>
-
-            {/* Share with other municipalities */}
-            {(formData.scope === 'MUNICIPALITY' || formData.scope === 'BARANGAY') && (
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-sm font-medium text-gray-700">Share with other municipalities (optional)</label>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={shareDisabled}
-                      className="text-xs text-ocean-700 hover:text-ocean-800 disabled:opacity-50"
-                      onClick={() => {
-                        setFormData(prev => ({
-                          ...prev,
-                          shared_with_municipalities: normalizeMunicipalityIds(
-                            shareOptions.map(m => m.id),
-                            selectedMunicipalityId
-                          ),
-                        }))
-                      }}
-                    >
-                      Select all
-                    </button>
-                    <button
-                      type="button"
-                      disabled={formData.shared_with_municipalities.length === 0}
-                      className="text-xs text-gray-500 hover:text-gray-700 disabled:opacity-50"
-                      onClick={() => setFormData(prev => ({ ...prev, shared_with_municipalities: [] }))}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                </div>
-                <div className={`border border-gray-300 rounded-md p-3 max-h-48 overflow-y-auto ${shareDisabled ? 'bg-gray-50' : ''}`}>
-                  {shareDisabled ? (
-                    <div className="text-xs text-gray-500">Select a municipality to enable sharing.</div>
-                  ) : (
-                    shareOptions.map((municipality) => (
-                      <label key={municipality.id} className="flex items-center space-x-2 py-1 hover:bg-gray-50 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={formData.shared_with_municipalities.includes(municipality.id)}
-                          onChange={(e) => {
-                            const checked = e.target.checked
-                            setFormData(prev => ({
-                              ...prev,
-                              shared_with_municipalities: checked
-                                ? normalizeMunicipalityIds(
-                                  [...prev.shared_with_municipalities, municipality.id],
-                                  selectedMunicipalityId
-                                )
-                                : prev.shared_with_municipalities.filter(id => id !== municipality.id)
-                            }))
-                          }}
-                          className="h-4 w-4 text-zambales-green border-gray-300 rounded focus:ring-zambales-green"
-                        />
-                        <span className="text-sm text-gray-700">{municipality.name}</span>
-                      </label>
-                    ))
-                  )}
-                </div>
-                {formData.shared_with_municipalities.length > 0 && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Sharing with {formData.shared_with_municipalities.length} other {formData.shared_with_municipalities.length === 1 ? 'municipality' : 'municipalities'}
-                  </p>
-                )}
-              </div>
-            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -968,19 +861,6 @@ function AnnouncementDetailModal({
                   onChange={(e) => setFormData(prev => ({ ...prev, expire_at: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-zambales-green"
                 />
-              </div>
-              <div className="flex items-start gap-2">
-                <input
-                  id="announcement-public"
-                  type="checkbox"
-                  checked={formData.public_viewable}
-                  disabled={formData.scope === 'BARANGAY'}
-                  onChange={(e) => setFormData(prev => ({ ...prev, public_viewable: e.target.checked }))}
-                  className="h-4 w-4 mt-1 rounded border-gray-300 text-zambales-green focus:ring-zambales-green disabled:opacity-50"
-                />
-                <label htmlFor="announcement-public" className="text-sm text-gray-700">
-                  Public on web (guest-visible). Barangay posts remain resident-only.
-                </label>
               </div>
               <div className="flex items-center gap-2">
                 <input
@@ -1145,14 +1025,10 @@ function CreateAnnouncementModal({ onClose, onCreate, loading, allowedScopes, de
     expire_at: '',
     pinned: false,
     pinned_until: '',
-    shared_with_municipalities: [] as number[],
-    public_viewable: false,
   })
   const selectedMunicipalityId = formData.scope === 'PROVINCE' ? undefined : (formData.municipality_id || staffMunicipalityId)
   const barangayOptions = selectedMunicipalityId ? getBarangaysByMunicipalityId(selectedMunicipalityId) : []
   const municipalityLocked = allowedScopes.length === 1 && allowedScopes[0] !== 'PROVINCE'
-  const shareDisabled = !selectedMunicipalityId
-  const shareOptions = MUNICIPALITIES.filter(m => m.id !== selectedMunicipalityId)
   const [files, setFiles] = useState<File[]>([])
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -1160,19 +1036,13 @@ function CreateAnnouncementModal({ onClose, onCreate, loading, allowedScopes, de
     if (formData.title.trim() && formData.content.trim()) {
       const payload: any = {
         ...formData,
-        shared_with_municipalities: normalizeMunicipalityIds(
-          formData.shared_with_municipalities,
-          selectedMunicipalityId
-        ),
       }
       if (payload.scope === 'PROVINCE') {
         payload.municipality_id = undefined
         payload.barangay_id = undefined
-        payload.shared_with_municipalities = []
       } else if (payload.scope === 'MUNICIPALITY') {
         payload.barangay_id = undefined
       }
-      payload.public_viewable = payload.scope === 'BARANGAY' ? false : !!payload.public_viewable
       if (!payload.publish_at) delete payload.publish_at
       if (!payload.expire_at) delete payload.expire_at
       if (!payload.pinned_until) delete payload.pinned_until
@@ -1272,13 +1142,6 @@ function CreateAnnouncementModal({ onClose, onCreate, loading, allowedScopes, de
                       scope: next,
                       municipality_id: next === 'PROVINCE' ? undefined : (prev.municipality_id || staffMunicipalityId),
                       barangay_id: next === 'BARANGAY' ? (prev.barangay_id || staffBarangayId) : undefined,
-                      public_viewable: next === 'BARANGAY' ? false : prev.public_viewable,
-                      shared_with_municipalities: next === 'PROVINCE'
-                        ? []
-                        : normalizeMunicipalityIds(
-                          prev.shared_with_municipalities,
-                          prev.municipality_id || staffMunicipalityId
-                        ),
                     }))
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-zambales-green"
@@ -1295,11 +1158,7 @@ function CreateAnnouncementModal({ onClose, onCreate, loading, allowedScopes, de
                     value={selectedMunicipalityId || ''}
                     onChange={(e) => {
                       const nextId = Number(e.target.value) || undefined
-                      setFormData(prev => ({
-                        ...prev,
-                        municipality_id: nextId,
-                        shared_with_municipalities: normalizeMunicipalityIds(prev.shared_with_municipalities, nextId),
-                      }))
+                      setFormData(prev => ({ ...prev, municipality_id: nextId }))
                     }}
                     disabled={municipalityLocked}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-zambales-green"
@@ -1328,74 +1187,6 @@ function CreateAnnouncementModal({ onClose, onCreate, loading, allowedScopes, de
                 </div>
               )}
             </div>
-
-            {/* Share with other municipalities */}
-            {(formData.scope === 'MUNICIPALITY' || formData.scope === 'BARANGAY') && (
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-sm font-medium text-gray-700">Share with other municipalities (optional)</label>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={shareDisabled}
-                      className="text-xs text-ocean-700 hover:text-ocean-800 disabled:opacity-50"
-                      onClick={() => {
-                        setFormData(prev => ({
-                          ...prev,
-                          shared_with_municipalities: normalizeMunicipalityIds(
-                            shareOptions.map(m => m.id),
-                            selectedMunicipalityId
-                          ),
-                        }))
-                      }}
-                    >
-                      Select all
-                    </button>
-                    <button
-                      type="button"
-                      disabled={formData.shared_with_municipalities.length === 0}
-                      className="text-xs text-gray-500 hover:text-gray-700 disabled:opacity-50"
-                      onClick={() => setFormData(prev => ({ ...prev, shared_with_municipalities: [] }))}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                </div>
-                <div className={`border border-gray-300 rounded-md p-3 max-h-48 overflow-y-auto ${shareDisabled ? 'bg-gray-50' : ''}`}>
-                  {shareDisabled ? (
-                    <div className="text-xs text-gray-500">Select a municipality to enable sharing.</div>
-                  ) : (
-                    shareOptions.map((municipality) => (
-                      <label key={municipality.id} className="flex items-center space-x-2 py-1 hover:bg-gray-50 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={formData.shared_with_municipalities.includes(municipality.id)}
-                          onChange={(e) => {
-                            const checked = e.target.checked
-                            setFormData(prev => ({
-                              ...prev,
-                              shared_with_municipalities: checked
-                                ? normalizeMunicipalityIds(
-                                  [...prev.shared_with_municipalities, municipality.id],
-                                  selectedMunicipalityId
-                                )
-                                : prev.shared_with_municipalities.filter(id => id !== municipality.id)
-                            }))
-                          }}
-                          className="h-4 w-4 text-zambales-green border-gray-300 rounded focus:ring-zambales-green"
-                        />
-                        <span className="text-sm text-gray-700">{municipality.name}</span>
-                      </label>
-                    ))
-                  )}
-                </div>
-                {formData.shared_with_municipalities.length > 0 && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Sharing with {formData.shared_with_municipalities.length} other {formData.shared_with_municipalities.length === 1 ? 'municipality' : 'municipalities'}
-                  </p>
-                )}
-              </div>
-            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -1444,19 +1235,6 @@ function CreateAnnouncementModal({ onClose, onCreate, loading, allowedScopes, de
                   onChange={(e) => setFormData(prev => ({ ...prev, expire_at: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-zambales-green"
                 />
-              </div>
-              <div className="flex items-start gap-2">
-                <input
-                  id="create-announcement-public"
-                  type="checkbox"
-                  checked={formData.public_viewable}
-                  disabled={formData.scope === 'BARANGAY'}
-                  onChange={(e) => setFormData(prev => ({ ...prev, public_viewable: e.target.checked }))}
-                  className="h-4 w-4 mt-1 rounded border-gray-300 text-zambales-green focus:ring-zambales-green disabled:opacity-50"
-                />
-                <label htmlFor="create-announcement-public" className="text-sm text-gray-700">
-                  Public on web (guest-visible). Barangay posts remain resident-only.
-                </label>
               </div>
               <div className="flex items-center gap-2">
                 <input

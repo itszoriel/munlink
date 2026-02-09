@@ -8,9 +8,10 @@ import { ClipboardList, Users, Hourglass, CheckCircle, Plus } from 'lucide-react
 
 export default function Programs() {
   const [activeTab, setActiveTab] = useState<'active' | 'applications' | 'archived'>('active')
+  const [missingDocsOnly, setMissingDocsOnly] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [viewProgram, setViewProgram] = useState<any | null>(null)
-  const [viewApplicants, setViewApplicants] = useState<{ program: any; applications: any[] } | null>(null)
+  const [reviewApplication, setReviewApplication] = useState<any | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [actionLoading, setActionLoading] = useState<{ appId: number; action: 'review' | 'approve' | 'reject' } | number | null>(null)
   const [fabExpanded, setFabExpanded] = useState(false)
@@ -213,6 +214,46 @@ export default function Programs() {
     }
   }
 
+  const toStringArray = (value: any): string[] => {
+    if (!value) return []
+    if (Array.isArray(value)) return value.filter((item) => typeof item === 'string' && item.trim().length > 0)
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value)
+        if (Array.isArray(parsed)) return parsed.filter((item) => typeof item === 'string' && item.trim().length > 0)
+      } catch {
+        return []
+      }
+    }
+    return []
+  }
+
+  const getRequiredDocuments = (app: any): string[] => {
+    return toStringArray(app?.program?.required_documents || app?.program?.requirements)
+  }
+
+  const getSupportingDocuments = (app: any): string[] => {
+    return toStringArray(app?.supporting_documents)
+  }
+
+  const getMissingRequiredCount = (app: any): number => {
+    const requiredDocs = getRequiredDocuments(app)
+    const supportingDocs = getSupportingDocuments(app)
+    return Math.max(0, requiredDocs.length - supportingDocs.length)
+  }
+
+  const reviewRequiredDocs = reviewApplication ? getRequiredDocuments(reviewApplication) : []
+  const reviewSupportingDocs = reviewApplication ? getSupportingDocuments(reviewApplication) : []
+  const reviewMissingCount = Math.max(0, reviewRequiredDocs.length - reviewSupportingDocs.length)
+  const applicationsWithMissingDocsCount = useMemo(
+    () => applications.filter((app: any) => getMissingRequiredCount(app) > 0).length,
+    [applications]
+  )
+  const displayedApplications = useMemo(
+    () => (missingDocsOnly ? applications.filter((app: any) => getMissingRequiredCount(app) > 0) : applications),
+    [applications, missingDocsOnly]
+  )
+
   function IconFromCode({ code, className }: { code: string; className?: string }) {
     if (code === '📋') return <ClipboardList className={className || 'w-6 h-6'} aria-hidden="true" />
     if (code === '👥') return <Users className={className || 'w-6 h-6'} aria-hidden="true" />
@@ -328,8 +369,42 @@ export default function Programs() {
             />
           </div>
         )}
-        {!loading && activeTab === 'applications' && applications.map((app: any) => (
+        {!loading && activeTab === 'applications' && applications.length > 0 && (
+          <div className="col-span-full">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-3">
+              <label className="inline-flex items-center gap-2 text-sm text-neutral-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-neutral-300 text-ocean-600 focus:ring-ocean-500"
+                  checked={missingDocsOnly}
+                  onChange={(e) => setMissingDocsOnly(e.target.checked)}
+                />
+                Missing documents only
+              </label>
+              <div className="text-xs sm:text-sm text-neutral-600">
+                Showing {displayedApplications.length} of {applications.length} applications
+                <span className="ml-2 text-rose-700 font-medium">({applicationsWithMissingDocsCount} missing docs)</span>
+              </div>
+            </div>
+          </div>
+        )}
+        {!loading && activeTab === 'applications' && displayedApplications.length === 0 && applications.length > 0 && (
+          <div className="col-span-full">
+            <EmptyState
+              icon="clipboard"
+              title="No applications match this filter"
+              description="No applications are currently missing required documents."
+            />
+          </div>
+        )}
+        {!loading && activeTab === 'applications' && displayedApplications.map((app: any) => (
           <div key={app.id} className="bg-white/70 rounded-3xl p-5 border border-white/50">
+            {(() => {
+              const requiredDocs = getRequiredDocuments(app)
+              const supportingDocs = getSupportingDocuments(app)
+              const missingRequiredDocs = getMissingRequiredCount(app)
+              return (
+                <>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm text-neutral-600">Application No. {app.application_number}</div>
@@ -339,14 +414,50 @@ export default function Programs() {
               </div>
               <span className={`px-3 py-1 rounded-full text-xs font-medium ${app.status==='approved'?'bg-emerald-100 text-emerald-700':app.status==='rejected'?'bg-rose-100 text-rose-700':app.status==='under_review'?'bg-yellow-100 text-yellow-700':'bg-neutral-100 text-neutral-700'}`}>{app.status}</span>
             </div>
+            <div className="mt-3 rounded-xl border border-neutral-200 bg-white p-3">
+              <div className="flex flex-wrap items-center gap-4 text-xs sm:text-sm">
+                <span className="text-neutral-700"><span className="font-semibold">Required:</span> {requiredDocs.length}</span>
+                <span className="text-neutral-700"><span className="font-semibold">Uploaded:</span> {supportingDocs.length}</span>
+                {missingRequiredDocs > 0 ? (
+                  <span className="text-rose-700 font-semibold">Missing: {missingRequiredDocs}</span>
+                ) : (
+                  <span className="text-emerald-700 font-semibold">All required documents uploaded</span>
+                )}
+              </div>
+              {supportingDocs.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {supportingDocs.slice(0, 3).map((path: string, idx: number) => (
+                    <a
+                      key={`${app.id}-doc-${idx}`}
+                      href={mediaUrl(path)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs underline text-ocean-700 hover:text-ocean-800"
+                    >
+                      View Document {idx + 1}
+                    </a>
+                  ))}
+                  {supportingDocs.length > 3 && (
+                    <span className="text-xs text-neutral-500">+{supportingDocs.length - 3} more</span>
+                  )}
+                </div>
+              )}
+            </div>
             <div className="mt-4 flex flex-col sm:flex-row gap-2 sm:justify-end">
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded-lg bg-ocean-100 hover:bg-ocean-200 text-ocean-700 text-sm"
+                onClick={() => setReviewApplication(app)}
+              >
+                Review Documents
+              </button>
               {app.status !== 'approved' && app.status !== 'rejected' && (
                 <>
                   {app.status !== 'under_review' && (
                     <button className="px-3 py-1.5 rounded-lg bg-yellow-100 hover:bg-yellow-200 text-yellow-700 text-sm" disabled={actionLoading !== null} onClick={async()=>{
                       try{ setActionLoading({ appId: app.id, action: 'review' }); await benefitsAdminApi.updateApplicationStatus(app.id, { status:'under_review' }); updateApplication(app.id, { status: 'under_review' }); showToast('Application marked under review', 'success') } catch(e:any){ showToast(handleApiError(e), 'error') } finally { setActionLoading(null) }}}>{typeof actionLoading === 'object' && actionLoading !== null && actionLoading.appId === app.id && actionLoading.action === 'review' ? 'Processing...' : 'Mark Under Review'}</button>
                   )}
-                  <button className="px-3 py-1.5 rounded-lg bg-forest-100 hover:bg-forest-200 text-forest-700 text-sm" disabled={actionLoading !== null} onClick={async()=>{
+                  <button className="px-3 py-1.5 rounded-lg bg-forest-100 hover:bg-forest-200 text-forest-700 text-sm disabled:opacity-60 disabled:cursor-not-allowed" disabled={actionLoading !== null || missingRequiredDocs > 0} onClick={async()=>{
                     try{
                       setActionLoading({ appId: app.id, action: 'approve' })
                       await benefitsAdminApi.updateApplicationStatus(app.id, { status:'approved' })
@@ -375,6 +486,14 @@ export default function Programs() {
                 </div>
               )}
             </div>
+            {app.status !== 'approved' && app.status !== 'rejected' && missingRequiredDocs > 0 && (
+              <div className="mt-2 text-xs text-rose-700">
+                Approval is disabled until the resident uploads all required documents.
+              </div>
+            )}
+                </>
+              )
+            })()}
           </div>
         ))}
         {!loading && activeTab === 'archived' && programs.filter((p:any)=>!p.is_active).length === 0 && (
@@ -559,31 +678,77 @@ export default function Programs() {
         </Modal>
       )}
 
-      {/* Applicants Modal */}
-      {viewApplicants && (
-        <Modal open={true} onOpenChange={(o)=>{ if(!o) setViewApplicants(null) }} title={`Applicants — ${viewApplicants.program.title || viewApplicants.program.name}`} size="md">
+      {/* Review Documents Modal */}
+      {reviewApplication && (
+        <Modal open={true} onOpenChange={(o)=>{ if(!o) setReviewApplication(null) }} title={`Review Documents — ${reviewApplication.user?.first_name || ''} ${reviewApplication.user?.last_name || ''}`} size="md">
           <div className="max-h-[calc(100vh-320px)] sm:max-h-[calc(100vh-250px)] overflow-y-auto -mx-4 sm:-mx-6 px-4 sm:px-6 pb-4 sm:pb-0">
             <div className="space-y-3">
-              {viewApplicants.applications.length === 0 ? (
-                <div className="text-sm text-neutral-600">No applicants.</div>
-              ) : viewApplicants.applications.map((a: any) => (
-                <div key={a.id} className="p-3 border rounded-xl">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium">{a.user?.first_name} {a.user?.last_name}</div>
-                      <div className="text-xs text-neutral-600">Applied: {(a.created_at || '').slice(0,10)}</div>
-                    </div>
-                    <span className={`px-2 py-0.5 rounded-full text-xs ${a.status==='approved'?'bg-emerald-100 text-emerald-700':a.status==='rejected'?'bg-rose-100 text-rose-700':a.status==='under_review'?'bg-yellow-100 text-yellow-700':'bg-neutral-100 text-neutral-700'}`}>{a.status}</span>
+              <div className="p-3 border rounded-xl bg-neutral-50 text-sm">
+                <div><span className="font-medium">Application No:</span> {reviewApplication.application_number || 'N/A'}</div>
+                <div><span className="font-medium">Program:</span> {reviewApplication.program?.name || 'Unknown'}</div>
+                <div><span className="font-medium">Submitted:</span> {(reviewApplication.created_at || '').slice(0, 10) || 'N/A'}</div>
+                <div><span className="font-medium">Status:</span> {(reviewApplication.status || 'pending').replace('_', ' ')}</div>
+              </div>
+
+              {reviewRequiredDocs.length > 0 ? (
+                <div className="p-3 border rounded-xl">
+                  <div className="text-sm font-semibold mb-2">Required Documents Checklist</div>
+                  <div className="space-y-2">
+                    {reviewRequiredDocs.map((requiredDoc: string, index: number) => {
+                      const path = reviewSupportingDocs[index]
+                      const uploaded = !!path
+                      return (
+                        <div key={`required-${index}`} className="flex items-center justify-between gap-3 rounded-lg border border-neutral-200 p-2">
+                          <div className="text-sm text-neutral-800">
+                            <span className={uploaded ? 'text-emerald-700 font-semibold' : 'text-rose-700 font-semibold'}>
+                              {uploaded ? 'Uploaded' : 'Missing'}
+                            </span>
+                            <span className="ml-2">{requiredDoc}</span>
+                          </div>
+                          {uploaded && (
+                            <a
+                              href={mediaUrl(path)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs underline text-ocean-700 whitespace-nowrap"
+                            >
+                              Open File
+                            </a>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
-                  {Array.isArray(a.supporting_documents) && a.supporting_documents.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {a.supporting_documents.map((p: string, i: number) => (
-                        <a key={i} href={mediaUrl(p)} target="_blank" rel="noreferrer" className="text-xs underline text-ocean-700">Document {i+1}</a>
-                      ))}
+                  {reviewMissingCount > 0 ? (
+                    <div className="mt-3 text-xs text-rose-700 font-medium">
+                      {reviewMissingCount} required document{reviewMissingCount > 1 ? 's are' : ' is'} still missing.
                     </div>
+                  ) : (
+                    <div className="mt-3 text-xs text-emerald-700 font-medium">All required documents are present.</div>
                   )}
                 </div>
-              ))}
+              ) : (
+                <div className="p-3 border rounded-xl text-sm text-neutral-600">No required documents configured for this program.</div>
+              )}
+
+              {reviewSupportingDocs.length > reviewRequiredDocs.length && (
+                <div className="p-3 border rounded-xl">
+                  <div className="text-sm font-semibold mb-2">Additional Uploaded Files</div>
+                  <div className="flex flex-wrap gap-2">
+                    {reviewSupportingDocs.slice(reviewRequiredDocs.length).map((path: string, idx: number) => (
+                      <a
+                        key={`extra-${idx}`}
+                        href={mediaUrl(path)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs underline text-ocean-700"
+                      >
+                        Additional File {idx + 1}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </Modal>
@@ -613,7 +778,7 @@ export default function Programs() {
       {/* Mobile FAB - Floating Action Button - positioned above mobile nav */}
       {/* HIDDEN when any modal is open (createOpen, viewProgram, etc.) */}
       <AnimatePresence>
-        {!createOpen && !viewProgram && !viewApplicants && (
+        {!createOpen && !viewProgram && !reviewApplication && (
           <motion.div 
             className="fixed bottom-20 right-4 z-50 sm:hidden fab-mobile"
             initial={{ opacity: 0, scale: 0.8 }}
