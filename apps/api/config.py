@@ -289,7 +289,7 @@ class Config:
     # Manual QR Payment (global)
     MANUAL_QR_IMAGE_PATH = os.getenv(
         'MANUAL_QR_IMAGE_PATH',
-        str(BASE_DIR / 'public' / 'payment' / 'paymentQR_fallback.jpg')
+        'public/payment/paymentQR_fallback.jpg'
     )
     MANUAL_PAYMENT_INSTRUCTIONS = os.getenv(
         'MANUAL_PAYMENT_INSTRUCTIONS',

@@ -89,16 +89,12 @@ export default function Programs() {
     
     dataStore.setLoading(CACHE_KEYS.APPLICATIONS, true)
     try {
-      const res = await fetch(`${(import.meta as any).env?.VITE_API_BASE_URL || 'https://api-munlink.up.railway.app'}/api/admin/benefits/applications`, {
-        credentials: 'include',
-        headers: { 'Authorization': `Bearer ${useAdminStore.getState().accessToken}` }
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data?.error || 'Failed to load applications')
-      dataStore.setData(CACHE_KEYS.APPLICATIONS, data.applications || [])
+      const res = await benefitsAdminApi.listApplications()
+      dataStore.setData(CACHE_KEYS.APPLICATIONS, (res as any)?.applications || [])
     } catch (e: any) {
-      setError(e.message || 'Failed to load applications')
-      dataStore.setError(CACHE_KEYS.APPLICATIONS, e.message)
+      const msg = handleApiError(e)
+      setError(msg)
+      dataStore.setError(CACHE_KEYS.APPLICATIONS, msg)
     }
   }, [applicationsFresh, applicationsLoading, dataStore])
 
@@ -334,13 +330,13 @@ export default function Programs() {
                 <>
                   {app.status !== 'under_review' && (
                     <button className="px-3 py-1.5 rounded-lg bg-yellow-100 hover:bg-yellow-200 text-yellow-700 text-sm" disabled={actionLoading !== null} onClick={async()=>{
-                      try{ setActionLoading({ appId: app.id, action: 'review' }); await fetch(`${(import.meta as any).env?.VITE_API_BASE_URL || 'https://api-munlink.up.railway.app'}/api/admin/benefits/applications/${app.id}/status`, { method:'PUT', headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${useAdminStore.getState().accessToken}` }, body: JSON.stringify({ status:'under_review' }) }); updateApplication(app.id, { status: 'under_review' }); showToast('Application marked under review', 'success') } catch(e:any){ showToast('Failed to update application', 'error') } finally { setActionLoading(null) }}}>{typeof actionLoading === 'object' && actionLoading !== null && actionLoading.appId === app.id && actionLoading.action === 'review' ? 'Processing…' : 'Mark Under Review'}</button>
+                      try{ setActionLoading({ appId: app.id, action: 'review' }); await benefitsAdminApi.updateApplicationStatus(app.id, { status:'under_review' }); updateApplication(app.id, { status: 'under_review' }); showToast('Application marked under review', 'success') } catch(e:any){ showToast(handleApiError(e), 'error') } finally { setActionLoading(null) }}}>{typeof actionLoading === 'object' && actionLoading !== null && actionLoading.appId === app.id && actionLoading.action === 'review' ? 'Processing...' : 'Mark Under Review'}</button>
                   )}
                   <button className="px-3 py-1.5 rounded-lg bg-forest-100 hover:bg-forest-200 text-forest-700 text-sm" disabled={actionLoading !== null} onClick={async()=>{
-                    try{ setActionLoading({ appId: app.id, action: 'approve' }); await fetch(`${(import.meta as any).env?.VITE_API_BASE_URL || 'https://api-munlink.up.railway.app'}/api/admin/benefits/applications/${app.id}/status`, { method:'PUT', headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${useAdminStore.getState().accessToken}` }, body: JSON.stringify({ status:'approved' }) }); updateApplication(app.id, { status: 'approved' }); showToast('Application approved', 'success') } catch(e:any){ showToast(e?.response?.data?.error || 'Failed to approve application', 'error') } finally { setActionLoading(null) }}}>{typeof actionLoading === 'object' && actionLoading !== null && actionLoading.appId === app.id && actionLoading.action === 'approve' ? 'Processing…' : 'Approve'}</button>
+                    try{ setActionLoading({ appId: app.id, action: 'approve' }); await benefitsAdminApi.updateApplicationStatus(app.id, { status:'approved' }); updateApplication(app.id, { status: 'approved' }); showToast('Application approved', 'success') } catch(e:any){ showToast(handleApiError(e), 'error') } finally { setActionLoading(null) }}}>{typeof actionLoading === 'object' && actionLoading !== null && actionLoading.appId === app.id && actionLoading.action === 'approve' ? 'Processing...' : 'Approve'}</button>
                   <button className="px-3 py-1.5 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-700 text-sm" disabled={actionLoading !== null} onClick={async()=>{
                     const reason = window.prompt('Enter reason for rejection','Incomplete requirements') || 'Incomplete requirements'
-                    try{ setActionLoading({ appId: app.id, action: 'reject' }); await fetch(`${(import.meta as any).env?.VITE_API_BASE_URL || 'https://api-munlink.up.railway.app'}/api/admin/benefits/applications/${app.id}/status`, { method:'PUT', headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${useAdminStore.getState().accessToken}` }, body: JSON.stringify({ status:'rejected', rejection_reason: reason }) }); updateApplication(app.id, { status: 'rejected', rejection_reason: reason }); showToast('Application rejected', 'success') } catch(e:any){ showToast(e?.response?.data?.error || 'Failed to reject application', 'error') } finally { setActionLoading(null) }}}>{typeof actionLoading === 'object' && actionLoading !== null && actionLoading.appId === app.id && actionLoading.action === 'reject' ? 'Processing…' : 'Reject'}</button>
+                    try{ setActionLoading({ appId: app.id, action: 'reject' }); await benefitsAdminApi.updateApplicationStatus(app.id, { status:'rejected', rejection_reason: reason }); updateApplication(app.id, { status: 'rejected', rejection_reason: reason }); showToast('Application rejected', 'success') } catch(e:any){ showToast(handleApiError(e), 'error') } finally { setActionLoading(null) }}}>{typeof actionLoading === 'object' && actionLoading !== null && actionLoading.appId === app.id && actionLoading.action === 'reject' ? 'Processing...' : 'Reject'}</button>
                 </>
               )}
               {(app.status === 'approved' || app.status === 'rejected') && (
@@ -552,7 +548,7 @@ export default function Programs() {
                   {Array.isArray(a.supporting_documents) && a.supporting_documents.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
                       {a.supporting_documents.map((p: string, i: number) => (
-                        <a key={i} href={`${(import.meta as any).env?.VITE_API_BASE_URL || 'https://api-munlink.up.railway.app'}/uploads/${String(p).replace(/^uploads\//,'')}`} target="_blank" rel="noreferrer" className="text-xs underline text-ocean-700">Document {i+1}</a>
+                        <a key={i} href={mediaUrl(p)} target="_blank" rel="noreferrer" className="text-xs underline text-ocean-700">Document {i+1}</a>
                       ))}
                     </div>
                   )}

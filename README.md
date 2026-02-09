@@ -76,6 +76,9 @@ npm run dev
   - Only clears authentication if truly no valid session exists
 - **Cache Invalidation**: Frontend uses Zustand-based data cache (`apps/web/src/lib/dataStore.ts`) with 5-minute stale time. After mutations (create/update/delete operations), always call `invalidateMultiple([CACHE_KEY1, CACHE_KEY2, ...])` to ensure UI reflects changes immediately without requiring page refresh. Pattern: `await api.create(data) → invalidateMultiple([...relevant cache keys]) → showToast(message)`. See examples in MarketplacePage, DocumentsPage, ProgramsPage, ProblemsPage.
 - **Frontend UI Guide**: See `docs/frontend-ui-guide/` for responsive design patterns, mobile FAB implementation, table-to-card conversion, and reusable component snippets.
+- **Benefit Program Images**: Program images are stored via Supabase Storage in production (using `storage_handler.save_benefit_program_image`). Old images are automatically cleaned up on update or delete. Legacy images from ephemeral local storage cannot be recovered -- admins must re-upload.
+- **Program Application Actions**: Admin approval/rejection of benefit program applications uses the shared Axios client (with token refresh interceptor), ensuring errors are properly surfaced and auth tokens are refreshed automatically.
+- **Manual QR Payment**: The fallback QR image (`public/payment/paymentQR_fallback.jpg`) is duplicated into `apps/api/public/payment/` so it is available in Docker containers. The payment config endpoint validates file existence before reporting manual QR as available. Set `MANUAL_QR_IMAGE_PATH` env var to override (relative to API root or absolute path).
 
 ## Super Admin Setup
 - **First-time setup**: Run `python apps/api/scripts/create_superadmin.py` to create the super admin account (email + password). This is a one-time setup script.

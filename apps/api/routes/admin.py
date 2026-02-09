@@ -68,6 +68,31 @@ from apps.api.utils.fee_calculator import calculate_document_fee, are_requiremen
 from apps.api.utils.supabase_storage import get_signed_url
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
+
+
+def _cleanup_old_image(path):
+    """Best-effort delete an old program image from storage."""
+    if not path:
+        return
+    try:
+        if path.startswith(('http://', 'https://')):
+            from apps.api.utils.supabase_storage import (
+                delete_file as supabase_delete,
+                _normalize_storage_path,
+                _get_storage_bucket,
+            )
+            bucket = _get_storage_bucket()
+            storage_path = _normalize_storage_path(path, bucket)
+            if storage_path:
+                supabase_delete(storage_path)
+        else:
+            from apps.api.utils.file_handler import delete_file
+            normalized = path.replace('\\', '/').lstrip('/')
+            if normalized.startswith('uploads/'):
+                normalized = normalized[len('uploads/'):]
+            delete_file(normalized)
+    except Exception:
+        current_app.logger.warning("Old image cleanup failed for: %s", path)
 ADMIN_ROLES = ('superadmin', 'provincial_admin', 'municipal_admin', 'barangay_admin')
 ANNOUNCEMENT_SCOPES = {'PROVINCE', 'MUNICIPALITY', 'BARANGAY'}
 ANNOUNCEMENT_STATUSES = {'DRAFT', 'PUBLISHED', 'ARCHIVED'}
@@ -2414,7 +2439,7 @@ def admin_create_benefit_program():
 
         import json as _json
         from apps.api.models.municipality import Municipality
-        from apps.api.utils.file_handler import save_benefit_program_image
+        from apps.api.utils.storage_handler import save_benefit_program_image
 
         def _maybe_json(v):
             if v is None:
@@ -2441,7 +2466,7 @@ def admin_create_benefit_program():
         code = data.get('code')
         description = data.get('description') or ''
         program_type = data.get('program_type') or 'general'
-        
+
         # Validation: Verify municipality matches context
         req_muni_id = data.get('municipality_id')
         if req_muni_id and int(req_muni_id) != program_municipality_id:
@@ -2474,14 +2499,21 @@ def admin_create_benefit_program():
         )
 
         db.session.add(program)
-        db.session.commit()
+        db.session.flush()  # Get program.id without committing
 
         # Save program image (uploads/benefit_programs/admins/{municipality_slug}/program_{id}/...)
+        uploaded_path = None
         municipality = db.session.get(Municipality, program_municipality_id)
         municipality_slug = (municipality.slug if municipality else 'unknown')
-        rel_path = save_benefit_program_image(file, program.id, municipality_slug, user_type='admins')
-        program.image_path = rel_path
-        db.session.commit()
+        uploaded_path = save_benefit_program_image(file, program.id, municipality_slug, user_type='admins')
+        program.image_path = uploaded_path
+
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            _cleanup_old_image(uploaded_path)
+            raise
 
         try:
             if program.is_active and program.is_accepting_applications:
@@ -2515,7 +2547,7 @@ def admin_update_benefit_program(program_id: int):
 
         import json as _json
         from apps.api.models.municipality import Municipality
-        from apps.api.utils.file_handler import save_benefit_program_image
+        from apps.api.utils.storage_handler import save_benefit_program_image
 
         def _maybe_json(v):
             if v is None:
@@ -2565,13 +2597,26 @@ def admin_update_benefit_program(program_id: int):
             program.is_accepting_applications = _parse_bool(data.get('is_accepting_applications'))
 
         # Optional image replacement
+        old_image_path = None
+        new_image_path = None
         if file:
+            old_image_path = program.image_path
             municipality = db.session.get(Municipality, program.municipality_id or municipality_id)
             municipality_slug = (municipality.slug if municipality else 'unknown')
-            rel_path = save_benefit_program_image(file, program.id, municipality_slug, user_type='admins')
-            program.image_path = rel_path
+            new_image_path = save_benefit_program_image(file, program.id, municipality_slug, user_type='admins')
+            program.image_path = new_image_path
 
-        db.session.commit()
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            if new_image_path:
+                _cleanup_old_image(new_image_path)
+            raise
+
+        # Clean up old image after successful commit
+        if old_image_path and new_image_path:
+            _cleanup_old_image(old_image_path)
 
         # Notify residents if program just became active+accepting
         now_active = bool(program.is_active)
@@ -2607,8 +2652,13 @@ def admin_delete_benefit_program(program_id: int):
         if program.municipality_id and program.municipality_id != municipality_id:
             return jsonify({'error': 'Program not in your municipality'}), 403
 
+        old_image_path = program.image_path
         db.session.delete(program)
         db.session.commit()
+
+        # Clean up image after successful delete
+        _cleanup_old_image(old_image_path)
+
         return jsonify({'message': 'Program deleted'}), 200
     except Exception as e:
         db.session.rollback()

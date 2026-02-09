@@ -59,7 +59,6 @@ from apps.api.utils.supabase_storage import (
 from apps.api.utils.storage_handler import get_file_url as get_storage_file_url
 from werkzeug.utils import secure_filename
 from apps.api import limiter
-from apps.api.config import BASE_DIR
 
 
 documents_bp = Blueprint('documents', __name__, url_prefix='/api/documents')
@@ -88,7 +87,9 @@ def _resolve_manual_qr_path() -> str | None:
         return None
     if os.path.isabs(raw):
         return raw
-    return str(BASE_DIR / raw)
+    # Resolve relative to API root (not repo root BASE_DIR) for Docker compatibility
+    api_dir = Path(__file__).parent.parent
+    return str(api_dir / raw)
 
 
 def _build_manual_storage_path(user_id: int, request_id: int, filename: str) -> str:
@@ -411,9 +412,13 @@ def create_document_request():
         payment_method = None
         manual_payment_status = None
         if requested_method == 'digital' and float(final_fee or 0) > 0:
-            payment_method = 'stripe' if is_stripe_configured() else 'manual_qr'
-            if payment_method == 'manual_qr':
-                manual_payment_status = 'not_started'
+            if is_stripe_configured():
+                payment_method = 'stripe'
+            else:
+                _qr = _resolve_manual_qr_path()
+                if _qr and os.path.exists(_qr):
+                    payment_method = 'manual_qr'
+                    manual_payment_status = 'not_started'
 
         req = DocumentRequest(
             request_number=_generate_request_number(user_id),
@@ -814,7 +819,7 @@ def get_payment_configuration():
     """Get payment configuration for frontend (authenticated)."""
     stripe_cfg = get_payment_config()
     manual_qr_path = _resolve_manual_qr_path()
-    manual_available = bool(manual_qr_path)
+    manual_available = bool(manual_qr_path) and os.path.exists(manual_qr_path)
     return jsonify({
         'stripe': stripe_cfg,
         'manual_qr': {
@@ -855,6 +860,11 @@ def set_payment_method(request_id: int):
 
         if method == 'stripe' and not is_stripe_configured():
             return jsonify({'error': 'Stripe is unavailable right now'}), 400
+
+        if method == 'manual_qr':
+            qr_path = _resolve_manual_qr_path()
+            if not qr_path or not os.path.exists(qr_path):
+                return jsonify({'error': 'Manual QR payment is unavailable right now'}), 400
 
         # Eligible only for digital paid requests not yet paid/waived
         if (r.delivery_method or '').lower() != 'digital':

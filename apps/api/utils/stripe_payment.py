@@ -145,6 +145,12 @@ def create_payment_intent(
         intent = stripe.PaymentIntent.create(
             amount=amount_centavos,
             currency='php',
+            # Keep resident flow in-page (`redirect: if_required`) by excluding
+            # redirect-based payment methods unless frontend adds return_url handling.
+            automatic_payment_methods={
+                'enabled': True,
+                'allow_redirects': 'never',
+            },
             receipt_email=user_email,
             description=f"Document Request: {document_type_name} ({request_number})",
             metadata={

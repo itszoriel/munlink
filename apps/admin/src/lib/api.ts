@@ -501,6 +501,10 @@ export const benefitsAdminApi = {
     apiClient.put(`/api/admin/benefits/programs/${id}/complete`, {}).then((res) => res.data),
   deleteProgram: (id: number): Promise<ApiResponse> =>
     apiClient.delete(`/api/admin/benefits/programs/${id}`).then((res) => res.data),
+  listApplications: (): Promise<ApiResponse<{ applications: any[] }>> =>
+    apiClient.get('/api/admin/benefits/applications').then((res) => res.data),
+  updateApplicationStatus: (appId: number, payload: { status: string; rejection_reason?: string }): Promise<ApiResponse> =>
+    apiClient.put(`/api/admin/benefits/applications/${appId}/status`, payload).then((res) => res.data),
 }
 
 // Dashboard API
