@@ -31,9 +31,10 @@ export default function TransferRequestCard({ t, munMap, canApprove, canDeny, ca
         <ArrowRight className="w-4 h-4 text-neutral-400" />
         <span className="truncate" title={String(t.to_municipality_id)}>{munMap[Number(t.to_municipality_id)] || t.to_municipality_id}</span>
       </div>
+      <div className="text-xs text-neutral-600">Target Barangay: {t.to_barangay_name || t.to_barangay_id || 'Not set'}</div>
       {t.notes && <div className="text-sm text-neutral-600 line-clamp-2">{t.notes}</div>}
       <div className="mt-2 flex items-center justify-between">
-        <div className="text-xs text-neutral-500">{String(t.created_at||'').slice(0,19).replace('T',' ')}</div>
+        <div className="text-xs text-neutral-500">{String(t.created_at || '').slice(0, 19).replace('T', ' ')}</div>
         <div className="flex items-center gap-1">
           <button className="icon-btn" title="View" onClick={onView}><Eye className="w-4 h-4" aria-hidden="true" /></button>
           <button className="icon-btn" title="History" onClick={onHistory}>⏱️</button>
@@ -51,5 +52,4 @@ export default function TransferRequestCard({ t, munMap, canApprove, canDeny, ca
     </div>
   )
 }
-
 

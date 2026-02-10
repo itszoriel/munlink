@@ -2219,6 +2219,18 @@ def admin_list_transfers():
                     d['phone'] = getattr(u, 'phone_number', None)
             except Exception:
                 pass
+            try:
+                from_muni = db.session.get(Municipality, t.from_municipality_id)
+                if from_muni:
+                    d['from_municipality_name'] = from_muni.name
+                to_muni = db.session.get(Municipality, t.to_municipality_id)
+                if to_muni:
+                    d['to_municipality_name'] = to_muni.name
+                to_brgy = db.session.get(Barangay, t.to_barangay_id)
+                if to_brgy:
+                    d['to_barangay_name'] = to_brgy.name
+            except Exception:
+                pass
             items.append(d)
 
         return jsonify({'transfers': items, 'page': p.page, 'pages': p.pages, 'per_page': p.per_page, 'total': p.total}), 200

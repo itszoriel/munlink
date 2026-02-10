@@ -2,7 +2,7 @@
 import { X } from 'lucide-react'
 import { authApi, mediaUrl, transferApi, showToast, municipalityApi } from '@/lib/api'
 import { Form, FormField, Input, Button } from '@munlink/ui'
-import { getProvinces, getMunicipalities, getMunicipalityById } from '@/lib/locations'
+import { getProvinces, getMunicipalities, getMunicipalityById, getBarangaysByMunicipalityId } from '@/lib/locations'
 import SafeImage from '@/components/SafeImage'
 import SpecialStatusSection from '@/components/SpecialStatusSection'
 import { useAppStore } from '@/lib/store'
@@ -175,11 +175,28 @@ export default function ProfilePage() {
         setTransferForm(prev => ({ ...prev, to_barangay_id: '' }))
         return
       }
+      const municipalityId = Number(transferForm.to_municipality_id)
+      const normalizeBarangays = (items: any[]): any[] => {
+        if (!Array.isArray(items)) return []
+        return items
+          .map((item: any) => {
+            const id = Number(item?.id ?? item?.barangay_id ?? 0)
+            const name = item?.name || item?.barangay_name || ''
+            if (!id || !name) return null
+            return { ...item, id, name }
+          })
+          .filter(Boolean) as any[]
+      }
       try {
-        const res = await municipalityApi.getBarangays(Number(transferForm.to_municipality_id))
-        setTransferBarangays(res.data?.barangays || [])
+        const res = await municipalityApi.getBarangays(municipalityId)
+        const apiBarangays = normalizeBarangays((res as any)?.data?.barangays || (res as any)?.barangays || [])
+        if (apiBarangays.length > 0) {
+          setTransferBarangays(apiBarangays)
+          return
+        }
+        setTransferBarangays(normalizeBarangays(getBarangaysByMunicipalityId(municipalityId)))
       } catch {
-        setTransferBarangays([])
+        setTransferBarangays(normalizeBarangays(getBarangaysByMunicipalityId(municipalityId)))
       }
     }
     loadTransferBarangays()
