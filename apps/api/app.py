@@ -89,8 +89,8 @@ def create_app(config_class=Config):
     # Ensure directories and other config-dependent setup are initialized
     try:
         config_class.init_app(app)
-    except Exception:
-        pass
+    except Exception as exc:
+        app.logger.exception("Config initialization failed: %s", exc)
     
     # Initialize extensions with app
     db.init_app(app)

@@ -4,12 +4,20 @@ Application configuration management
 """
 import os
 import logging
+import tempfile
 from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
-# Get project root (2 levels up from this file)
-BASE_DIR = Path(__file__).parent.parent.parent.resolve()
+# Resolve base directory for both monorepo and API-only deployments.
+# Monorepo layout: <repo>/apps/api/config.py -> BASE_DIR=<repo>
+# API-only layout: /app/config.py -> BASE_DIR=/app
+_THIS_DIR = Path(__file__).parent.resolve()
+_MONOREPO_ROOT = _THIS_DIR.parent.parent
+if (_MONOREPO_ROOT / 'apps' / 'api').exists():
+    BASE_DIR = _MONOREPO_ROOT.resolve()
+else:
+    BASE_DIR = _THIS_DIR
 
 
 def _require_env(name: str, default: str = None, allow_default_in_dev: bool = True) -> str:
@@ -334,15 +342,43 @@ class Config:
     @staticmethod
     def init_app(app):
         """Initialize application configuration"""
-        # Create upload directories if they don't exist
-        upload_dir = Path(Config.UPLOAD_FOLDER)
-        upload_dir.mkdir(parents=True, exist_ok=True)
+        # Create upload directories if they don't exist. If configured path is
+        # not writable in container runtime, fall back to /tmp.
+        configured_upload = app.config.get('UPLOAD_FOLDER', Config.UPLOAD_FOLDER)
+        upload_dir = Path(configured_upload)
+        try:
+            upload_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            fallback_dir = Path(tempfile.gettempdir()) / 'munlink_uploads' / 'region3'
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+            app.config['UPLOAD_FOLDER'] = fallback_dir
+            upload_dir = fallback_dir
+            app.logger.warning(
+                "UPLOAD_FOLDER '%s' is not writable (%s); using fallback '%s'",
+                configured_upload,
+                exc,
+                fallback_dir,
+            )
+        else:
+            app.config['UPLOAD_FOLDER'] = upload_dir
         
         # Create municipality upload directories will be created dynamically
         # based on seeded municipalities from Region 3 provinces
         
         # Create marketplace upload directory
-        (upload_dir / 'marketplace' / 'items').mkdir(parents=True, exist_ok=True)
+        try:
+            (upload_dir / 'marketplace' / 'items').mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            fallback_dir = Path(tempfile.gettempdir()) / 'munlink_uploads' / 'region3'
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+            app.config['UPLOAD_FOLDER'] = fallback_dir
+            (fallback_dir / 'marketplace' / 'items').mkdir(parents=True, exist_ok=True)
+            app.logger.warning(
+                "Marketplace upload path setup failed under '%s' (%s); switched to '%s'",
+                upload_dir,
+                exc,
+                fallback_dir,
+            )
 
 
 class DevelopmentConfig(Config):

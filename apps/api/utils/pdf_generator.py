@@ -19,6 +19,7 @@ from __future__ import annotations
 from apps.api.utils.time import utc_now
 import os
 import logging
+import tempfile
 from pathlib import Path
 from typing import Dict, Tuple, Optional, Union
 from datetime import datetime, timezone
@@ -48,6 +49,26 @@ def _slugify(name: str) -> str:
 
 def _ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
+
+
+def _resolve_writable_upload_base() -> Path:
+    """Resolve a writable upload base directory for local fallback writes."""
+    configured = current_app.config.get('UPLOAD_FOLDER') or 'uploads'
+    upload_base = Path(configured)
+    try:
+        upload_base.mkdir(parents=True, exist_ok=True)
+        return upload_base
+    except Exception as exc:
+        fallback = Path(tempfile.gettempdir()) / 'munlink_uploads' / 'region3'
+        fallback.mkdir(parents=True, exist_ok=True)
+        current_app.config['UPLOAD_FOLDER'] = fallback
+        logger.warning(
+            "UPLOAD_FOLDER '%s' is not writable (%s); using fallback '%s'",
+            upload_base,
+            exc,
+            fallback,
+        )
+        return fallback
 
 
 def _load_document_types() -> Dict[str, Dict]:
@@ -696,11 +717,11 @@ def generate_document_pdf(request, document_type, user, admin_user: Optional[obj
                 return None, stored_ref
              
         except Exception as e:
-            logger.error(f"Failed to upload PDF to storage: {e}")
+            logger.exception(f"Failed to upload PDF to storage: {e}")
             # Fall through to return local path
 
     # Development or fallback: persist under UPLOAD_FOLDER and return relative path
-    upload_base = Path(current_app.config.get('UPLOAD_FOLDER') or 'uploads')
+    upload_base = _resolve_writable_upload_base()
     out_dir = upload_base / 'generated_docs' / municipality_slug
     _ensure_dir(out_dir)
     pdf_path = out_dir / f"{request.id}.pdf"
