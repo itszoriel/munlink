@@ -122,10 +122,33 @@ def _resolve_logo_paths(municipality_name: str, province_slug: str | None = None
     Province logo is resolved from Region 3 province seals under:
       public/logos/provinces/{province_slug}.png
     """
-    # Compute repository root from Flask app root (apps/api)
-    repo_root = Path(current_app.root_path).parents[1]
-    mun_dir = repo_root / "public" / "logos" / "municipalities"
-    prov_dir = repo_root / "public" / "logos" / "provinces"
+    # Support both layouts:
+    # 1) Monorepo: root_path=<repo>/apps/api, logos under <repo>/public/logos
+    # 2) API-only container: root_path=/app, optional logos under /app/public/logos
+    app_root = Path(current_app.root_path)
+    base_candidates: list[Path] = [app_root]
+    try:
+        if len(app_root.parents) >= 2:
+            base_candidates.append(app_root.parents[1])
+        elif app_root.parent != app_root:
+            base_candidates.append(app_root.parent)
+    except Exception:
+        pass
+
+    mun_dir: Path | None = None
+    prov_dir: Path | None = None
+    for base in base_candidates:
+        cand_mun = base / "public" / "logos" / "municipalities"
+        cand_prov = base / "public" / "logos" / "provinces"
+        if cand_mun.exists() or cand_prov.exists():
+            mun_dir = cand_mun
+            prov_dir = cand_prov
+            break
+
+    if mun_dir is None or prov_dir is None:
+        fallback_base = base_candidates[0]
+        mun_dir = fallback_base / "public" / "logos" / "municipalities"
+        prov_dir = fallback_base / "public" / "logos" / "provinces"
 
     slug = _slugify(municipality_name)
     mun_logo: Path | None = None
@@ -404,8 +427,12 @@ def generate_document_pdf(request, document_type, user, admin_user: Optional[obj
     province_slug = getattr(province_obj, 'slug', None)
     municipality_slug = _slugify(municipality_name)
 
-    # Resolve logos
-    mun_logo, prov_logo = _resolve_logo_paths(municipality_name, province_slug=province_slug)
+    # Resolve logos (best-effort; never block PDF generation on asset lookup)
+    try:
+        mun_logo, prov_logo = _resolve_logo_paths(municipality_name, province_slug=province_slug)
+    except Exception as logo_exc:
+        logger.warning("Failed to resolve logo paths for PDF generation: %s", logo_exc)
+        mun_logo, prov_logo = None, None
     # Debug logging to verify logo resolution
     try:
         if getattr(current_app, 'logger', None):

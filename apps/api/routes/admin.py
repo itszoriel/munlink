@@ -3163,11 +3163,16 @@ def generate_document_request_pdf(request_id: int):
         }), 200
     except Exception as e:
         db.session.rollback()
+        error_type = type(e).__name__
         try:
             current_app.logger.exception("Failed to generate PDF for request %s", request_id)
         except Exception:
             pass
-        return jsonify({'error': 'Failed to generate PDF', 'details': str(e)}), 500
+        return jsonify({
+            'error': 'Failed to generate PDF',
+            'details': str(e) or error_type,
+            'error_type': error_type,
+        }), 500
 
 
 @admin_bp.route('/documents/requests/<int:request_id>/download', methods=['GET'])
@@ -3429,8 +3434,13 @@ def regenerate_document_pdf(request_id: int):
         
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"Failed to regenerate PDF: {e}")
-        return jsonify({'error': 'Failed to regenerate PDF', 'details': str(e)}), 500
+        error_type = type(e).__name__
+        current_app.logger.exception("Failed to regenerate PDF for request %s", request_id)
+        return jsonify({
+            'error': 'Failed to regenerate PDF',
+            'details': str(e) or error_type,
+            'error_type': error_type,
+        }), 500
 
 
 @admin_bp.route('/storage/check-legacy', methods=['GET'])
