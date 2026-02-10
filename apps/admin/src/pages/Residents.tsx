@@ -893,6 +893,7 @@ function SpecialStatusDetailModal({
 }) {
   const [detail, setDetail] = useState<any>(status)
   const [error, setError] = useState<string | null>(null)
+  const [docBlobUrls, setDocBlobUrls] = useState<Partial<Record<'student_id' | 'cor' | 'pwd_id' | 'senior_id', string>>>({})
 
   useEffect(() => {
     let mounted = true
@@ -909,6 +910,61 @@ function SpecialStatusDetailModal({
     loadDetail()
     return () => { mounted = false }
   }, [status?.id])
+
+  useEffect(() => {
+    let cancelled = false
+    const source = detail || status || {}
+    const statusId = Number(source?.id || 0)
+    const docs: Array<{ type: 'student_id' | 'cor' | 'pwd_id' | 'senior_id'; path?: string | null }> = [
+      { type: 'student_id', path: source?.student_id_path },
+      { type: 'cor', path: source?.cor_path },
+      { type: 'pwd_id', path: source?.pwd_id_path },
+      { type: 'senior_id', path: source?.senior_id_path },
+    ]
+    const toFetch = docs.filter((d) => !!d.path)
+    if (!statusId || toFetch.length === 0) {
+      setDocBlobUrls({})
+      return
+    }
+
+    const createdUrls: string[] = []
+    const fetchDocuments = async () => {
+      const nextUrls: Partial<Record<'student_id' | 'cor' | 'pwd_id' | 'senior_id', string>> = {}
+      await Promise.all(
+        toFetch.map(async (doc) => {
+          try {
+            const res: any = await specialStatusAdminApi.getDocumentBlob(statusId, doc.type)
+            const blob = res?.data
+            const contentType = String(res?.headers?.['content-type'] || '')
+            if (!(blob instanceof Blob) || contentType.includes('application/json')) {
+              return
+            }
+            const objectUrl = URL.createObjectURL(blob)
+            createdUrls.push(objectUrl)
+            nextUrls[doc.type] = objectUrl
+          } catch {
+            // Keep fallback to legacy/media URLs when blob fetch fails.
+          }
+        })
+      )
+      if (!cancelled) {
+        setDocBlobUrls(nextUrls)
+      }
+    }
+
+    void fetchDocuments()
+    return () => {
+      cancelled = true
+      createdUrls.forEach((url) => URL.revokeObjectURL(url))
+    }
+  }, [
+    status?.id,
+    detail?.id,
+    detail?.student_id_path,
+    detail?.cor_path,
+    detail?.pwd_id_path,
+    detail?.senior_id_path,
+  ])
 
   const approve = async () => {
     if (!detail?.id) return
@@ -942,11 +998,20 @@ function SpecialStatusDetailModal({
     }
   }
 
-  const renderDoc = (label: string, path?: string | null) => {
+  const renderDoc = (
+    label: string,
+    path?: string | null,
+    docType?: 'student_id' | 'cor' | 'pwd_id' | 'senior_id'
+  ) => {
     if (!path) {
       return <div className="text-sm text-neutral-500">No {label} uploaded</div>
     }
-    const url = mediaUrl(path)
+    const blobUrl = docType ? docBlobUrls[docType] : ''
+    const fallbackUrl = /^https?:\/\//i.test(String(path || '')) ? mediaUrl(path) : ''
+    const url = blobUrl || fallbackUrl
+    if (!url) {
+      return <div className="text-sm text-neutral-500">Loading {label}...</div>
+    }
     const isPdf = String(path).toLowerCase().endsWith('.pdf')
     return (
       <div className="space-y-2">
@@ -991,8 +1056,8 @@ function SpecialStatusDetailModal({
                 {(detail?.semester_start || 'N/A')} to {(detail?.semester_end || 'N/A')}
               </div>
             )}
-            {renderDoc('Student ID', detail?.student_id_path)}
-            {renderDoc('Certificate of Registration', detail?.cor_path)}
+            {renderDoc('Student ID', detail?.student_id_path, 'student_id')}
+            {renderDoc('Certificate of Registration', detail?.cor_path, 'cor')}
           </div>
         )}
         {detail?.status_type === 'pwd' && (
@@ -1000,12 +1065,12 @@ function SpecialStatusDetailModal({
             {detail?.disability_type && (
               <div className="text-sm"><span className="font-medium">Disability Type:</span> {detail?.disability_type}</div>
             )}
-            {renderDoc('PWD ID', detail?.pwd_id_path)}
+            {renderDoc('PWD ID', detail?.pwd_id_path, 'pwd_id')}
           </div>
         )}
         {detail?.status_type === 'senior' && (
           <div className="space-y-3">
-            {renderDoc('Senior Citizen ID', detail?.senior_id_path)}
+            {renderDoc('Senior Citizen ID', detail?.senior_id_path, 'senior_id')}
           </div>
         )}
       </div>

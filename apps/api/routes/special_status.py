@@ -7,11 +7,16 @@ Endpoints for managing special statuses (Student, PWD, Senior Citizen):
 
 SCOPE: Zambales province only
 """
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, send_file
 from apps.api.utils.time import utc_now
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime
+from io import BytesIO
+from pathlib import Path
+from urllib.parse import urlparse
+import mimetypes
 import os
+import requests
 
 from apps.api import db
 from apps.api.models.user import User
@@ -28,6 +33,7 @@ from apps.api.utils.special_status import (
 from apps.api.utils.constants import SPECIAL_STATUS_TYPES
 from apps.api.utils.zambales_scope import is_valid_zambales_municipality
 from apps.api.utils.admin_audit import log_admin_action
+from apps.api.utils.supabase_storage import get_signed_url
 
 special_status_bp = Blueprint('special_status', __name__, url_prefix='/api')
 
@@ -63,6 +69,66 @@ def _save_status_document(file, user_id: int, status_type: str, doc_name: str) -
 
     # Return relative path
     return os.path.relpath(filepath, upload_folder)
+
+
+def _remote_content_allowed(url: str) -> bool:
+    allowed = current_app.config.get('ALLOWED_FILE_DOMAINS') or []
+    if not allowed:
+        return True
+    parsed = urlparse(url)
+    return parsed.netloc in allowed
+
+
+def _stream_storage_file(file_ref: str, download_name: str = 'document') -> object:
+    """Stream a stored file by URL or local path."""
+    if not file_ref:
+        raise FileNotFoundError("Missing file reference")
+
+    normalized = str(file_ref).replace('\\', '/').lstrip('/')
+    if normalized.startswith(('http://', 'https://')):
+        if not _remote_content_allowed(normalized):
+            raise PermissionError("Untrusted file domain")
+        resp = requests.get(normalized, timeout=15)
+        resp.raise_for_status()
+        content_type = resp.headers.get('Content-Type') or mimetypes.guess_type(download_name)[0] or 'application/octet-stream'
+        return send_file(
+            BytesIO(resp.content),
+            mimetype=content_type,
+            as_attachment=False,
+            download_name=download_name,
+        )
+
+    upload_root = Path(current_app.config.get('UPLOAD_FOLDER') or 'uploads').resolve()
+    local_path = (upload_root / normalized).resolve()
+    if not str(local_path).startswith(str(upload_root)):
+        raise PermissionError("Invalid file path")
+
+    if local_path.exists():
+        content_type = mimetypes.guess_type(str(local_path))[0] or 'application/octet-stream'
+        return send_file(
+            str(local_path),
+            mimetype=content_type,
+            as_attachment=False,
+            download_name=download_name,
+        )
+
+    # Support DB values that store storage paths instead of absolute URLs.
+    try:
+        signed = get_signed_url(normalized, expires_in=300)
+        if signed and _remote_content_allowed(signed):
+            resp = requests.get(signed, timeout=15)
+            resp.raise_for_status()
+            content_type = resp.headers.get('Content-Type') or mimetypes.guess_type(download_name)[0] or 'application/octet-stream'
+            return send_file(
+                BytesIO(resp.content),
+                mimetype=content_type,
+                as_attachment=False,
+                download_name=download_name,
+            )
+    except Exception:
+        pass
+
+    raise FileNotFoundError("File not found")
 
 
 def _parse_semester_dates():
@@ -513,6 +579,77 @@ def get_status_detail(status_id):
     )
 
     return jsonify(data), 200
+
+
+@special_status_bp.route('/admin/special-statuses/<int:status_id>/documents/<string:doc_type>', methods=['GET'])
+@jwt_required()
+def get_status_document(status_id, doc_type):
+    """Stream an uploaded special-status document for admin review."""
+    ctx = _get_admin_context()
+    if not ctx:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    status = db.session.get(UserSpecialStatus, status_id)
+    if not status:
+        return jsonify({'error': 'Status not found'}), 404
+
+    # Verify jurisdiction
+    if ctx['role'] == 'barangay_admin' and status.user.barangay_id != ctx['barangay_id']:
+        return jsonify({'error': 'Access denied'}), 403
+    if ctx['role'] == 'municipal_admin' and status.user.municipality_id != ctx['municipality_id']:
+        return jsonify({'error': 'Access denied'}), 403
+
+    allowed_by_type = {
+        'student': {'student_id': 'student_id_path', 'cor': 'cor_path'},
+        'pwd': {'pwd_id': 'pwd_id_path'},
+        'senior': {'senior_id': 'senior_id_path'},
+    }
+    doc_field_map = allowed_by_type.get(status.status_type or '', {})
+    field = doc_field_map.get(doc_type)
+    if not field:
+        return jsonify({'error': 'Document not found'}), 404
+
+    source = getattr(status, field, None)
+    if not source:
+        return jsonify({'error': 'Document not uploaded'}), 404
+
+    try:
+        ext_source = str(source)
+        if ext_source.startswith(('http://', 'https://')):
+            ext_source = urlparse(ext_source).path
+        ext = os.path.splitext(ext_source)[1]
+        safe_ext = ext if ext and len(ext) <= 10 else ''
+        download_name = f"special-status-{status.id}-{doc_type}{safe_ext}"
+        file_response = _stream_storage_file(source, download_name=download_name)
+
+        log_admin_action(
+            admin_id=ctx['user_id'],
+            action='view_special_status_document',
+            resource_type='special_status',
+            resource_id=status_id,
+            details={'doc_type': doc_type, 'status_type': status.status_type, 'user_id': status.user_id}
+        )
+
+        return file_response
+    except FileNotFoundError:
+        return jsonify({'error': 'Document file not found'}), 404
+    except PermissionError:
+        return jsonify({'error': 'Access denied'}), 403
+    except requests.RequestException as e:
+        current_app.logger.error(
+            "Failed to fetch special status document from remote storage for status %s: %s",
+            status_id,
+            e,
+        )
+        return jsonify({'error': 'Failed to fetch document from storage'}), 502
+    except Exception as e:
+        current_app.logger.error(
+            "Failed to stream special status document %s for status %s: %s",
+            doc_type,
+            status_id,
+            e,
+        )
+        return jsonify({'error': 'Failed to load document'}), 500
 
 
 @special_status_bp.route('/admin/special-statuses/<int:status_id>/approve', methods=['POST'])

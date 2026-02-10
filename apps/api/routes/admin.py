@@ -180,6 +180,28 @@ def _remote_content_allowed(url: str) -> bool:
     return parsed.netloc in allowed
 
 
+def _request_fee_due(request_obj: DocumentRequest) -> float:
+    """Return fee due as float with a safe fallback."""
+    try:
+        return float(getattr(request_obj, 'final_fee', 0) or 0)
+    except Exception:
+        return 0.0
+
+
+def _is_request_payment_settled(request_obj: DocumentRequest) -> bool:
+    """Treat paid/waived and legacy paid markers as settled payment."""
+    payment_status = (getattr(request_obj, 'payment_status', None) or '').lower()
+    if payment_status in {'paid', 'waived'}:
+        return True
+    if getattr(request_obj, 'paid_at', None):
+        return True
+    if (getattr(request_obj, 'manual_payment_status', None) or '').lower() == 'approved':
+        return True
+    if (getattr(request_obj, 'office_payment_status', None) or '').lower() == 'verified':
+        return True
+    return False
+
+
 def _stream_storage_file(file_ref: str, download_name: str = 'document') -> object:
     """Stream a stored file by URL or local path."""
     if not file_ref:
@@ -2142,6 +2164,73 @@ def admin_list_benefit_applications():
         return jsonify({'error': 'Failed to get applications', 'details': str(e)}), 500
 
 
+@admin_bp.route('/benefits/applications/<int:application_id>/documents/<int:doc_index>', methods=['GET'])
+@jwt_required()
+def admin_download_benefit_application_document(application_id: int, doc_index: int):
+    """Stream one supporting document for a scoped benefit application."""
+    try:
+        scope, denial = _get_benefit_scope()
+        if denial:
+            return denial
+
+        app = db.session.get(BenefitApplication, application_id)
+        if not app:
+            return jsonify({'error': 'Application not found'}), 404
+
+        program = db.session.get(BenefitProgram, app.program_id)
+        if not program:
+            return jsonify({'error': 'Program not found'}), 404
+
+        if not _benefit_program_in_scope(program, scope):
+            return jsonify({'error': 'Application is outside your admin scope'}), 403
+
+        docs = app.supporting_documents or []
+        if isinstance(docs, str):
+            try:
+                parsed = json.loads(docs)
+                docs = parsed if isinstance(parsed, list) else []
+            except Exception:
+                docs = []
+        if not isinstance(docs, list):
+            docs = []
+
+        if doc_index < 0 or doc_index >= len(docs):
+            return jsonify({'error': 'Document not found'}), 404
+
+        entry = docs[doc_index]
+        source = entry.get('path') if isinstance(entry, dict) else entry
+        if not source:
+            return jsonify({'error': 'Document path missing'}), 404
+
+        ext_source = str(source)
+        if ext_source.startswith(('http://', 'https://')):
+            ext_source = urlparse(ext_source).path
+        ext = os.path.splitext(ext_source)[1]
+        safe_ext = ext if ext and len(ext) <= 10 else ''
+        filename = f"{app.application_number or app.id}-support-{doc_index + 1}{safe_ext}"
+        return _stream_storage_file(source, download_name=filename)
+    except FileNotFoundError:
+        return jsonify({'error': 'Document file not found'}), 404
+    except PermissionError:
+        return jsonify({'error': 'Access denied'}), 403
+    except requests.RequestException as e:
+        current_app.logger.error(
+            "Failed to fetch benefit document from remote storage for application %s index %s: %s",
+            application_id,
+            doc_index,
+            e,
+        )
+        return jsonify({'error': 'Failed to fetch document from storage'}), 502
+    except Exception as e:
+        current_app.logger.error(
+            "Failed to stream benefit document for application %s index %s: %s",
+            application_id,
+            doc_index,
+            e,
+        )
+        return jsonify({'error': 'Failed to download supporting document'}), 500
+
+
 @admin_bp.route('/benefits/programs/<int:program_id>/applications', methods=['GET'])
 @jwt_required()
 def admin_list_program_applicants(program_id: int):
@@ -3014,7 +3103,7 @@ def generate_document_request_pdf(request_id: int):
         if (req.delivery_method or '').lower() not in ('digital',):
             return jsonify({'error': 'PDF generation is only available for digital requests'}), 400
         # Require payment for paid digital requests
-        if float(getattr(req, 'final_fee', 0) or 0) > 0 and getattr(req, 'payment_status', None) != 'paid':
+        if _request_fee_due(req) > 0 and not _is_request_payment_settled(req):
             return jsonify({'error': 'Payment required before generating digital documents'}), 400
 
         user = db.session.get(User, req.user_id)
@@ -3074,6 +3163,10 @@ def generate_document_request_pdf(request_id: int):
         }), 200
     except Exception as e:
         db.session.rollback()
+        try:
+            current_app.logger.exception("Failed to generate PDF for request %s", request_id)
+        except Exception:
+            pass
         return jsonify({'error': 'Failed to generate PDF', 'details': str(e)}), 500
 
 
@@ -3114,6 +3207,77 @@ def download_document_request_pdf(request_id: int):
     except Exception as e:
         current_app.logger.error("Failed to download PDF for request %s: %s", request_id, e)
         return jsonify({'error': 'Failed to download PDF'}), 500
+
+
+@admin_bp.route('/documents/requests/<int:request_id>/supporting-documents/<int:doc_index>', methods=['GET'])
+@jwt_required()
+def download_document_request_supporting_document(request_id: int, doc_index: int):
+    """Return a supporting document file for a request by index."""
+    try:
+        if doc_index < 0:
+            return jsonify({'error': 'Invalid supporting document index'}), 400
+
+        ctx = _get_staff_context()
+        if not ctx:
+            return jsonify({'error': 'Admin access required'}), 403
+        municipality_id = require_admin_municipality()
+        if isinstance(municipality_id, tuple):
+            return municipality_id
+
+        req = db.session.get(DocumentRequest, request_id)
+        if not req:
+            return jsonify({'error': 'Request not found'}), 404
+        if municipality_id == 'ALL':
+            if req.municipality_id not in ZAMBALES_MUNICIPALITY_IDS:
+                return jsonify({'error': 'Request outside allowed municipality scope'}), 403
+        elif req.municipality_id != municipality_id:
+            return jsonify({'error': 'Request not in your municipality'}), 403
+        if ctx.get('role_lower') == 'barangay_admin':
+            if not ctx.get('barangay_id') or req.barangay_id != ctx['barangay_id']:
+                return jsonify({'error': 'Request not in your barangay'}), 403
+
+        docs = req.supporting_documents or []
+        if isinstance(docs, str):
+            try:
+                docs = json.loads(docs)
+            except Exception:
+                docs = []
+        if not isinstance(docs, list):
+            docs = []
+        if doc_index >= len(docs):
+            return jsonify({'error': 'Supporting document not found'}), 404
+
+        entry = docs[doc_index]
+        requirement = None
+        source = None
+        if isinstance(entry, dict):
+            source = entry.get('path') or entry.get('url') or entry.get('file')
+            requirement = entry.get('requirement')
+        elif isinstance(entry, str):
+            source = entry
+        if not source:
+            return jsonify({'error': 'Supporting document reference is invalid'}), 400
+
+        source = str(source).strip()
+        if not source:
+            return jsonify({'error': 'Supporting document reference is invalid'}), 400
+
+        raw_label = str(requirement or f"support_{doc_index + 1}").strip().lower()
+        safe_label = ''.join(ch if ch.isalnum() or ch in {'-', '_'} else '_' for ch in raw_label)
+        safe_label = safe_label.strip('_') or f"support_{doc_index + 1}"
+        ext = os.path.splitext(source.split('?', 1)[0])[1] or ''
+        filename = f"{req.request_number or req.id}-{safe_label}{ext}"
+
+        return _stream_storage_file(source, download_name=filename)
+    except PermissionError:
+        return jsonify({'error': 'File access denied'}), 403
+    except FileNotFoundError:
+        return jsonify({'error': 'File not found'}), 404
+    except requests.RequestException:
+        return jsonify({'error': 'Failed to fetch supporting document from storage'}), 502
+    except Exception as e:
+        current_app.logger.error("Failed to download supporting document for request %s index %s: %s", request_id, doc_index, e)
+        return jsonify({'error': 'Failed to download supporting document', 'details': str(e)}), 500
 
 
 @admin_bp.route('/documents/requests/<int:request_id>/regenerate-qr', methods=['POST'])
@@ -3387,9 +3551,9 @@ def update_document_request_status(request_id: int):
         if new_status == current:
             return jsonify({'message': 'Status unchanged', 'request': req.to_dict()}), 200
         # Gate fulfillment on payment when a fee is due.
-        fee_due = float(getattr(req, 'final_fee', 0) or 0)
+        fee_due = _request_fee_due(req)
         delivery_method = (req.delivery_method or '').lower()
-        if fee_due > 0 and getattr(req, 'payment_status', None) != 'paid':
+        if fee_due > 0 and not _is_request_payment_settled(req):
             if delivery_method == 'digital' and new_status in {'processing', 'ready', 'completed'}:
                 return jsonify({'error': 'Payment required before processing digital requests'}), 400
             if delivery_method in {'physical', 'pickup'} and new_status in {'ready', 'completed', 'picked_up'}:
@@ -3747,8 +3911,8 @@ def admin_ready_for_pickup(request_id: int):
         if (req.delivery_method or '').lower() not in ('physical', 'pickup'):
             return jsonify({'error': 'Only pickup requests can be marked ready-for-pickup'}), 400
 
-        fee_due = float(getattr(req, 'final_fee', 0) or 0)
-        if fee_due > 0 and getattr(req, 'payment_status', None) != 'paid':
+        fee_due = _request_fee_due(req)
+        if fee_due > 0 and not _is_request_payment_settled(req):
             return jsonify({'error': 'Payment must be verified before marking ready-for-pickup'}), 400
 
         # Only update status to ready
@@ -3968,8 +4132,8 @@ def admin_verify_claim():
         status = (req.status or '').lower()
         if status != 'ready':
             return jsonify({'ok': False, 'error': f'Request not ready (status={status})'}), 400
-        fee_due = float(getattr(req, 'final_fee', 0) or 0)
-        if fee_due > 0 and getattr(req, 'payment_status', None) != 'paid':
+        fee_due = _request_fee_due(req)
+        if fee_due > 0 and not _is_request_payment_settled(req):
             return jsonify({'ok': False, 'error': 'Payment not yet verified for this request'}), 400
 
         user = db.session.get(User, req.user_id)
@@ -4165,6 +4329,9 @@ def admin_reject_manual_payment(request_id: int):
 def update_document_request_content(request_id: int):
     """Update admin-edited content for a document request (purpose, remarks, civil_status)."""
     try:
+        ctx = _get_staff_context()
+        if not ctx:
+            return jsonify({'error': 'Admin access required'}), 403
         municipality_id = require_admin_municipality()
         if isinstance(municipality_id, tuple):
             return municipality_id
@@ -4172,8 +4339,14 @@ def update_document_request_content(request_id: int):
         req = db.session.get(DocumentRequest, request_id)
         if not req:
             return jsonify({'error': 'Request not found'}), 404
-        if req.municipality_id != municipality_id:
+        if municipality_id == 'ALL':
+            if req.municipality_id not in ZAMBALES_MUNICIPALITY_IDS:
+                return jsonify({'error': 'Request outside allowed municipality scope'}), 403
+        elif req.municipality_id != municipality_id:
             return jsonify({'error': 'Request not in your municipality'}), 403
+        if ctx.get('role_lower') == 'barangay_admin':
+            if not ctx.get('barangay_id') or req.barangay_id != ctx['barangay_id']:
+                return jsonify({'error': 'Request not in your barangay'}), 403
 
         payload = request.get_json(silent=True) or {}
         allowed_keys = {'purpose', 'remarks', 'civil_status', 'age'}

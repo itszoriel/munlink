@@ -9,6 +9,100 @@ import { useAdminStore } from '../lib/store'
 
 type Status = 'all' | 'pending' | 'barangay_processing' | 'barangay_approved' | 'barangay_rejected' | 'approved' | 'processing' | 'ready' | 'completed' | 'picked_up' | 'rejected'
 
+type SupportingDocumentEntry = {
+  path: string
+  requirement?: string
+}
+
+const normalizeSupportingDocuments = (value: any): SupportingDocumentEntry[] => {
+  let list: any = value
+  if (!list) return []
+  if (typeof list === 'string') {
+    try {
+      list = JSON.parse(list)
+    } catch {
+      return []
+    }
+  }
+  if (!Array.isArray(list)) return []
+  const normalized: SupportingDocumentEntry[] = []
+  for (const entry of list) {
+    if (typeof entry === 'string') {
+      const path = entry.trim()
+      if (path) normalized.push({ path })
+      continue
+    }
+    if (entry && typeof entry === 'object') {
+      const path = String(entry.path || entry.url || entry.file || '').trim()
+      if (!path) continue
+      const requirement = entry.requirement ? String(entry.requirement) : undefined
+      normalized.push({ path, requirement })
+    }
+  }
+  return normalized
+}
+
+const getPaymentMeta = (request: any) => {
+  const feeDue = Number(request.final_fee ?? request.original_fee ?? 0)
+  const paymentStatus = String(request.payment_status || '').toLowerCase()
+  const manualStatus = String(request.manual_payment_status || '').toLowerCase()
+  const officeStatus = String(request.office_payment_status || '').toLowerCase()
+  const settledByBackend = Boolean(request.is_payment_settled)
+  const isPaid = settledByBackend || paymentStatus === 'paid' || !!request.paid_at || manualStatus === 'approved' || officeStatus === 'verified'
+  const waived = paymentStatus === 'waived' || feeDue <= 0
+  if (waived) {
+    return {
+      label: 'No Payment Required',
+      badgeClass: 'bg-slate-100 text-slate-700',
+      settled: true,
+      required: false,
+    }
+  }
+  if (isPaid) {
+    return {
+      label: 'Paid',
+      badgeClass: 'bg-emerald-100 text-emerald-700',
+      settled: true,
+      required: true,
+    }
+  }
+  if (manualStatus === 'submitted') {
+    return {
+      label: 'Proof Under Review',
+      badgeClass: 'bg-amber-100 text-amber-700',
+      settled: false,
+      required: true,
+    }
+  }
+  if (officeStatus === 'code_sent') {
+    return {
+      label: 'Awaiting Office Verification',
+      badgeClass: 'bg-amber-100 text-amber-700',
+      settled: false,
+      required: true,
+    }
+  }
+  return {
+    label: 'Unpaid',
+    badgeClass: 'bg-rose-100 text-rose-700',
+    settled: false,
+    required: true,
+  }
+}
+
+const buildFormalRemarks = (draft: { purpose?: string; civil_status?: string; age?: string; resident?: string; document?: string }) => {
+  const resident = String(draft.resident || 'the resident').trim()
+  const document = String(draft.document || 'the requested document').trim()
+  const purpose = String(draft.purpose || 'official transactions').trim().toLowerCase()
+  const civil = String(draft.civil_status || '').trim().toLowerCase()
+  const ageNum = Number(draft.age)
+  const profileBits: string[] = []
+  if (Number.isFinite(ageNum) && ageNum > 0) profileBits.push(`${ageNum} years old`)
+  if (civil) profileBits.push(civil)
+  const profileClause = profileBits.length > 0 ? `, ${profileBits.join(', ')},` : ''
+  return `Upon review of the submitted records, this office certifies that ${resident}${profileClause} has requested a ${document} for ${purpose}. This statement is issued upon the applicant's request for lawful and official use, subject to validation against municipal records.`
+}
+
 export default function Requests() {
   const navigate = useNavigate()
   const user = useAdminStore((s) => s.user)
@@ -76,6 +170,10 @@ export default function Requests() {
         manual_review_notes: r.manual_review_notes,
         manual_payment_proof_path: r.manual_payment_proof_path,
         office_payment_status: r.office_payment_status,
+        paid_at: r.paid_at,
+        is_payment_settled: Boolean((r as any).is_payment_settled),
+        payment_required: Boolean((r as any).payment_required),
+        supporting_documents: (r as any).supporting_documents,
       }
     })
   }, [requestsData])
@@ -106,8 +204,18 @@ export default function Requests() {
   const [rejectStatus, setRejectStatus] = useState<'rejected' | 'barangay_rejected'>('rejected')
   const [paymentRejectForId, setPaymentRejectForId] = useState<number | null>(null)
   const [paymentRejectNotes, setPaymentRejectNotes] = useState<string>('')
-  const [editFor, setEditFor] = useState<null | { id: number; purpose: string; remarks: string; civil_status: string; age?: string }>(null)
+  const [editFor, setEditFor] = useState<null | {
+    id: number
+    purpose: string
+    remarks: string
+    civil_status: string
+    age?: string
+    resident?: string
+    document?: string
+    requestNumber?: string
+  }>(null)
   const [savingEditAction, setSavingEditAction] = useState<'save' | 'save-generate' | null>(null)
+  const [reviewFor, setReviewFor] = useState<any | null>(null)
   const [historyFor, setHistoryFor] = useState<number | null>(null)
   const [historyRows, setHistoryRows] = useState<any[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
@@ -184,6 +292,18 @@ export default function Requests() {
     try {
       setActionLoading(actionKey('view-proof', row.request_id))
       const res: any = await documentsAdminApi.getManualPaymentProofBlob(row.request_id)
+      if (res?.data) openBlobInNewTab(res.data as Blob)
+    } catch (e: any) {
+      showToast(handleApiError(e), 'error')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleViewSupportingDocument = async (row: any, index: number) => {
+    try {
+      setActionLoading(actionKey(`view-support-${index}`, row.request_id))
+      const res: any = await documentsAdminApi.downloadSupportingDocumentBlob(row.request_id, index)
       if (res?.data) openBlobInNewTab(res.data as Blob)
     } catch (e: any) {
       showToast(handleApiError(e), 'error')
@@ -472,12 +592,15 @@ export default function Requests() {
           )}
           {!loading && visibleRows.map((request) => {
             const feeDue = Number(request.final_fee ?? request.original_fee ?? 0)
+            const paymentMeta = getPaymentMeta(request)
+            const paymentSettled = paymentMeta.settled
+            const paymentRequired = paymentMeta.required
             const manualNeedsReview = request.payment_method === 'manual_qr'
               && request.manual_payment_status === 'submitted'
               && request.payment_status === 'pending'
             const officeNeedsVerification = request.delivery_method === 'pickup'
               && feeDue > 0
-              && request.payment_status !== 'paid'
+              && !paymentSettled
               && request.office_payment_status !== 'verified'
             return (
               <div key={request.id} id={`req-${request.request_id}`} className="px-6 py-5 hover:bg-ocean-50/30 transition-colors group">
@@ -501,6 +624,9 @@ export default function Requests() {
                             </>
                           )}
                         </span>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${paymentMeta.badgeClass}`}>
+                          {paymentMeta.label}
+                        </span>
                       </div>
                     </div>
                     <div className="sm:col-span-2 min-w-0">
@@ -517,7 +643,7 @@ export default function Requests() {
                           {request.applied_exemption
                             ? `Exempted: ${String(request.applied_exemption).toUpperCase()}`
                             : `Fee: PHP ${Number(request.final_fee ?? request.original_fee ?? 0).toFixed(2)}`}
-                          {request.payment_status ? ` | Payment: ${request.payment_status}` : ''}
+                          {` | Payment: ${paymentMeta.label}`}
                           {request.payment_method === 'manual_qr' && request.manual_payment_status ? ` | Manual: ${request.manual_payment_status}` : ''}
                           {request.delivery_method === 'pickup' && request.office_payment_status ? ` | Office: ${request.office_payment_status}` : ''}
                         </p>
@@ -616,6 +742,7 @@ export default function Requests() {
                             >More</button>
                             {moreForId===request.request_id && (
                               <div className="absolute right-0 top-full mt-2 z-10 bg-white border border-neutral-200 rounded-lg shadow-md w-44 py-1">
+                                <button className="block w-full text-left px-3 py-2 text-xs hover:bg-neutral-50" onClick={()=> { setReviewFor(request); setMoreForId(null) }}>Review Request</button>
                                 <button className="block w-full text-left px-3 py-2 text-xs hover:bg-neutral-50" onClick={async ()=> {
                                   try {
                                     setLoadingHistory(true); setHistoryFor(request.request_id); setMoreForId(null)
@@ -647,7 +774,7 @@ export default function Requests() {
                           const isPickup = request.delivery_method === 'pickup'
                           const pickupPaymentPending = isPickup
                             && Number(request.final_fee ?? request.original_fee ?? 0) > 0
-                            && request.payment_status !== 'paid'
+                            && !paymentSettled
                           const hasToken = !!request.has_claim_token
                           const isBarangayProcessing = request.status === 'barangay_processing'
                           const isBarangayApproved = request.status === 'barangay_approved'
@@ -721,6 +848,9 @@ export default function Requests() {
                           }
 
                           if (isApproved) {
+                            if (!isPickup && paymentRequired && !paymentSettled) {
+                              return <span className="text-xs text-amber-700">Awaiting resident payment before processing</span>
+                            }
                             return (
                               <button
                                 onClick={() => handleStartProcessing(request)}
@@ -752,6 +882,9 @@ export default function Requests() {
                                 >{isActionLoading('mark-ready', request.request_id) ? 'Updating...' : 'Mark Ready for Pickup'}</button>
                               )
                             }
+                            if (paymentRequired && !paymentSettled) {
+                              return <span className="text-xs text-amber-700">Payment pending before PDF generation</span>
+                            }
                             if (!hasPdf) {
                               return (
                                 <button
@@ -764,7 +897,16 @@ export default function Requests() {
                                     else if (resident && resident.remarks) remarks = resident.remarks
                                     else if (typeof legacyNotes === 'string') remarks = legacyNotes
                                     const ageVal = (edited?.age ?? resident?.age)
-                                    setEditFor({ id: request.request_id, purpose: (edited?.purpose || request.purpose || ''), remarks: remarks || '', civil_status: (edited?.civil_status || request.civil_status || ''), age: (ageVal !== undefined && ageVal !== null) ? String(ageVal) : '' })
+                                    setEditFor({
+                                      id: request.request_id,
+                                      purpose: (edited?.purpose || request.purpose || ''),
+                                      remarks: remarks || '',
+                                      civil_status: (edited?.civil_status || request.civil_status || ''),
+                                      age: (ageVal !== undefined && ageVal !== null) ? String(ageVal) : '',
+                                      resident: request.resident,
+                                      document: request.document,
+                                      requestNumber: request.id,
+                                    })
                                   }}
                                   className="w-full sm:w-auto px-3 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 rounded-lg text-xs sm:text-sm font-medium transition-colors"
                                 >Edit / Generate PDF</button>
@@ -856,6 +998,104 @@ export default function Requests() {
           </div>
         </div>
       )}
+      {/* Review Request Modal */}
+      {reviewFor && (
+        <div className="fixed inset-0 z-[60] flex items-start md:items-center justify-center pt-20 md:pt-0 overflow-y-auto" role="dialog" aria-modal="true" onKeyDown={(e) => { if (e.key === 'Escape') setReviewFor(null) }}>
+          <div className="absolute inset-0 bg-black/40" onClick={() => setReviewFor(null)} />
+          <div className="relative bg-white w-[92%] max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl shadow-xl border p-5 my-auto" tabIndex={-1} autoFocus>
+            <h3 className="text-lg font-semibold mb-2">Request Review</h3>
+            {(() => {
+              let residentInput: any = reviewFor.resident_input || {}
+              let editedInput: any = reviewFor.admin_edited_content || {}
+              if (typeof residentInput === 'string') {
+                try { residentInput = JSON.parse(residentInput) } catch { residentInput = {} }
+              }
+              if (typeof editedInput === 'string') {
+                try { editedInput = JSON.parse(editedInput) } catch { editedInput = {} }
+              }
+              const paymentMeta = getPaymentMeta(reviewFor)
+              const docs = normalizeSupportingDocuments(reviewFor.supporting_documents)
+              const residentRemarks = residentInput?.remarks || (typeof reviewFor.additional_notes === 'string' ? reviewFor.additional_notes : '')
+              const residentPurpose = residentInput?.purpose || reviewFor.purpose || '-'
+              const residentCivil = residentInput?.civil_status || reviewFor.civil_status || '-'
+              const residentAge = residentInput?.age ?? '-'
+              const editedPurpose = editedInput?.purpose || '-'
+              const editedRemarks = editedInput?.remarks || '-'
+              const editedCivil = editedInput?.civil_status || '-'
+              const editedAge = editedInput?.age ?? '-'
+              return (
+                <div className="space-y-3 text-sm">
+                  <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div><span className="font-medium">Request:</span> {reviewFor.id}</div>
+                    <div><span className="font-medium">Document:</span> {reviewFor.document}</div>
+                    <div><span className="font-medium">Resident:</span> {reviewFor.resident}</div>
+                    <div><span className="font-medium">Submitted:</span> {reviewFor.submitted || '-'}</div>
+                    <div><span className="font-medium">Status:</span> {String(reviewFor.status || '').replace('_', ' ') || '-'}</div>
+                    <div><span className="font-medium">Delivery:</span> {reviewFor.delivery_method}</div>
+                  </div>
+
+                  <div className="rounded-lg border border-neutral-200 p-3">
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="font-medium">Payment Review</div>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${paymentMeta.badgeClass}`}>{paymentMeta.label}</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-neutral-700">
+                      <div><span className="font-medium">Fee:</span> PHP {Number(reviewFor.final_fee ?? reviewFor.original_fee ?? 0).toFixed(2)}</div>
+                      <div><span className="font-medium">Method:</span> {reviewFor.payment_method || '-'}</div>
+                      <div><span className="font-medium">Manual:</span> {reviewFor.manual_payment_status || '-'}</div>
+                      <div><span className="font-medium">Office:</span> {reviewFor.office_payment_status || '-'}</div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-neutral-200 p-3">
+                    <div className="font-medium mb-2">Resident Submitted Content</div>
+                    <div><span className="font-medium">Purpose:</span> {residentPurpose}</div>
+                    <div><span className="font-medium">Civil Status:</span> {residentCivil}</div>
+                    <div><span className="font-medium">Age:</span> {String(residentAge)}</div>
+                    <div className="mt-1 whitespace-pre-wrap"><span className="font-medium">Remarks:</span> {residentRemarks || '-'}</div>
+                  </div>
+
+                  <div className="rounded-lg border border-neutral-200 p-3">
+                    <div className="font-medium mb-2">Admin Edited Content</div>
+                    <div><span className="font-medium">Purpose:</span> {editedPurpose}</div>
+                    <div><span className="font-medium">Civil Status:</span> {editedCivil}</div>
+                    <div><span className="font-medium">Age:</span> {String(editedAge)}</div>
+                    <div className="mt-1 whitespace-pre-wrap"><span className="font-medium">Remarks:</span> {editedRemarks}</div>
+                  </div>
+
+                  <div className="rounded-lg border border-neutral-200 p-3">
+                    <div className="font-medium mb-2">Supporting Documents</div>
+                    {docs.length === 0 ? (
+                      <div className="text-neutral-600">No supporting documents uploaded.</div>
+                    ) : (
+                      <div className="space-y-2">
+                        {docs.map((doc, index) => (
+                          <div key={`${reviewFor.request_id}-doc-${index}`} className="flex flex-wrap items-center justify-between gap-2 rounded border border-neutral-200 px-2 py-1.5">
+                            <div className="text-xs text-neutral-700">
+                              <span className="font-medium">#{index + 1}</span>
+                              {doc.requirement ? ` - ${doc.requirement}` : ''}
+                            </div>
+                            <button
+                              className="text-xs px-2 py-1 rounded border border-neutral-300 hover:bg-neutral-50"
+                              onClick={() => handleViewSupportingDocument(reviewFor, index)}
+                              disabled={isActionLoading(`view-support-${index}`, reviewFor.request_id)}
+                            >
+                              {isActionLoading(`view-support-${index}`, reviewFor.request_id) ? 'Opening...' : 'Open File'}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })()}
+            <div className="mt-4 flex items-center justify-end">
+              <button className="px-4 py-2 rounded-lg bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-sm" onClick={() => setReviewFor(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Edit Content Modal */}
       {editFor && (
         <div className="fixed inset-0 z-[60] flex items-start md:items-center justify-center pt-20 md:pt-0 overflow-y-auto" role="dialog" aria-modal="true" onKeyDown={(e) => { if (e.key === 'Escape') setEditFor(null) }}>
@@ -863,12 +1103,28 @@ export default function Requests() {
           <div className="relative bg-white w-[92%] max-w-lg max-h-[90vh] overflow-y-auto rounded-xl shadow-xl border p-5 pb-24 sm:pb-5 my-auto" tabIndex={-1} autoFocus>
             <h3 className="text-lg font-semibold mb-2">Edit Request Content</h3>
             <div className="space-y-3">
+              {(editFor.requestNumber || editFor.resident || editFor.document) && (
+                <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-xs text-neutral-700">
+                  {editFor.requestNumber && <div><span className="font-medium">Request:</span> {editFor.requestNumber}</div>}
+                  {editFor.resident && <div><span className="font-medium">Resident:</span> {editFor.resident}</div>}
+                  {editFor.document && <div><span className="font-medium">Document:</span> {editFor.document}</div>}
+                </div>
+              )}
               <div>
                 <label htmlFor="edit-purpose" className="block text-sm font-medium mb-1">Purpose</label>
                 <input id="edit-purpose" name="edit_purpose" className="w-full border border-neutral-300 rounded-md p-2 text-sm" value={editFor.purpose} onChange={(e)=> setEditFor({ ...editFor, purpose: e.target.value })} />
               </div>
               <div>
-                <label htmlFor="edit-remarks" className="block text-sm font-medium mb-1">Remarks or Additional Information</label>
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <label htmlFor="edit-remarks" className="block text-sm font-medium">Remarks or Additional Information</label>
+                  <button
+                    type="button"
+                    className="text-xs px-2 py-1 rounded border border-ocean-300 text-ocean-700 hover:bg-ocean-50"
+                    onClick={() => setEditFor({ ...editFor, remarks: buildFormalRemarks(editFor) })}
+                  >
+                    Auto-Generate Formal Remarks
+                  </button>
+                </div>
                 <textarea id="edit-remarks" name="edit_remarks" className="w-full border border-neutral-300 rounded-md p-2 text-sm" rows={4} value={editFor.remarks} onChange={(e)=> setEditFor({ ...editFor, remarks: e.target.value })} placeholder="Provide extra context or clarifications" />
               </div>
               <div>

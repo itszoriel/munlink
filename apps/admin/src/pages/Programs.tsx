@@ -242,8 +242,58 @@ export default function Programs() {
     return Math.max(0, requiredDocs.length - supportingDocs.length)
   }
 
+  const getApplicationDataEntries = (app: any): Array<[string, string]> => {
+    const raw = app?.application_data
+    if (!raw) return []
+    let data: any = raw
+    if (typeof data === 'string') {
+      try {
+        data = JSON.parse(data)
+      } catch {
+        return []
+      }
+    }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return []
+    return Object.entries(data)
+      .map(([key, value]) => [String(key), value === null || value === undefined ? '-' : String(value)] as [string, string])
+      .filter(([key]) => key.trim().length > 0)
+  }
+
+  const openApplicationDocument = async (applicationId: number, docIndex: number, fallbackPath?: string) => {
+    try {
+      const res: any = await benefitsAdminApi.downloadApplicationDocumentBlob(applicationId, docIndex)
+      const blob = res?.data
+      const contentType = String(res?.headers?.['content-type'] || '')
+      if (!(blob instanceof Blob) || contentType.includes('application/json')) {
+        throw new Error('Unable to open document')
+      }
+
+      const objectUrl = URL.createObjectURL(blob)
+      window.open(objectUrl, '_blank', 'noopener,noreferrer')
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
+    } catch (e: any) {
+      if (fallbackPath) {
+        const fallbackUrl = mediaUrl(fallbackPath)
+        if (fallbackUrl) {
+          window.open(fallbackUrl, '_blank', 'noopener,noreferrer')
+          return
+        }
+      }
+      showToast(handleApiError(e), 'error')
+    }
+  }
+
+  const prettifyFieldLabel = (key: string): string => {
+    return key
+      .replace(/_/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b\w/g, (m) => m.toUpperCase())
+  }
+
   const reviewRequiredDocs = reviewApplication ? getRequiredDocuments(reviewApplication) : []
   const reviewSupportingDocs = reviewApplication ? getSupportingDocuments(reviewApplication) : []
+  const reviewApplicationData = reviewApplication ? getApplicationDataEntries(reviewApplication) : []
   const reviewMissingCount = Math.max(0, reviewRequiredDocs.length - reviewSupportingDocs.length)
   const applicationsWithMissingDocsCount = useMemo(
     () => applications.filter((app: any) => getMissingRequiredCount(app) > 0).length,
@@ -415,6 +465,25 @@ export default function Programs() {
               <span className={`px-3 py-1 rounded-full text-xs font-medium ${app.status==='approved'?'bg-emerald-100 text-emerald-700':app.status==='rejected'?'bg-rose-100 text-rose-700':app.status==='under_review'?'bg-yellow-100 text-yellow-700':'bg-neutral-100 text-neutral-700'}`}>{app.status}</span>
             </div>
             <div className="mt-3 rounded-xl border border-neutral-200 bg-white p-3">
+              {(() => {
+                const applicationDataEntries = getApplicationDataEntries(app)
+                if (applicationDataEntries.length === 0) return null
+                return (
+                  <div className="mb-3 rounded-lg border border-neutral-200 bg-neutral-50 p-2">
+                    <div className="text-xs font-semibold text-neutral-700 mb-1">Applicant Responses</div>
+                    <div className="space-y-1">
+                      {applicationDataEntries.slice(0, 3).map(([key, value]) => (
+                        <div key={`${app.id}-${key}`} className="text-xs text-neutral-700">
+                          <span className="font-medium">{prettifyFieldLabel(key)}:</span> {value}
+                        </div>
+                      ))}
+                      {applicationDataEntries.length > 3 && (
+                        <div className="text-[11px] text-neutral-500">+{applicationDataEntries.length - 3} more fields in Review Documents</div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })()}
               <div className="flex flex-wrap items-center gap-4 text-xs sm:text-sm">
                 <span className="text-neutral-700"><span className="font-semibold">Required:</span> {requiredDocs.length}</span>
                 <span className="text-neutral-700"><span className="font-semibold">Uploaded:</span> {supportingDocs.length}</span>
@@ -427,15 +496,14 @@ export default function Programs() {
               {supportingDocs.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-2">
                   {supportingDocs.slice(0, 3).map((path: string, idx: number) => (
-                    <a
+                    <button
                       key={`${app.id}-doc-${idx}`}
-                      href={mediaUrl(path)}
-                      target="_blank"
-                      rel="noreferrer"
+                      type="button"
+                      onClick={() => void openApplicationDocument(app.id, idx, path)}
                       className="text-xs underline text-ocean-700 hover:text-ocean-800"
                     >
                       View Document {idx + 1}
-                    </a>
+                    </button>
                   ))}
                   {supportingDocs.length > 3 && (
                     <span className="text-xs text-neutral-500">+{supportingDocs.length - 3} more</span>
@@ -690,6 +758,21 @@ export default function Programs() {
                 <div><span className="font-medium">Status:</span> {(reviewApplication.status || 'pending').replace('_', ' ')}</div>
               </div>
 
+              {reviewApplicationData.length > 0 ? (
+                <div className="p-3 border rounded-xl">
+                  <div className="text-sm font-semibold mb-2">Applicant Responses</div>
+                  <div className="space-y-1.5">
+                    {reviewApplicationData.map(([key, value]) => (
+                      <div key={`review-field-${key}`} className="text-sm text-neutral-800">
+                        <span className="font-medium">{prettifyFieldLabel(key)}:</span> {value}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 border rounded-xl text-sm text-neutral-600">No additional applicant responses were submitted.</div>
+              )}
+
               {reviewRequiredDocs.length > 0 ? (
                 <div className="p-3 border rounded-xl">
                   <div className="text-sm font-semibold mb-2">Required Documents Checklist</div>
@@ -706,14 +789,13 @@ export default function Programs() {
                             <span className="ml-2">{requiredDoc}</span>
                           </div>
                           {uploaded && (
-                            <a
-                              href={mediaUrl(path)}
-                              target="_blank"
-                              rel="noreferrer"
+                            <button
+                              type="button"
+                              onClick={() => void openApplicationDocument(reviewApplication.id, index, path)}
                               className="text-xs underline text-ocean-700 whitespace-nowrap"
                             >
                               Open File
-                            </a>
+                            </button>
                           )}
                         </div>
                       )
@@ -736,17 +818,27 @@ export default function Programs() {
                   <div className="text-sm font-semibold mb-2">Additional Uploaded Files</div>
                   <div className="flex flex-wrap gap-2">
                     {reviewSupportingDocs.slice(reviewRequiredDocs.length).map((path: string, idx: number) => (
-                      <a
+                      <button
                         key={`extra-${idx}`}
-                        href={mediaUrl(path)}
-                        target="_blank"
-                        rel="noreferrer"
+                        type="button"
+                        onClick={() => void openApplicationDocument(reviewApplication.id, reviewRequiredDocs.length + idx, path)}
                         className="text-xs underline text-ocean-700"
                       >
                         Additional File {idx + 1}
-                      </a>
+                      </button>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {(reviewApplication.admin_notes || reviewApplication.rejection_reason) && (
+                <div className="p-3 border rounded-xl bg-neutral-50">
+                  {reviewApplication.admin_notes && (
+                    <div className="text-sm text-neutral-800"><span className="font-medium">Admin Notes:</span> {reviewApplication.admin_notes}</div>
+                  )}
+                  {reviewApplication.rejection_reason && (
+                    <div className="text-sm text-rose-700 mt-1"><span className="font-medium">Rejection Reason:</span> {reviewApplication.rejection_reason}</div>
+                  )}
                 </div>
               )}
             </div>

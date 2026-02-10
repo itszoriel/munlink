@@ -3,7 +3,12 @@
 SCOPE: Zambales province only, excluding Olongapo City.
 """
 import json
-from flask import Blueprint, jsonify, request
+from io import BytesIO
+from pathlib import Path
+from urllib.parse import urlparse
+import mimetypes
+import requests
+from flask import Blueprint, jsonify, request, current_app, send_file
 from apps.api.utils.time import utc_now, utc_today
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime, timedelta
@@ -19,6 +24,7 @@ from apps.api.utils import (
     fully_verified_required,
     save_benefit_document,
 )
+from apps.api.utils.supabase_storage import get_signed_url
 from apps.api.utils.zambales_scope import (
     ZAMBALES_MUNICIPALITY_IDS,
     is_valid_zambales_municipality,
@@ -46,6 +52,65 @@ def _as_list(value):
             pass
         return [raw]
     return []
+
+
+def _remote_content_allowed(url: str) -> bool:
+    allowed = current_app.config.get('ALLOWED_FILE_DOMAINS') or []
+    if not allowed:
+        return True
+    parsed = urlparse(url)
+    return parsed.netloc in allowed
+
+
+def _stream_storage_file(file_ref: str, download_name: str = 'document') -> object:
+    """Stream a stored file by URL or local path."""
+    if not file_ref:
+        raise FileNotFoundError("Missing file reference")
+
+    normalized = str(file_ref).replace('\\', '/').lstrip('/')
+    if normalized.startswith(('http://', 'https://')):
+        if not _remote_content_allowed(normalized):
+            raise PermissionError("Untrusted file domain")
+        resp = requests.get(normalized, timeout=15)
+        resp.raise_for_status()
+        content_type = resp.headers.get('Content-Type') or mimetypes.guess_type(download_name)[0] or 'application/octet-stream'
+        return send_file(
+            BytesIO(resp.content),
+            mimetype=content_type,
+            as_attachment=False,
+            download_name=download_name,
+        )
+
+    upload_root = Path(current_app.config.get('UPLOAD_FOLDER') or 'uploads').resolve()
+    local_path = (upload_root / normalized).resolve()
+    if not str(local_path).startswith(str(upload_root)):
+        raise PermissionError("Invalid file path")
+
+    if local_path.exists():
+        content_type = mimetypes.guess_type(str(local_path))[0] or 'application/octet-stream'
+        return send_file(
+            str(local_path),
+            mimetype=content_type,
+            as_attachment=False,
+            download_name=download_name,
+        )
+
+    try:
+        signed = get_signed_url(normalized, expires_in=300)
+        if signed and _remote_content_allowed(signed):
+            resp = requests.get(signed, timeout=15)
+            resp.raise_for_status()
+            content_type = resp.headers.get('Content-Type') or mimetypes.guess_type(download_name)[0] or 'application/octet-stream'
+            return send_file(
+                BytesIO(resp.content),
+                mimetype=content_type,
+                as_attachment=False,
+                download_name=download_name,
+            )
+    except Exception:
+        pass
+
+    raise FileNotFoundError("File not found")
 
 
 @benefits_bp.route('/programs', methods=['GET'])
@@ -356,6 +421,69 @@ def upload_application_doc(application_id: int):
         return jsonify({'error': 'Failed to upload file', 'details': str(e)}), 500
 
 
+@benefits_bp.route('/applications/<int:application_id>/documents/<int:doc_index>', methods=['GET'])
+@jwt_required()
+def download_application_doc(application_id: int, doc_index: int):
+    """Download one supporting document for the authenticated resident."""
+    try:
+        try:
+            user_id = int(get_jwt_identity())
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Authentication required'}), 401
+
+        app = db.session.get(BenefitApplication, application_id)
+        if not app:
+            return jsonify({'error': 'Application not found'}), 404
+        if app.user_id != user_id:
+            return jsonify({'error': 'Forbidden'}), 403
+
+        docs = app.supporting_documents or []
+        if isinstance(docs, str):
+            try:
+                parsed = json.loads(docs)
+                docs = parsed if isinstance(parsed, list) else []
+            except Exception:
+                docs = []
+        if not isinstance(docs, list):
+            docs = []
+
+        if doc_index < 0 or doc_index >= len(docs):
+            return jsonify({'error': 'Document not found'}), 404
+
+        entry = docs[doc_index]
+        source = entry.get('path') if isinstance(entry, dict) else entry
+        if not source:
+            return jsonify({'error': 'Document path missing'}), 404
+
+        ext_source = str(source)
+        if ext_source.startswith(('http://', 'https://')):
+            ext_source = urlparse(ext_source).path
+        ext = os.path.splitext(ext_source)[1]
+        safe_ext = ext if ext and len(ext) <= 10 else ''
+        filename = f"{app.application_number or app.id}-support-{doc_index + 1}{safe_ext}"
+        return _stream_storage_file(source, download_name=filename)
+    except FileNotFoundError:
+        return jsonify({'error': 'Document file not found'}), 404
+    except PermissionError:
+        return jsonify({'error': 'Access denied'}), 403
+    except requests.RequestException as e:
+        current_app.logger.error(
+            "Failed to fetch benefit document from remote storage for application %s index %s: %s",
+            application_id,
+            doc_index,
+            e,
+        )
+        return jsonify({'error': 'Failed to fetch document from storage'}), 502
+    except Exception as e:
+        current_app.logger.error(
+            "Failed to stream benefit document for application %s index %s: %s",
+            application_id,
+            doc_index,
+            e,
+        )
+        return jsonify({'error': 'Failed to download document'}), 500
+
+
 @benefits_bp.route('/applications/<int:application_id>/resubmit', methods=['POST'])
 @jwt_required()
 @fully_verified_required
@@ -406,4 +534,3 @@ def resubmit_application(application_id: int):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': 'Failed to resubmit application', 'details': str(e)}), 500
-

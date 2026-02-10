@@ -197,6 +197,16 @@ def _simple_template(text: str, ctx: Dict[str, str]) -> str:
     return out
 
 
+def _safe_text(value: object) -> str:
+    """Return PDF-safe text for built-in ReportLab fonts."""
+    text = str(value or "")
+    try:
+        text.encode("latin-1")
+        return text
+    except Exception:
+        return text.encode("latin-1", "replace").decode("latin-1")
+
+
 def _draw_border(c: canvas.Canvas, margin_mm: float = 12.0):
     width, height = A4
     m = margin_mm * mm
@@ -241,20 +251,20 @@ def _draw_header(
 
     # Right/top: header text
     _set_font(c, "Times-Bold", 12)
-    c.drawRightString(width - 20 * mm, top_y, "Republic of the Philippines")
+    c.drawRightString(width - 20 * mm, top_y, _safe_text("Republic of the Philippines"))
     _set_font(c, "Times-Roman", 11)
-    c.drawRightString(width - 20 * mm, top_y - 6 * mm, f"Province of {province_name}")
+    c.drawRightString(width - 20 * mm, top_y - 6 * mm, _safe_text(f"Province of {province_name}"))
     _set_font(c, "Times-Bold", 12)
-    c.drawRightString(width - 20 * mm, top_y - 12 * mm, f"Municipality of {municipality_name}")
+    c.drawRightString(width - 20 * mm, top_y - 12 * mm, _safe_text(f"Municipality of {municipality_name}"))
     if level == 'barangay':
         # Barangay-specific header line
         _set_font(c, "Times-Bold", 11)
-        c.drawRightString(width - 20 * mm, top_y - 18 * mm, f"Barangay {barangay_name or 'Hall'}")
+        c.drawRightString(width - 20 * mm, top_y - 18 * mm, _safe_text(f"Barangay {barangay_name or 'Hall'}"))
         _set_font(c, "Times-Roman", 11)
-        c.drawRightString(width - 20 * mm, top_y - 24 * mm, "Office of the Punong Barangay")
+        c.drawRightString(width - 20 * mm, top_y - 24 * mm, _safe_text("Office of the Punong Barangay"))
     else:
         _set_font(c, "Times-Roman", 11)
-        c.drawRightString(width - 20 * mm, top_y - 18 * mm, "Office of the Municipal Mayor")
+        c.drawRightString(width - 20 * mm, top_y - 18 * mm, _safe_text("Office of the Municipal Mayor"))
 
 
 def _draw_educational_watermark(c: canvas.Canvas, opacity: float = 0.4):
@@ -372,12 +382,6 @@ def generate_document_pdf(request, document_type, user, admin_user: Optional[obj
     province_name = getattr(province_obj, 'name', '') or 'Central Luzon'
     province_slug = getattr(province_obj, 'slug', None)
     municipality_slug = _slugify(municipality_name)
-
-    upload_base = Path(current_app.config.get('UPLOAD_FOLDER'))
-    out_dir = upload_base / 'generated_docs' / municipality_slug
-    _ensure_dir(out_dir)
-
-    pdf_path = out_dir / f"{request.id}.pdf"
 
     # Resolve logos
     mun_logo, prov_logo = _resolve_logo_paths(municipality_name, province_slug=province_slug)
@@ -512,7 +516,8 @@ def generate_document_pdf(request, document_type, user, admin_user: Optional[obj
     signatory = (spec.get('signatory') or {})
 
     # Render
-    c = canvas.Canvas(str(pdf_path), pagesize=A4)
+    pdf_buffer = BytesIO()
+    c = canvas.Canvas(pdf_buffer, pagesize=A4)
 
     # Border and watermark
     _draw_border(c)
@@ -525,12 +530,12 @@ def generate_document_pdf(request, document_type, user, admin_user: Optional[obj
     # Title
     width, height = A4
     _set_font(c, "Times-Bold", 18)
-    c.drawCentredString(width / 2, height - 60 * mm, title.upper())
+    c.drawCentredString(width / 2, height - 60 * mm, _safe_text(str(title).upper()))
 
     # Body (formal paragraph with simple wrapping)
     def _wrap(text: str, max_chars: int = 95) -> list[str]:
         lines: list[str] = []
-        for paragraph in (text or '').split('\n'):
+        for paragraph in _safe_text(text).split('\n'):
             p = paragraph.strip()
             while len(p) > max_chars:
                 split_at = p.rfind(' ', 0, max_chars)
@@ -576,7 +581,7 @@ def generate_document_pdf(request, document_type, user, admin_user: Optional[obj
     for line in [opening, "", *(_wrap(paragraph)), *( _wrap(extra) if extra else [] ), "", *(_wrap(issued))]:
         if line is None:
             continue
-        text_obj.textLine(line)
+        text_obj.textLine(_safe_text(line))
     c.drawText(text_obj)
 
     # Signatory block (FOR/BY)
@@ -642,15 +647,15 @@ def generate_document_pdf(request, document_type, user, admin_user: Optional[obj
     if not by_role:
         by_role = 'Municipal Admin' if level != 'barangay' else 'Barangay Admin'
 
-    c.drawString(25 * mm, 42 * mm, f"FOR: {official_name}")
-    c.drawString(25 * mm, 37 * mm, official_title)
-    c.drawString(25 * mm, 30 * mm, f"BY: {by_name}")
-    c.drawString(25 * mm, 25 * mm, by_role)
+    c.drawString(25 * mm, 42 * mm, _safe_text(f"FOR: {official_name}"))
+    c.drawString(25 * mm, 37 * mm, _safe_text(official_title))
+    c.drawString(25 * mm, 30 * mm, _safe_text(f"BY: {by_name}"))
+    c.drawString(25 * mm, 25 * mm, _safe_text(by_role))
 
     # Footer note
     _set_font(c, "Times-Italic", 10)
     footer_text = footer or "This is a digitally issued document. No physical signature required. Generated via MunLink Region III System."
-    c.drawString(25 * mm, 20 * mm, footer_text)
+    c.drawString(25 * mm, 20 * mm, _safe_text(footer_text))
 
     # Optional QR code - generate in memory (no filesystem dependency)
     try:
@@ -669,6 +674,7 @@ def generate_document_pdf(request, document_type, user, admin_user: Optional[obj
 
     c.showPage()
     c.save()
+    pdf_bytes = pdf_buffer.getvalue()
 
     # Check if we should upload to Supabase Storage
     flask_env = current_app.config.get('FLASK_ENV') or os.getenv('FLASK_ENV', 'development')
@@ -678,32 +684,29 @@ def generate_document_pdf(request, document_type, user, admin_user: Optional[obj
         # Upload to Supabase Storage
         try:
             from apps.api.utils.storage_handler import save_generated_document
-            
-            # Read the generated PDF
-            with open(str(pdf_path), 'rb') as f:
-                pdf_bytes = f.read()
-            
-            # Upload to Supabase
-            public_url = save_generated_document(
+
+            stored_ref = save_generated_document(
                 pdf_bytes=pdf_bytes,
                 request_id=request.id,
                 municipality_slug=municipality_slug
             )
-            
-            # Clean up local file
-            try:
-                os.remove(str(pdf_path))
-            except Exception:
-                pass
-            
-            logger.info(f"PDF uploaded to Supabase: {public_url}")
-            return None, public_url
-            
+
+            if stored_ref:
+                logger.info(f"PDF uploaded to storage: {stored_ref}")
+                return None, stored_ref
+             
         except Exception as e:
-            logger.error(f"Failed to upload PDF to Supabase: {e}")
+            logger.error(f"Failed to upload PDF to storage: {e}")
             # Fall through to return local path
-    
-    # Development or fallback: return local path
+
+    # Development or fallback: persist under UPLOAD_FOLDER and return relative path
+    upload_base = Path(current_app.config.get('UPLOAD_FOLDER') or 'uploads')
+    out_dir = upload_base / 'generated_docs' / municipality_slug
+    _ensure_dir(out_dir)
+    pdf_path = out_dir / f"{request.id}.pdf"
+    with open(str(pdf_path), 'wb') as f:
+        f.write(pdf_bytes)
+
     rel_path = os.path.relpath(pdf_path, upload_base)
     # Normalize to POSIX-style for URLs
     rel_posix = rel_path.replace("\\", "/")

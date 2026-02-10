@@ -187,16 +187,20 @@ export default function ProfilePage() {
           })
           .filter(Boolean) as any[]
       }
+
+      // Zambales-first: prefer local static scope map for transfer barangays.
+      const staticBarangays = normalizeBarangays(getBarangaysByMunicipalityId(municipalityId))
+      if (staticBarangays.length > 0) {
+        setTransferBarangays(staticBarangays)
+        return
+      }
+
       try {
         const res = await municipalityApi.getBarangays(municipalityId)
         const apiBarangays = normalizeBarangays((res as any)?.data?.barangays || (res as any)?.barangays || [])
-        if (apiBarangays.length > 0) {
-          setTransferBarangays(apiBarangays)
-          return
-        }
-        setTransferBarangays(normalizeBarangays(getBarangaysByMunicipalityId(municipalityId)))
+        setTransferBarangays(apiBarangays)
       } catch {
-        setTransferBarangays(normalizeBarangays(getBarangaysByMunicipalityId(municipalityId)))
+        setTransferBarangays([])
       }
     }
     loadTransferBarangays()

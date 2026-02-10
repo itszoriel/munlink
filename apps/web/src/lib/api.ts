@@ -430,6 +430,8 @@ export const benefitsApi = {
   getProgram: (id: number) => api.get(`/api/benefits/programs/${id}`),
   createApplication: (data: any) => api.post('/api/benefits/applications', data),
   getMyApplications: () => api.get('/api/benefits/my-applications'),
+  downloadApplicationDocument: (id: number, index: number) =>
+    api.get(`/api/benefits/applications/${id}/documents/${index}`, { responseType: 'blob' }),
   uploadDocs: (id: number, form: FormData) => api.post(`/api/benefits/applications/${id}/upload`, form, { headers: { 'Content-Type': 'multipart/form-data' } }),
   resubmitApplication: (id: number) => api.post(`/api/benefits/applications/${id}/resubmit`),
 }

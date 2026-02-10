@@ -57,6 +57,26 @@ export default function DashboardPage() {
   
   const loading = itemsLoading || txLoading || reqLoading || appsLoading
 
+  const openBenefitDocument = async (applicationId: number, docIndex: number, fallbackPath?: string) => {
+    try {
+      const res: any = await benefitsApi.downloadApplicationDocument(applicationId, docIndex)
+      const blob = res?.data
+      const contentType = String(res?.headers?.['content-type'] || '')
+      if (!(blob instanceof Blob) || contentType.includes('application/json')) {
+        throw new Error('Unable to open document')
+      }
+
+      const objectUrl = URL.createObjectURL(blob)
+      window.open(objectUrl, '_blank', 'noopener,noreferrer')
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
+    } catch {
+      if (fallbackPath) {
+        const legacyUrl = `${(import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:5000'}/uploads/${String(fallbackPath).replace(/^uploads\//, '')}`
+        window.open(legacyUrl, '_blank', 'noopener,noreferrer')
+      }
+    }
+  }
+
   return (
     <div className="container-responsive py-8 md:py-10">
       {/* Header with background image */}
@@ -265,7 +285,14 @@ export default function DashboardPage() {
                   <div className="font-medium mb-1">Uploaded Documents</div>
                   <div className="flex flex-wrap gap-2">
                     {selectedApp.supporting_documents.map((p, i) => (
-                      <a key={i} href={`${(import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:5000'}/uploads/${String(p).replace(/^uploads\//,'')}`} target="_blank" rel="noreferrer" className="text-xs underline text-blue-700">Document {i+1}</a>
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => void openBenefitDocument(selectedApp.id, i, p)}
+                        className="text-xs underline text-blue-700"
+                      >
+                        Document {i + 1}
+                      </button>
                     ))}
                   </div>
                 </div>

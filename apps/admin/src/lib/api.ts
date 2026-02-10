@@ -499,6 +499,8 @@ export const benefitsAdminApi = {
     apiClient.delete(`/api/admin/benefits/programs/${id}`).then((res) => res.data),
   listApplications: (): Promise<ApiResponse<{ applications: any[] }>> =>
     apiClient.get('/api/admin/benefits/applications').then((res) => res.data),
+  downloadApplicationDocumentBlob: (appId: number, index: number) =>
+    apiClient.get(`/api/admin/benefits/applications/${appId}/documents/${index}`, { responseType: 'blob' }),
   updateApplicationStatus: (appId: number, payload: { status: string; rejection_reason?: string }): Promise<ApiResponse> =>
     apiClient.put(`/api/admin/benefits/applications/${appId}/status`, payload).then((res) => res.data),
 }
@@ -639,6 +641,8 @@ export const documentsAdminApi = {
     apiClient.post(`/api/admin/documents/requests/${id}/generate-pdf`).then(res => res.data),
   downloadPdfBlob: (id: number) =>
     apiClient.get(`/api/admin/documents/requests/${id}/download`, { responseType: 'blob' }),
+  downloadSupportingDocumentBlob: (id: number, index: number) =>
+    apiClient.get(`/api/admin/documents/requests/${id}/supporting-documents/${index}`, { responseType: 'blob' }),
   updateStatus: (id: number, status: string, admin_notes?: string, rejection_reason?: string): Promise<ApiResponse<{ request: any }>> =>
     apiClient.put(`/api/admin/documents/requests/${id}/status`, { status, admin_notes, rejection_reason }).then(res => res.data),
   updateContent: (id: number, data: { purpose?: string; remarks?: string; civil_status?: string; age?: number }): Promise<ApiResponse<{ request: any }>> =>
@@ -669,6 +673,8 @@ export const specialStatusAdminApi = {
     apiClient.get('/api/admin/special-statuses', { params }).then(res => res.data),
   getDetail: (id: number): Promise<ApiResponse<any>> =>
     apiClient.get(`/api/admin/special-statuses/${id}`).then(res => res.data),
+  getDocumentBlob: (id: number, docType: 'student_id' | 'cor' | 'pwd_id' | 'senior_id') =>
+    apiClient.get(`/api/admin/special-statuses/${id}/documents/${docType}`, { responseType: 'blob' }),
   approve: (id: number): Promise<ApiResponse<any>> =>
     apiClient.post(`/api/admin/special-statuses/${id}/approve`).then(res => res.data),
   reject: (id: number, reason: string): Promise<ApiResponse<any>> =>

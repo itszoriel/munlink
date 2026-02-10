@@ -190,6 +190,21 @@ class DocumentRequest(db.Model):
     
     def to_dict(self, include_user=False, include_audit=False, include_storage_paths=False):
         """Convert document request to dictionary."""
+        payment_status_norm = (self.payment_status or '').lower()
+        manual_status_norm = (self.manual_payment_status or '').lower()
+        office_status_norm = (self.office_payment_status or '').lower()
+        try:
+            fee_due = float(self.final_fee or 0)
+        except Exception:
+            fee_due = 0.0
+        payment_required = fee_due > 0 and payment_status_norm != 'waived'
+        is_payment_settled = (
+            (not payment_required)
+            or payment_status_norm == 'paid'
+            or bool(self.paid_at)
+            or manual_status_norm == 'approved'
+            or office_status_norm == 'verified'
+        )
         data = {
             'id': self.id,
             'request_number': self.request_number,
@@ -212,6 +227,8 @@ class DocumentRequest(db.Model):
             'payment_intent_id': self.payment_intent_id,
             'paid_at': self.paid_at.isoformat() if self.paid_at else None,
             'payment_method': self.payment_method,
+            'payment_required': payment_required,
+            'is_payment_settled': is_payment_settled,
             'manual_payment_status': self.manual_payment_status,
             # Never expose raw storage paths by default.
             'manual_payment_proof_path': self.manual_payment_proof_path if include_storage_paths else (True if self.manual_payment_proof_path else None),
