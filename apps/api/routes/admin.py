@@ -3117,7 +3117,7 @@ def generate_document_request_pdf(request_id: int):
         except Exception:
             admin_user = None
 
-        abs_path, rel_path = generate_document_pdf(req, doc_type, user, admin_user=admin_user)
+        abs_path, rel_path, pdf_bytes = generate_document_pdf(req, doc_type, user, admin_user=admin_user)
 
         req.document_file = rel_path
         # Retain existing behavior for digital requests: set ready after generation,
@@ -3156,9 +3156,23 @@ def generate_document_request_pdf(request_id: int):
             db.session.rollback()
             current_app.logger.warning("Failed to queue document ready notification: %s", notify_exc)
 
+        # Email the generated PDF to the resident (best-effort)
+        email_sent = False
+        if user and user.email and pdf_bytes:
+            try:
+                from apps.api.utils.email_sender import send_document_ready_email
+                resident_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or 'Resident'
+                doc_name = doc_type.name if hasattr(doc_type, 'name') else 'Document'
+                request_number = req.request_number if hasattr(req, 'request_number') else str(req.id)
+                send_document_ready_email(user.email, resident_name, doc_name, request_number, pdf_bytes)
+                email_sent = True
+            except Exception as email_exc:
+                current_app.logger.warning("Failed to email document to resident %s: %s", user.email, email_exc)
+
         return jsonify({
             'message': 'Document generated',
             'download_endpoint': f"/api/admin/documents/requests/{req.id}/download",
+            'email_sent': email_sent,
             'request': req.to_dict()
         }), 200
     except Exception as e:
@@ -3407,13 +3421,24 @@ def regenerate_document_pdf(request_id: int):
         # Regenerate PDF
         from apps.api.utils.pdf_generator import generate_document_pdf
         
-        _, new_pdf_url = generate_document_pdf(req, doc_type, user, admin_user)
-        
+        _, new_pdf_url, pdf_bytes = generate_document_pdf(req, doc_type, user, admin_user)
+
         # Update database
         req.document_file = new_pdf_url
         req.updated_at = utc_now()
         db.session.commit()
-        
+
+        # Email the regenerated PDF to the resident (best-effort)
+        if user and user.email and pdf_bytes:
+            try:
+                from apps.api.utils.email_sender import send_document_ready_email
+                resident_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or 'Resident'
+                doc_name = doc_type.name if hasattr(doc_type, 'name') else 'Document'
+                request_number = req.request_number if hasattr(req, 'request_number') else str(req.id)
+                send_document_ready_email(user.email, resident_name, doc_name, request_number, pdf_bytes)
+            except Exception as email_exc:
+                current_app.logger.warning("Failed to email regenerated document to %s: %s", user.email, email_exc)
+
         # Audit log
         try:
             log_generic_action(
@@ -3601,15 +3626,14 @@ def update_document_request_status(request_id: int):
         req.updated_at = now
         db.session.commit()
 
-        # Generate office payment code for pickup requests with fees (best-effort)
+        # Generate verification code for ALL pickup requests (free or paid) (best-effort)
         if new_status in {'approved', 'barangay_approved'}:
             try:
-                # Check if this is a pickup request with a fee that needs office payment
+                # Check if this is a pickup request that needs a verification code
                 is_pickup = (req.delivery_method or '').lower() in {'physical', 'pickup'}
-                has_fee = float(req.final_fee or 0) > 0
                 no_code_yet = not req.office_payment_code_hash
 
-                if is_pickup and has_fee and no_code_yet:
+                if is_pickup and no_code_yet:
                     # Generate and hash the payment code
                     payment_code = generate_office_payment_code()
                     code_hash = hash_office_payment_code(payment_code)
@@ -3628,7 +3652,7 @@ def update_document_request_status(request_id: int):
                             first_name=user.first_name or user.username,
                             request_number=req.request_number,
                             code=payment_code,
-                            amount=float(req.final_fee),
+                            amount=float(req.final_fee or 0),
                             pickup_location=pickup_location
                         ))
                     req.office_payment_status = 'code_sent' if email_sent else 'not_started'

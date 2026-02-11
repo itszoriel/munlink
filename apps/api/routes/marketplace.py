@@ -692,13 +692,17 @@ def reject_transaction(transaction_id):
     """Reject a pending transaction request (seller only). Keeps item available for others."""
     try:
         user_id = get_jwt_identity()
+        try:
+            uid = int(user_id) if isinstance(user_id, str) else user_id
+        except Exception:
+            uid = user_id
         transaction = db.session.get(Transaction, transaction_id)
 
         if not transaction:
             return jsonify({'error': 'Transaction not found'}), 404
 
         # Only seller can reject
-        if transaction.seller_id != user_id:
+        if transaction.seller_id != uid:
             return jsonify({'error': 'Only the seller can reject this transaction'}), 403
 
         if transaction.status != 'pending' and transaction.status != 'awaiting_buyer':
@@ -736,6 +740,21 @@ def get_my_transactions():
         except Exception:
             uid = user_id
 
+        def _enrich_tx(tx, perspective):
+            """Add item details and other party name to transaction dict."""
+            d = tx.to_dict()
+            item = db.session.get(Item, tx.item_id)
+            if item:
+                d['item_title'] = item.title
+                d['item_image'] = (item.images or [None])[0]
+            other_id = tx.buyer_id if perspective == 'seller' else tx.seller_id
+            other = db.session.get(User, other_id)
+            if other:
+                d['other_party_name'] = (
+                    f"{other.first_name or ''} {other.last_name or ''}".strip()
+                ) or other.username
+            return d
+
         as_buyer = (
             Transaction.query
             .filter_by(buyer_id=uid)
@@ -748,10 +767,10 @@ def get_my_transactions():
             .order_by(Transaction.created_at.desc())
             .all()
         )
-        
+
         return jsonify({
-            'as_buyer': [t.to_dict() for t in as_buyer],
-            'as_seller': [t.to_dict() for t in as_seller]
+            'as_buyer': [_enrich_tx(t, 'buyer') for t in as_buyer],
+            'as_seller': [_enrich_tx(t, 'seller') for t in as_seller]
         }), 200
     except (sqlite3.OperationalError, SAOperationalError, SAProgrammingError):
         return jsonify({'as_buyer': [], 'as_seller': []}), 200

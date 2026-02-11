@@ -108,7 +108,11 @@ ISSUE_CATEGORIES = [
     'infrastructure',
     'public_safety',
     'environmental',
-    'administrative'
+    'administrative',
+    'health_sanitation',
+    'community_social',
+    'utilities_services',
+    'other',
 ]
 
 # Urgency Levels

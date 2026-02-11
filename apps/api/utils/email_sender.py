@@ -346,6 +346,39 @@ def send_document_request_status_email(to_email: str, doc_name: str, requested_a
     send_generic_email(to_email, subject, body)
 
 
+def send_document_ready_email(to_email: str, resident_name: str, doc_name: str, request_number: str, pdf_data: bytes) -> None:
+    """Send generated document PDF to resident's email.
+
+    Args:
+        to_email: Resident's email address
+        resident_name: Resident's full name
+        doc_name: Name of the document (e.g. "Barangay Clearance")
+        request_number: The document request tracking number
+        pdf_data: Raw PDF bytes to attach
+    """
+    app = current_app
+    app_name = app.config.get('APP_NAME', 'MunLink Zambales')
+
+    subject = f"{app_name}: Your {doc_name} is Ready"
+    body = (
+        f"Dear {resident_name},\n\n"
+        f"Your requested document is now ready and attached to this email as a PDF.\n\n"
+        f"Document: {doc_name}\n"
+        f"Request Number: {request_number}\n\n"
+        f"You may also download it from your MunLink account.\n\n"
+        f"Thank you,\n{app_name} Team"
+    )
+
+    attachment_name = f"{request_number}.pdf"
+
+    try:
+        _send_email(to_email, subject, body, pdf_data, attachment_name)
+        current_app.logger.info(f"Document ready email sent to {to_email} for request {request_number}")
+    except Exception as e:
+        current_app.logger.warning(f"Failed to send document ready email to {to_email}: {e}")
+        raise
+
+
 def send_admin_welcome_email(to_email: str, admin_name: str, role: str) -> None:
     """Send welcome email to newly created admin with terms and privacy policy PDF.
 

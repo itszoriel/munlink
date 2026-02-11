@@ -28,10 +28,11 @@ def test_generate_document_pdf(tmp_path):
     with app.app_context():
         from apps.api.utils.pdf_generator import generate_document_pdf
 
-        abs_path, rel_path = generate_document_pdf(request_obj, document_type, user)
+        abs_path, rel_path, pdf_bytes = generate_document_pdf(request_obj, document_type, user)
 
         assert os.path.exists(abs_path)
         assert str(abs_path).endswith('.pdf')
         assert isinstance(rel_path, str) and rel_path.endswith('.pdf')
+        assert isinstance(pdf_bytes, bytes) and len(pdf_bytes) > 0
 
 

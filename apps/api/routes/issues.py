@@ -30,7 +30,11 @@ issues_bp = Blueprint('issues', __name__, url_prefix='/api/issues')
 def list_categories():
     """Public list of active issue categories."""
     try:
-        cats = IssueCategory.query.filter_by(is_active=True).all()
+        cats = IssueCategory.query.filter_by(is_active=True).order_by(
+            # Push "Other" to the end so it always appears last
+            db.case((IssueCategory.slug == 'other', 1), else_=0),
+            IssueCategory.name,
+        ).all()
         return jsonify({'categories': [c.to_dict() for c in cats], 'count': len(cats)}), 200
     except Exception as e:
         return jsonify({'error': 'Failed to get categories', 'details': str(e)}), 500

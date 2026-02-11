@@ -69,7 +69,44 @@ def send_office_payment_code_email(
         True if email sent successfully, False otherwise
     """
     platform_name = current_app.config.get('APP_NAME', 'MunLink Zambales')
-    subject = f"{platform_name}: Office Payment Code for {request_number}"
+    is_free = amount <= 0
+
+    if is_free:
+        subject = f"{platform_name}: Pickup Verification Code for {request_number}"
+        code_label = "Your Pickup Verification Code:"
+        header_subtitle = "Document Pickup Verification Code"
+        amount_line = '<span class="info-value" style="color: #059669; font-weight: bold;">Free - No payment required</span>'
+        amount_text = "Free - No payment required"
+        instructions_title = "Pickup Instructions:"
+        instructions_html = f"""
+                <ol>
+                    <li>Visit the office at the pickup location shown above</li>
+                    <li>Bring this verification code: <strong>{code}</strong></li>
+                    <li>Staff will verify your code and release your document</li>
+                </ol>"""
+        instructions_text = f"""1. Visit the office at the pickup location shown above
+2. Bring this verification code: {code}
+3. Staff will verify your code and release your document"""
+    else:
+        subject = f"{platform_name}: Office Payment Code for {request_number}"
+        code_label = "Your Payment Verification Code:"
+        header_subtitle = "Office Payment Verification Code"
+        amount_line = f'<span class="info-value">PHP {amount:.2f}</span>'
+        amount_text = f"PHP {amount:.2f}"
+        instructions_title = "Payment Instructions:"
+        instructions_html = f"""
+                <ol>
+                    <li>Visit the office at the pickup location shown above</li>
+                    <li>Bring this verification code: <strong>{code}</strong></li>
+                    <li>Pay the amount: <strong>PHP {amount:.2f}</strong></li>
+                    <li>Staff will verify your code and process the payment</li>
+                    <li>Collect your document after payment is confirmed</li>
+                </ol>"""
+        instructions_text = f"""1. Visit the office at the pickup location shown above
+2. Bring this verification code: {code}
+3. Pay the amount: PHP {amount:.2f}
+4. Staff will verify your code and process the payment
+5. Collect your document after payment is confirmed"""
 
     html_content = f"""
 <!DOCTYPE html>
@@ -148,7 +185,7 @@ def send_office_payment_code_email(
     <div class="container">
         <div class="header">
             <h2 style="margin: 0;">{platform_name}</h2>
-            <p style="margin: 5px 0 0 0;">Office Payment Verification Code</p>
+            <p style="margin: 5px 0 0 0;">{header_subtitle}</p>
         </div>
         <div class="content">
             <p>Hello {first_name},</p>
@@ -156,7 +193,7 @@ def send_office_payment_code_email(
             <p>Your document request <strong>{request_number}</strong> has been approved!</p>
 
             <div class="code-box">
-                <p style="margin: 0 0 10px 0; font-size: 14px; color: #92400e;">Your Payment Verification Code:</p>
+                <p style="margin: 0 0 10px 0; font-size: 14px; color: #92400e;">{code_label}</p>
                 <div class="code">{code}</div>
                 <p style="margin: 10px 0 0 0; font-size: 12px; color: #92400e;">Keep this code safe and bring it when you visit the office.</p>
             </div>
@@ -167,8 +204,8 @@ def send_office_payment_code_email(
                     <span class="info-value">{request_number}</span>
                 </div>
                 <div style="margin-bottom: 10px;">
-                    <span class="info-label">Amount to Pay:</span>
-                    <span class="info-value">PHP {amount:.2f}</span>
+                    <span class="info-label">Fee:</span>
+                    {amount_line}
                 </div>
                 <div>
                     <span class="info-label">Pickup Location:</span>
@@ -177,18 +214,12 @@ def send_office_payment_code_email(
             </div>
 
             <div class="instructions">
-                <p style="margin-top: 0; font-weight: bold;">Payment Instructions:</p>
-                <ol>
-                    <li>Visit the office at the pickup location shown above</li>
-                    <li>Bring this verification code: <strong>{code}</strong></li>
-                    <li>Pay the amount: <strong>PHP {amount:.2f}</strong></li>
-                    <li>Staff will verify your code and process the payment</li>
-                    <li>Collect your document after payment is confirmed</li>
-                </ol>
+                <p style="margin-top: 0; font-weight: bold;">{instructions_title}</p>
+                {instructions_html}
             </div>
 
             <p style="margin-top: 20px; font-size: 14px; color: #6b7280;">
-                <strong>Important:</strong> This code is valid for this transaction only. Do not share it with anyone except the office staff when making your payment.
+                <strong>Important:</strong> This code is valid for this transaction only. Do not share it with anyone except the office staff when claiming your document.
             </p>
         </div>
         <div class="footer">
@@ -201,26 +232,22 @@ def send_office_payment_code_email(
 """
 
     text_content = f"""
-{platform_name} - Office Payment Verification Code
+{platform_name} - {header_subtitle}
 
 Hello {first_name},
 
 Your document request {request_number} has been approved!
 
-YOUR PAYMENT VERIFICATION CODE: {code}
+YOUR VERIFICATION CODE: {code}
 
 Request Number: {request_number}
-Amount to Pay: PHP {amount:.2f}
+Fee: {amount_text}
 Pickup Location: {pickup_location}
 
-PAYMENT INSTRUCTIONS:
-1. Visit the office at the pickup location shown above
-2. Bring this verification code: {code}
-3. Pay the amount: PHP {amount:.2f}
-4. Staff will verify your code and process the payment
-5. Collect your document after payment is confirmed
+{instructions_title.upper()}
+{instructions_text}
 
-IMPORTANT: This code is valid for this transaction only. Do not share it with anyone except the office staff when making your payment.
+IMPORTANT: This code is valid for this transaction only. Do not share it with anyone except the office staff when claiming your document.
 
 ---
 This is an automated message from {platform_name}.

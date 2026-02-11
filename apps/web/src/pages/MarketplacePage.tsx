@@ -484,7 +484,7 @@ export default function MarketplacePage() {
                       }
                     }
                     setOpen(false)
-                    showToast('Submitted for admin review. Your listing will appear once approved.', 'success')
+                    showToast('Your listing is now live!', 'success')
                     invalidate()
                     refetch()
                     setFiles([])

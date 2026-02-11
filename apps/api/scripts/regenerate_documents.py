@@ -121,7 +121,7 @@ def regenerate_pdf(request_obj, document_type, user, admin_user, dry_run: bool =
         return None
     
     try:
-        _, url_or_path = generate_document_pdf(request_obj, document_type, user, admin_user)
+        _, url_or_path, _ = generate_document_pdf(request_obj, document_type, user, admin_user)
         print(f"    ✓ PDF regenerated: {url_or_path[:60]}...")
         return url_or_path
     except Exception as e:

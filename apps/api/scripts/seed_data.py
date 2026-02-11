@@ -171,6 +171,26 @@ ISSUE_CATEGORY_META = {
         'description': 'Government services and administrative issues.',
         'icon': 'file-text',
     },
+    'health_sanitation': {
+        'name': 'Health & Sanitation',
+        'description': 'Health hazards, sanitation issues, and disease-related concerns.',
+        'icon': 'heart-pulse',
+    },
+    'community_social': {
+        'name': 'Community & Social',
+        'description': 'Neighbor disputes, noise complaints, and community concerns.',
+        'icon': 'users',
+    },
+    'utilities_services': {
+        'name': 'Utilities & Services',
+        'description': 'Water, electricity, internet, and public service disruptions.',
+        'icon': 'zap',
+    },
+    'other': {
+        'name': 'Other',
+        'description': 'Issues that do not fit into the other categories.',
+        'icon': 'help-circle',
+    },
 }
 
 # Issue categories used by seed_issue_categories()

@@ -415,9 +415,9 @@ def _set_font(c: canvas.Canvas, name: str, size: int):
 
 
 
-def generate_document_pdf(request, document_type, user, admin_user: Optional[object] = None) -> Tuple[Path, str]:
+def generate_document_pdf(request, document_type, user, admin_user: Optional[object] = None) -> Tuple[Optional[Path], str, bytes]:
     """
-    Generate a PDF for a document request and return (absolute_path, relative_path_from_upload_folder).
+    Generate a PDF for a document request and return (absolute_path_or_none, relative_path_or_storage_ref, pdf_bytes).
     """
     # Resolve basics
     municipality_obj = getattr(request, 'municipality', None)
@@ -472,11 +472,10 @@ def generate_document_pdf(request, document_type, user, admin_user: Optional[obj
     
     # Debug logging
     try:
-        print(f"[PDF DEBUG] doc_code='{code}' | variants={code_variants} | spec_found={spec is not None and spec != doc_types.get('generic')} | title={spec.get('title')}")
         if getattr(current_app, 'logger', None):
             current_app.logger.debug(f"PDF: doc_code={code} spec_found={spec is not None and spec != doc_types.get('generic')} title={spec.get('title')}")
-    except Exception as e:
-        print(f"[PDF DEBUG ERROR] {e}")
+    except Exception:
+        pass
 
     # Derive effective content with precedence: admin_edited_content -> original columns -> resident_input
     import json as _json
@@ -741,7 +740,7 @@ def generate_document_pdf(request, document_type, user, admin_user: Optional[obj
 
             if stored_ref:
                 logger.info(f"PDF uploaded to storage: {stored_ref}")
-                return None, stored_ref
+                return None, stored_ref, pdf_bytes
              
         except Exception as e:
             logger.exception(f"Failed to upload PDF to storage: {e}")
@@ -758,7 +757,7 @@ def generate_document_pdf(request, document_type, user, admin_user: Optional[obj
     rel_path = os.path.relpath(pdf_path, upload_base)
     # Normalize to POSIX-style for URLs
     rel_posix = rel_path.replace("\\", "/")
-    return pdf_path, rel_posix
+    return pdf_path, rel_posix, pdf_bytes
 
 
 def generate_admin_terms_pdf() -> bytes:

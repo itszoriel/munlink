@@ -1,7 +1,7 @@
 import { StatusBadge, getBestRegion3Seal } from '@munlink/ui'
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, MapPin, QrCode, Clock, Copy, Check } from 'lucide-react'
 import { documentsApi } from '@/lib/api'
 import PaymentForm from '@/components/PaymentForm'
 import { useAppStore } from '@/lib/store'
@@ -11,6 +11,9 @@ export default function DocumentRequestPage() {
   const [loading, setLoading] = useState(true)
   const [req, setReq] = useState<any>(null)
   const [downloadingDoc, setDownloadingDoc] = useState(false)
+  const [claimTicket, setClaimTicket] = useState<any>(null)
+  const [claimLoading, setClaimLoading] = useState(false)
+  const [codeCopied, setCodeCopied] = useState(false)
   const selectedProvince = useAppStore((s) => s.selectedProvince)
   const selectedMunicipality = useAppStore((s) => s.selectedMunicipality)
   const user = useAppStore((s) => s.user)
@@ -63,6 +66,36 @@ export default function DocumentRequestPage() {
     }
   }, [req?.status, id])
 
+  // Fetch claim ticket for pickup requests that are ready
+  const isPickup = req && (req.delivery_method || '').toLowerCase() !== 'digital'
+  const hasClaimTicket = isPickup && req.has_qr_code && ['ready', 'picked_up', 'completed'].includes((req.status || '').toLowerCase())
+
+  useEffect(() => {
+    if (!hasClaimTicket || !id) return
+    let cancelled = false
+    const fetchTicket = async () => {
+      setClaimLoading(true)
+      try {
+        const res = await documentsApi.getClaimTicket(Number(id), { reveal: '1' })
+        if (!cancelled) setClaimTicket(res.data)
+      } catch {
+        if (!cancelled) setClaimTicket(null)
+      } finally {
+        if (!cancelled) setClaimLoading(false)
+      }
+    }
+    fetchTicket()
+    return () => { cancelled = true }
+  }, [hasClaimTicket, id])
+
+  const handleCopyCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code)
+      setCodeCopied(true)
+      setTimeout(() => setCodeCopied(false), 2000)
+    } catch { /* ignore */ }
+  }
+
   const isDigital = (req?.delivery_method || '').toLowerCase() === 'digital'
   const finalFee = Number(req?.final_fee || 0)
   const originalFee = Number(req?.original_fee || finalFee || 0)
@@ -74,14 +107,42 @@ export default function DocumentRequestPage() {
 
   const handleDownloadDocument = async () => {
     if (!req?.id) return
+    let previewWindow: Window | null = null
     try {
       setDownloadingDoc(true)
+      // Open immediately on user gesture to avoid popup blockers after async network call.
+      previewWindow = window.open('', '_blank', 'noopener,noreferrer')
       const res: any = await documentsApi.downloadDocument(Number(req.id))
       const blob = res?.data
-      if (!blob) return
+      if (!blob) throw new Error('Document file is empty')
+
+      const blobType = String((blob as Blob).type || '').toLowerCase()
+      if (blobType.includes('application/json') || blobType.includes('text/json')) {
+        const raw = await (blob as Blob).text()
+        let message = 'Failed to open document'
+        try {
+          const parsed = JSON.parse(raw)
+          message = parsed?.error || parsed?.details || parsed?.msg || message
+        } catch {
+          if (raw) message = raw
+        }
+        throw new Error(message)
+      }
+
       const objectUrl = URL.createObjectURL(blob)
-      window.open(objectUrl, '_blank', 'noopener,noreferrer')
+      if (previewWindow && !previewWindow.closed) {
+        previewWindow.location.href = objectUrl
+      } else {
+        // Fallback when popup is blocked: navigate current tab.
+        window.location.assign(objectUrl)
+      }
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
+    } catch (error: any) {
+      if (previewWindow && !previewWindow.closed) {
+        try { previewWindow.close() } catch { }
+      }
+      const message = error?.message || 'Failed to open document'
+      window.alert(message)
     } finally {
       setDownloadingDoc(false)
     }
@@ -199,9 +260,106 @@ export default function DocumentRequestPage() {
               )}
             </div>
           )}
-          {req.status === 'processing' && (
+          {!isDigital && req.office_payment_status && (
+            <div className="mt-4 rounded-lg border p-4">
+              <div className="text-sm font-medium mb-2">{finalFee > 0 ? 'Office Payment' : 'Pickup Verification'}</div>
+              {req.office_payment_status === 'verified' ? (
+                <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">
+                  {finalFee > 0 ? 'Payment' : 'Identity'} verified{req.office_payment_verified_at ? ` on ${new Date(req.office_payment_verified_at).toLocaleDateString()}` : ''}
+                </div>
+              ) : req.office_payment_status === 'code_sent' ? (
+                <div className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded px-3 py-2">
+                  {finalFee > 0
+                    ? `A payment code has been sent to your email. Present it at ${req.delivery_address || 'the office'} to pay PHP ${Number(finalFee).toFixed(2)}.`
+                    : `A verification code has been sent to your email. Present it at ${req.delivery_address || 'the office'} to claim your document.`}
+                </div>
+              ) : (
+                <div className="text-sm text-gray-600">
+                  {finalFee > 0 ? 'Payment instructions will be sent after approval.' : 'A verification code will be sent after approval.'}
+                </div>
+              )}
+            </div>
+          )}
+          {req.status === 'processing' && isDigital && (
             <div className="mt-4 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-lg p-3">
               Your digital document is being generated. This page will refresh automatically.
+            </div>
+          )}
+          {req.status === 'processing' && !isDigital && (
+            <div className="mt-4 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-lg p-3">
+              Your document is being prepared. You will be notified when it is ready for pickup.
+            </div>
+          )}
+          {hasClaimTicket && (
+            <div className="mt-6 rounded-xl border-2 border-green-200 bg-green-50 p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <QrCode className="w-5 h-5 text-green-700" />
+                <h3 className="text-lg font-semibold text-green-800">Claim Ticket</h3>
+              </div>
+              <p className="text-sm text-green-700 mb-4">
+                Present this ticket at {req.delivery_address || 'the office'} to claim your document.
+              </p>
+              {claimLoading ? (
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <div className="h-4 w-4 border-2 border-gray-300 border-t-green-600 rounded-full animate-spin" />
+                  Loading claim ticket...
+                </div>
+              ) : claimTicket ? (
+                <div className="space-y-4">
+                  {claimTicket.qr_url && (
+                    <div className="flex flex-col items-center">
+                      <img
+                        src={`${claimTicket.qr_url}`}
+                        alt="Claim QR Code"
+                        className="w-48 h-48 rounded-lg border bg-white p-2"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Show this QR code to the staff</p>
+                    </div>
+                  )}
+                  {(claimTicket.code_plain || claimTicket.code_masked) && (
+                    <div className="flex items-center justify-center gap-2">
+                      <span className="text-sm text-gray-600">Claim Code:</span>
+                      <span className="font-mono text-lg font-bold tracking-wider text-gray-900 bg-white border rounded-lg px-3 py-1">
+                        {claimTicket.code_plain || claimTicket.code_masked}
+                      </span>
+                      {claimTicket.code_plain && (
+                        <button
+                          onClick={() => handleCopyCode(claimTicket.code_plain)}
+                          className="p-1.5 rounded-md hover:bg-green-100 text-green-700 transition-colors"
+                          title="Copy code"
+                        >
+                          {codeCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {(claimTicket.window_start || claimTicket.window_end) && (
+                    <div className="flex items-center justify-center gap-2 text-sm text-gray-600">
+                      <Clock className="w-4 h-4" />
+                      <span>
+                        {claimTicket.window_start && claimTicket.window_end
+                          ? `${claimTicket.window_start} - ${claimTicket.window_end}`
+                          : claimTicket.window_start || claimTicket.window_end}
+                      </span>
+                    </div>
+                  )}
+                  {req.delivery_address && (
+                    <div className="flex items-center justify-center gap-2 text-sm text-gray-600">
+                      <MapPin className="w-4 h-4" />
+                      <span>{req.delivery_address}</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">
+                  Your claim ticket will appear here once the admin generates it.
+                </p>
+              )}
+            </div>
+          )}
+          {!isDigital && ['ready', 'picked_up'].includes((req.status || '').toLowerCase()) && !req.has_qr_code && (
+            <div className="mt-4 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+              Your document is ready for pickup. A claim ticket has not been generated yet -- you may still proceed to {req.delivery_address || 'the office'} to collect your document.
             </div>
           )}
           {req.status === 'rejected' && (req.rejection_reason || req.admin_notes) && (
@@ -229,5 +387,3 @@ export default function DocumentRequestPage() {
     </div>
   )
 }
-
-

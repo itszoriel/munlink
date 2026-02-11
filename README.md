@@ -226,8 +226,8 @@ The project is configured for Railway deployment with three services:
 ## Features
 
 ### Residents
-- **Document requests**: Request official documents with QR code verification and claim ticket generation
-- **Marketplace**: Buy, sell, donate, or lend items with age-gated transactions; resident listings publish immediately (no admin pre-approval)
+- **Document requests**: Request official documents with QR code verification and claim ticket generation; generated digital documents are automatically emailed to the resident as PDF attachments; all pickup requests (free and paid) receive a verification code via email for identity verification at the office, with office payment status tracking
+- **Marketplace**: Buy, sell, donate, or lend items with age-gated transactions; resident listings publish immediately (no admin pre-approval); transaction cards show item details, other party name, and a visual step-by-step progress indicator through the full lifecycle (pending, pickup scheduling, handover, receipt, completion)
 - **Problem reporting**: Report municipal issues with status tracking and admin triage
 - **Benefit programs**: Apply for municipal benefit programs with eligibility checking
 - **Announcements**: View province-wide, municipal, and barangay announcements with image support
@@ -236,7 +236,7 @@ The project is configured for Railway deployment with three services:
 
 ### Admins (Municipal/Barangay)
 - **Resident verification**: Review and approve/reject resident registrations with privacy-hardened ID viewing (watermarked display, audit logging, permission-based access). ID images are fetched server-side and returned as blob data to prevent CORS issues and avoid exposing storage URLs
-- **Document processing**: Generate PDFs with QR codes, create claim tickets, validate QR codes at claim time
+- **Document processing**: Generate PDFs with QR codes, create claim tickets, validate QR codes at claim time; PDF generation automatically emails the document to the resident (best-effort, non-blocking)
 - **Payment verification**: Review manual QR proofs for digital requests and verify office payment codes for pickup requests before release
 - **Marketplace moderation**: Monitor and moderate live marketplace listings (resident posts publish immediately)
 - **Problem triage**: Review and categorize problem reports, update status and resolution
